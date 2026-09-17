@@ -1,0 +1,143 @@
+# ==========================================
+# FRONTEND — React
+# ==========================================
+
+# Dependencies
+frontend/node_modules/
+
+# Production builds
+frontend/dist/
+frontend/build/
+
+# Vite
+frontend/.vite/
+
+# Cache
+frontend/.cache/
+frontend/.eslintcache
+
+# Test coverage
+frontend/coverage/
+
+# Environment variables
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# Keep environment example
+!frontend/.env.example
+
+
+# ==========================================
+# BACKEND — Python
+# ==========================================
+
+# Python bytecode
+backend/__pycache__/
+backend/**/*.py[cod]
+backend/*$py.class
+
+# Virtual environments
+backend/venv/
+backend/.venv/
+backend/env/
+backend/.env/
+
+# Python package/build files
+backend/build/
+backend/dist/
+backend/*.egg-info/
+backend/.eggs/
+
+# Pytest
+backend/.pytest_cache/
+
+# Coverage
+backend/.coverage
+backend/.coverage.*
+backend/htmlcov/
+
+# Type checking
+backend/.mypy_cache/
+backend/.pyright/
+
+# Ruff
+backend/.ruff_cache/
+
+# Jupyter
+backend/.ipynb_checkpoints/
+
+# Environment variables
+backend/.env
+backend/.env.local
+
+# Keep environment example
+!backend/.env.example
+
+
+# ==========================================
+# ROOT ENVIRONMENT FILES
+# ==========================================
+
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+
+# Keep environment example
+!.env.example
+
+
+# ==========================================
+# IDE
+# ==========================================
+
+.idea/
+.vscode/
+
+# VS Code — uncomment if you want to keep
+# shared workspace settings in Git:
+# !.vscode/
+# .vscode/*
+# !.vscode/settings.json
+# !.vscode/extensions.json
+
+
+# ==========================================
+# OPERATING SYSTEM
+# ==========================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+
+# ==========================================
+# LOGS
+# ==========================================
+
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+
+# ==========================================
+# TEMPORARY FILES
+# ==========================================
+
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
