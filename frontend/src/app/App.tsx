@@ -1,6 +1,6 @@
-import type { FC } from "react"
-import AppRouter from "@/app/providers/router/ui/app-router.tsx"
+import type { FC } from "react";
+import { AppRouter } from "@/app/providers/router";
 
-const App: FC = () => <AppRouter />
+const App: FC = () => <AppRouter />;
 
-export default App
+export default App;

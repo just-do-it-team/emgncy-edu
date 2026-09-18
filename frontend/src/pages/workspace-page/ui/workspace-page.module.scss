@@ -1,0 +1,358 @@
+.page {
+  min-height: 100vh;
+  min-height: 100svh;
+  background: #859198;
+  color: #d1dce3;
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+}
+
+.header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 398px;
+  min-height: 120px;
+}
+
+.searchPanel {
+  min-width: 0;
+  padding: 15px 16px 25px 15px;
+  background: #ececec;
+  color: #000;
+}
+
+.page .searchInput {
+  height: 48px;
+  min-height: 0;
+  padding-left: 0;
+  padding-right: 42px;
+  border: 0;
+  border-bottom: 1px solid #000;
+  border-radius: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 32px;
+  color: #000;
+
+  &::placeholder {
+    color: #000;
+    opacity: 1;
+  }
+}
+
+.page .searchIcon {
+  color: #303536;
+}
+
+.searchActions {
+  margin-top: 6px;
+}
+
+.page .advancedSearch,
+.page .reset {
+  height: 26px;
+  padding: 0;
+  border-radius: 0;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.page .advancedSearch {
+  color: #000;
+  background: transparent;
+
+  [data-position="right"] {
+    margin-left: 3px;
+  }
+}
+
+.page .reset {
+  padding: 0 9px;
+  border-color: #657078;
+  background: transparent;
+  color: #7e8d98;
+}
+
+.accountPanel {
+  background: #2e363c;
+  color: #fff;
+}
+
+.accountTop {
+  position: relative;
+  height: 80px;
+  padding: 16px 8px;
+  border-bottom: 1px solid #687780;
+}
+
+.date {
+  display: block;
+  width: 216px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 20px;
+}
+
+.clock {
+  position: absolute;
+  top: 7px;
+  right: 5px;
+  display: flex;
+  align-items: flex-start;
+  font-size: 52px;
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.seconds {
+  padding-top: 2px;
+  font-size: 18px;
+  font-weight: 400;
+}
+
+.accountActions {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.page .accountIcon {
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  color: #fff;
+}
+
+.content {
+  padding: 14px 23px 40px 15px;
+}
+
+.listToolbar {
+  min-height: 30px;
+  margin-bottom: 2px;
+  padding-left: 29px;
+  gap: 12px;
+}
+
+.page .listTitle {
+  margin: 0;
+  color: #fff;
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 24px;
+}
+
+.page .toolbarIcon {
+  color: #fff;
+}
+
+.page .notifications,
+.page .displayOptions,
+.page .paginationButton,
+.page .sortButton {
+  height: 28px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #d1dce3;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.page .displayOptions {
+  width: 202px;
+  padding: 0 8px;
+  border: 1px solid #d1dce3;
+
+  > span {
+    justify-content: space-between;
+  }
+}
+
+.page .sortButton [data-position="right"] {
+  margin-left: 5px;
+}
+
+.page .table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  color: #d1dce3;
+  font-size: 12px;
+
+  th {
+    height: 37px;
+    padding: 0 2px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 400;
+    white-space: nowrap;
+  }
+
+  td {
+    height: 31px;
+    padding: 0 3px;
+    text-align: center;
+    overflow-wrap: anywhere;
+  }
+
+  .leftAligned {
+    text-align: left;
+  }
+
+  .serviceStatus {
+    padding-left: 8px;
+    text-align: left;
+  }
+}
+
+.incidentRow {
+  background: #47555e;
+
+  td + td {
+    border-left: 1px solid #859198;
+  }
+
+  svg {
+    vertical-align: middle;
+  }
+}
+
+.page .rowIcon {
+  color: #d1dce3;
+}
+
+.page .phoneIcon {
+  flex-shrink: 0;
+  color: #ff512b;
+}
+
+.operator {
+  background: #673f58;
+}
+
+.darkCell,
+.incidentTime {
+  background: #2e363c;
+}
+
+.page .incidentTime {
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  white-space: nowrap;
+
+  sup {
+    font-size: 10px;
+    font-weight: 400;
+  }
+}
+
+.page .descriptionRow td {
+  height: 30px;
+  padding: 0;
+  border-top: 1px solid #859198;
+  background: #47555e;
+  text-align: left;
+  line-height: 20px;
+}
+
+.page .descriptionButton {
+  display: block;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
+  color: inherit;
+  font: inherit;
+  line-height: 20px;
+  text-align: left;
+
+  &:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: -2px;
+  }
+}
+
+.page .descriptionRow + .incidentRow td {
+  height: 41px;
+  border-top: 10px solid #859198;
+}
+
+.page .typeCell {
+  padding-left: 6px;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.addressText {
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.descriptionLabel {
+  margin-right: 28px;
+}
+
+.descriptionMeta {
+  color: #bccbd5;
+}
+
+.descriptionText {
+  color: #fff;
+  font-size: 14px;
+}
+
+.pagination {
+  margin-top: 17px;
+  gap: 12px;
+}
+
+.count {
+  color: #fff;
+}
+
+@media (max-width: 900px) {
+  .header {
+    grid-template-columns: 1fr;
+  }
+
+  .accountPanel {
+    grid-row: 1;
+  }
+
+  .accountTop {
+    height: 80px;
+  }
+
+  .listToolbar {
+    padding-left: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .page .searchInput {
+    font-size: 24px;
+  }
+
+  .date {
+    width: calc(100% - 142px);
+    font-size: 12px;
+  }
+
+  .clock {
+    top: 10px;
+    font-size: 40px;
+  }
+
+  .seconds {
+    font-size: 14px;
+  }
+
+  .content {
+    padding-right: 15px;
+  }
+}

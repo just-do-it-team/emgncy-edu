@@ -1,6 +1,7 @@
 import axios, { AxiosError } from "axios";
 import { SERVER_URL } from "@/app/config";
 import Endpoints from "@/shared/api/endpoints.ts";
+import { useAuthStore } from "@/shared/model/auth";
 
 export const api = axios.create({
   baseURL: SERVER_URL,
@@ -12,13 +13,10 @@ api.interceptors.response.use(
   (error: AxiosError) => {
     if (
       error.response?.status === 401 &&
-      localStorage.getItem("auth_status") &&
+      useAuthStore.getState().role &&
       error.config?.url !== Endpoints.AUTH.LOGOUT
     ) {
-      localStorage.removeItem("auth_status");
-      localStorage.removeItem("role");
-
-      window.location.reload();
+      useAuthStore.getState().logout();
     }
 
     throw error;
