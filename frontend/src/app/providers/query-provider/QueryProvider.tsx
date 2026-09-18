@@ -4,7 +4,7 @@ import {
   QueryClient,
   QueryClientProvider,
 } from "@tanstack/react-query";
-import { handleApiError } from "@/shared/config/apiErrorHandler";
+import { handleApiError } from "@/shared/api";
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({

@@ -1,6 +1,6 @@
 import { RotateCw } from "lucide-react";
 import { Stack, Text, Title } from "@mantine/core";
-import { Button } from "@/shared/ui/button";
+import { Button } from "@/shared/ui";
 
 export const ErrorPage = () => {
   const reloadPage = () => {

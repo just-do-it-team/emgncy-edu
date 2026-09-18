@@ -1,9 +1,9 @@
 import { useState } from "react";
-import type { UserRole } from "@/shared/model/auth";
-import { demoIncidents, type Incident } from "../model/incidents";
+import type { UserRole } from "@/entities/session";
+import { demoIncidents, type Incident } from "@/entities/incident";
 import { IncidentList } from "./incident-list";
 import { IncidentViewer } from "./incident-viewer";
-import { WorkspaceHeader } from "./workspace-header";
+import { WorkspaceHeader } from "@/widgets/workspace-header";
 import classes from "./workspace-page.module.scss";
 
 interface WorkspacePageProps {

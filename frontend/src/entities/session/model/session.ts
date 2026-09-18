@@ -2,13 +2,6 @@ import { create } from "zustand";
 
 export type UserRole = "admin" | "teacher" | "student";
 
-// Временные учетные записи для демонстрации до подключения бэкенда.
-const demoAccounts = [
-  { login: "admin", password: "admin123", role: "admin" },
-  { login: "teacher", password: "teacher123", role: "teacher" },
-  { login: "student", password: "student123", role: "student" },
-] satisfies { login: string; password: string; role: UserRole }[];
-
 const sessionKey = "emgncy-edu-demo-role";
 
 function getSessionRole(): UserRole | null {
@@ -22,13 +15,13 @@ function getSessionRole(): UserRole | null {
   }
 }
 
-interface AuthState {
+interface SessionState {
   role: UserRole | null;
-  login: (login: string, password: string) => boolean;
+  setRole: (role: UserRole) => void;
   logout: () => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useSessionStore = create<SessionState>((set) => ({
   role: getSessionRole(),
   logout: () => {
     try {
@@ -39,20 +32,13 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     set({ role: null });
   },
-  login: (login, password) => {
-    const account = demoAccounts.find(
-      (account) => account.login === login.trim() && account.password === password,
-    );
-
-    if (!account) return false;
-
+  setRole: (role) => {
     try {
-      sessionStorage.setItem(sessionKey, account.role);
+      sessionStorage.setItem(sessionKey, role);
     } catch {
       // При недоступном хранилище вход действует до обновления страницы.
     }
 
-    set({ role: account.role });
-    return true;
+    set({ role });
   },
 }));

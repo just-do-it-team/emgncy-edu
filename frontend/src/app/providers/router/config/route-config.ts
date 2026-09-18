@@ -1,4 +1,4 @@
-import type { UserRole } from "@/shared/model/auth";
+import type { UserRole } from "@/entities/session";
 
 export enum RouteNames {
   LOGIN = "/login",
