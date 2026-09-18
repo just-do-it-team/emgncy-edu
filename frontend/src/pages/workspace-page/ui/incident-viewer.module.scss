@@ -1,0 +1,359 @@
+.modalContent {
+  background: #cbd0d3;
+}
+
+.modalBody {
+  padding: 0;
+}
+
+.viewer {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: #cbd0d3;
+  color: #101820;
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.canvas {
+  flex: 1;
+  min-width: 1160px;
+  padding-bottom: 24px;
+}
+
+.topbar {
+  display: grid;
+  grid-template-columns: 280px repeat(3, minmax(150px, 1fr)) 208px 96px;
+  gap: 8px;
+  padding: 7px 8px 0 1px;
+}
+
+.callPanel {
+  display: flex;
+  height: 64px;
+  background: #efefef;
+}
+
+.viewer .hangup {
+  width: 64px;
+  height: 64px;
+  border-right: 1px solid #cbd0d3;
+  color: #29343a;
+}
+
+.callState {
+  padding: 8px;
+}
+
+.viewer .callLabel {
+  margin-bottom: 12px;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.viewer .recordings,
+.viewer .sms {
+  height: 19px;
+  padding: 0 10px;
+  border: 1px solid #a6aeb2;
+  border-radius: 0;
+  background: transparent;
+  color: #101820;
+  font-size: 9px;
+  font-weight: 400;
+}
+
+.viewer .recordings {
+  width: 104px;
+  border-color: #bfc3c5;
+  background: #cbd0d3;
+  color: #80878b;
+}
+
+.viewer .sms {
+  width: 87px;
+}
+
+.phoneField {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+.phoneActions {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  align-items: center;
+}
+
+.viewer .phoneIcon {
+  color: #767d80;
+}
+
+.phoneValue {
+  padding: 3px 9px;
+  background: #efefef;
+  overflow-wrap: anywhere;
+}
+
+.viewer .phoneLabel {
+  color: #555;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.summary {
+  padding: 10px 8px 6px;
+  background: #efefef;
+  font-size: 12px;
+}
+
+.viewer .title {
+  margin: 0;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.modeActions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.viewer .viewMode,
+.viewer .appendMode {
+  height: 28px;
+  padding: 0;
+  border-radius: 0;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.viewer .viewMode {
+  background: #098bcc;
+}
+
+.viewer .appendMode {
+  background: #2f383d;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 45fr) minmax(0, 54fr);
+  align-items: start;
+  gap: 8px;
+  margin: 8px 8px 0 1px;
+}
+
+.leftColumn,
+.rightColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.applicant {
+  min-height: 40px;
+  padding: 13px 8px;
+  background: #efefef;
+  font-size: 10px;
+}
+
+.address {
+  min-height: 54px;
+  padding: 6px 8px;
+  background: #efefef;
+
+  > div + div {
+    margin-top: 5px;
+  }
+}
+
+.viewer .locationIcon {
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  color: #30383c;
+}
+
+.description {
+  min-height: 349px;
+  padding: 8px 12px;
+  background: #efefef;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.factsRow {
+  display: flex;
+  gap: 8px;
+  min-height: 44px;
+}
+
+.facts {
+  flex-shrink: 0;
+  padding: 8px;
+  background: #efefef;
+}
+
+.incidentActions {
+  flex: 1;
+  padding: 6px 8px;
+  background: #efefef;
+}
+
+.viewer .emergency,
+.viewer .urgent {
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid #a6aeb2;
+  border-radius: 0;
+  background: transparent;
+  color: #17222c;
+  font-size: 12px;
+}
+
+.viewer .urgent[data-active] {
+  border-color: #ff603a;
+  background: #ff603a;
+  color: #fff;
+}
+
+.viewer .edit {
+  width: 29px;
+  height: 29px;
+  border: 1px solid #a6aeb2;
+  border-radius: 50%;
+  color: #17222c;
+}
+
+.category {
+  background: #efefef;
+}
+
+.viewer .categoryTitle {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 0;
+  background: #303436;
+  color: #fff;
+  font-size: 12px;
+  text-decoration: underline;
+
+  > span {
+    justify-content: flex-start;
+  }
+}
+
+.categoryText,
+.classification {
+  min-height: 31px;
+  padding: 8px 12px;
+  background: #efefef;
+  overflow-wrap: anywhere;
+}
+
+.categoryText {
+  font-weight: 700;
+}
+
+.footer {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 64px;
+  background: #47555e;
+  color: #fff;
+}
+
+.services {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.servicesLabel {
+  padding-right: 12px;
+  flex-shrink: 0;
+}
+
+.viewer .service {
+  width: 104px;
+  height: 64px;
+  flex-shrink: 0;
+  padding: 0 5px;
+  border: 0;
+  border-left: 1px solid #efefef;
+  border-radius: 0;
+  background: transparent;
+  color: #fff;
+
+  &[data-highlighted] {
+    background: #939798;
+  }
+
+  &:last-of-type {
+    border-right: 1px solid #efefef;
+  }
+}
+
+.serviceContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  line-height: 12px;
+}
+
+.serviceName {
+  font-size: 12px;
+}
+
+.service:first-of-type .serviceName {
+  text-decoration: underline;
+}
+
+.serviceStatus {
+  font-size: 10px;
+}
+
+.viewer .footerIcon {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  border: 1px solid #fff;
+  color: #fff;
+}
+
+.services > .footerIcon {
+  margin: 0 12px;
+}
+
+.footerActions {
+  flex-shrink: 0;
+  padding-right: 8px;
+}
+
+@media (max-width: 1400px) {
+  .factsRow {
+    flex-wrap: wrap;
+  }
+
+  .facts {
+    flex: 1;
+  }
+}

@@ -1,8 +1,15 @@
-import { MainPage } from "@/pages/main-page"
+import type { UserRole } from "@/shared/model/auth";
 
 export enum RouteNames {
-  MAIN = "/",
+  LOGIN = "/login",
+  ADMIN = "/admin",
+  TEACHER = "/teacher",
+  STUDENT = "/student",
   NAVIGATE = "*",
 }
 
-export const routes = [{ path: RouteNames.MAIN, component: MainPage }]
+export const routes: { path: RouteNames; role: UserRole }[] = [
+  { path: RouteNames.ADMIN, role: "admin" },
+  { path: RouteNames.TEACHER, role: "teacher" },
+  { path: RouteNames.STUDENT, role: "student" },
+];
