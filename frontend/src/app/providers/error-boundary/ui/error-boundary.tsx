@@ -1,6 +1,6 @@
 import React, { ErrorInfo, ReactNode, Suspense } from "react";
-import {Spinner} from "@/shared/ui/spinner.tsx";
-import {ErrorPage} from "@/pages/error-page/ErrorPage.tsx";
+import { Spinner } from "@/shared/ui";
+import { ErrorPage } from "@/pages/error-page";
 
 interface ErrorBoundaryProps {
   children: ReactNode;

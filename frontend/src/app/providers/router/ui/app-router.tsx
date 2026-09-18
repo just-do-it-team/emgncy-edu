@@ -1,17 +1,14 @@
 import { FC, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
-import {
-  routes,
-  RouteNames,
-} from "@/app/providers/router/config/route-config.ts";
-import { Spinner } from "@/shared/ui/spinner.tsx";
-import { Layout } from "@/app/layout/Layout.tsx";
+import { routes, RouteNames } from "../config/route-config";
+import { Spinner } from "@/shared/ui";
+import { Layout } from "../../../ui/layout";
 import { WorkspacePage } from "@/pages/workspace-page";
-import LoginPage from "@/pages/login-page/ui/login-page";
-import { useAuthStore } from "@/shared/model/auth";
+import { LoginPage } from "@/pages/login-page";
+import { useSessionStore } from "@/entities/session";
 
 const AppRouter: FC = () => {
-  const role = useAuthStore((state) => state.role);
+  const role = useSessionStore((state) => state.role);
   const homePath = routes.find((route) => route.role === role)?.path ?? RouteNames.LOGIN;
 
   return (

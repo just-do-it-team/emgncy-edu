@@ -7,13 +7,10 @@ import {
   Search,
   Settings,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
-import { MdDirectionsRun } from "react-icons/md";
-import { useAuthStore, type UserRole } from "@/shared/model/auth";
-import { ActionIcon } from "@/shared/ui/action-icon";
-import { Button } from "@/shared/ui/button";
-import { TextInput } from "@/shared/ui/text-input";
-import classes from "./workspace-page.module.scss";
+import type { UserRole } from "@/entities/session";
+import { LogoutButton } from "@/features/auth";
+import { ActionIcon, Button, TextInput } from "@/shared/ui";
+import classes from "./workspace-header.module.scss";
 
 const dateFormatter = new Intl.DateTimeFormat("ru-RU", {
   weekday: "long",
@@ -68,14 +65,6 @@ function Clock() {
 }
 
 export function WorkspaceHeader({ role }: { role: UserRole }) {
-  const logout = useAuthStore((state) => state.logout);
-  const navigate = useNavigate();
-
-  const handleLogout = () => {
-    logout();
-    navigate("/login", { replace: true });
-  };
-
   return (
     <Box component="header" className={classes.header}>
       <div className={classes.searchPanel}>
@@ -126,14 +115,7 @@ export function WorkspaceHeader({ role }: { role: UserRole }) {
             <ActionIcon className={classes.accountIcon} aria-label="Справка">
               <CircleHelp size={12} />
             </ActionIcon>
-            <ActionIcon
-              className={classes.accountIcon}
-              aria-label="Выйти из профиля"
-              title="Выйти из профиля"
-              onClick={handleLogout}
-            >
-              <MdDirectionsRun size={14} aria-hidden="true" />
-            </ActionIcon>
+            <LogoutButton className={classes.accountIcon} />
           </Group>
         </div>
       </div>

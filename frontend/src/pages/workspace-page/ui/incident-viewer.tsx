@@ -8,9 +8,8 @@ import {
   Zap,
 } from "lucide-react";
 import { MdCall, MdCallEnd, MdMessage, MdWarning } from "react-icons/md";
-import { ActionIcon } from "@/shared/ui/action-icon";
-import { Button } from "@/shared/ui/button";
-import type { Incident } from "../model/incidents";
+import { ActionIcon, Button } from "@/shared/ui";
+import type { Incident } from "@/entities/incident";
 import classes from "./incident-viewer.module.scss";
 
 interface IncidentViewerProps {

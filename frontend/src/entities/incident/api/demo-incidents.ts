@@ -1,39 +1,4 @@
-export interface IncidentService {
-  name: string;
-  time: string;
-  status: string;
-  highlighted?: boolean;
-}
-
-export interface Incident {
-  id: string;
-  operator: number;
-  workstation: number;
-  createdAt: string;
-  type: string;
-  hasCasualties: boolean;
-  address: string;
-  serviceStatus: string;
-  description: string;
-  descriptionCreatedAt: string;
-  author: string;
-  emergency: boolean;
-  details?: {
-    applicantName: string;
-    automaticNumber: string;
-    providedNumber: string;
-    locationPhone: string;
-    addressTitle: string;
-    district: string;
-    ambulanceRefused: boolean;
-    trapped: boolean;
-    urgent: boolean;
-    category: string;
-    classification: string;
-    externalClassification: string;
-    services: IncidentService[];
-  };
-}
+import type { Incident } from "../model/incident";
 
 // Демонстрационные данные до подключения бэкенда. Пустой массив показывает
 // состояние без карточек, с заголовками списка и нулевым счетчиком.

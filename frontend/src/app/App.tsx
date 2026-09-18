@@ -1,6 +1,11 @@
 import type { FC } from "react";
-import { AppRouter } from "@/app/providers/router";
+import { AppProviders } from "./providers/app-providers";
+import { AppRouter } from "./providers/router";
 
-const App: FC = () => <AppRouter />;
+const App: FC = () => (
+  <AppProviders>
+    <AppRouter />
+  </AppProviders>
+);
 
 export default App;
