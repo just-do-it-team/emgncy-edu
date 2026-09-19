@@ -1,0 +1,1010 @@
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+from decimal import Decimal
+from typing import Any
+
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    func,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from s112.common.enums import (
+    AssignmentStatus,
+    CardStatus,
+    LaunchPolicy,
+    NotificationMethod,
+    OutboxStatus,
+    ParticipantStatus,
+    ScenarioCardSourceType,
+    ScenarioStatus,
+    ScenarioTriggerType,
+    ScheduledCardStatus,
+    ServiceAddedReason,
+    ServiceResponseStatus,
+    SourceType,
+    TrainingActionResult,
+    TrainingSessionStatus,
+    UserRole,
+    WorkspaceMemberRole,
+    WorkspaceMode,
+    WorkspaceStatus,
+)
+from s112.domain.base import Base, TimestampMixin
+
+
+JsonType = JSON().with_variant(JSONB(), "postgresql")
+SYSTEM_WORKSPACE_ID = uuid.UUID("00000000-0000-0000-0000-000000000112")
+
+
+class EventType(Base):
+    """Top-level group: Rescue, 101, 102, 103, 104, Antiterror or EDDS."""
+
+    __tablename__ = "event_type"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    event_kinds: Mapped[list[EventKind]] = relationship(back_populates="event_type")
+
+
+class EventKind(Base):
+    """Concrete type inside a group, for example Fire, ДТП or Allergy."""
+
+    __tablename__ = "event_kind"
+    __table_args__ = (
+        UniqueConstraint("event_type_id", "code"),
+        UniqueConstraint("id", "event_type_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_type_id: Mapped[int] = mapped_column(
+        ForeignKey("event_type.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    name: Mapped[str] = mapped_column(String(500), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    event_type: Mapped[EventType] = relationship(back_populates="event_kinds")
+
+
+class FirstOrderFeature(Base):
+    __tablename__ = "first_order_feature"
+    __table_args__ = (
+        UniqueConstraint("event_kind_id", "code"),
+        UniqueConstraint("id", "event_kind_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_kind_id: Mapped[int] = mapped_column(
+        ForeignKey("event_kind.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    code: Mapped[str] = mapped_column(String(100), nullable=False)
+    name: Mapped[str] = mapped_column(String(500), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class SecondOrderFeature(Base):
+    __tablename__ = "second_order_feature"
+    __table_args__ = (
+        UniqueConstraint("first_order_feature_id", "code"),
+        UniqueConstraint("id", "first_order_feature_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    first_order_feature_id: Mapped[int] = mapped_column(
+        ForeignKey("first_order_feature.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    code: Mapped[str] = mapped_column(String(100), nullable=False)
+    name: Mapped[str] = mapped_column(String(500), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class ThirdOrderFeature(Base):
+    __tablename__ = "third_order_feature"
+    __table_args__ = (
+        UniqueConstraint("second_order_feature_id", "code"),
+        UniqueConstraint("id", "second_order_feature_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    second_order_feature_id: Mapped[int] = mapped_column(
+        ForeignKey("second_order_feature.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    code: Mapped[str] = mapped_column(String(100), nullable=False)
+    name: Mapped[str] = mapped_column(String(500), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class IncidentType(Base, TimestampMixin):
+    """Final incident type calculated from the selected feature hierarchy."""
+
+    __tablename__ = "incident_type"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    classifier_code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(1000), nullable=False)
+    ekp_name: Mapped[str | None] = mapped_column(String(1000))
+    statistics_group_name: Mapped[str | None] = mapped_column(String(500))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class FeatureSchema(Base, TimestampMixin):
+    __tablename__ = "feature_schema"
+    __table_args__ = (
+        UniqueConstraint(
+            "event_kind_id",
+            "first_order_feature_id",
+            "second_order_feature_id",
+            "third_order_feature_id",
+            "version",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    event_kind_id: Mapped[int] = mapped_column(
+        ForeignKey("event_kind.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    first_order_feature_id: Mapped[int | None] = mapped_column(
+        ForeignKey("first_order_feature.id", ondelete="RESTRICT")
+    )
+    second_order_feature_id: Mapped[int | None] = mapped_column(
+        ForeignKey("second_order_feature.id", ondelete="RESTRICT")
+    )
+    third_order_feature_id: Mapped[int | None] = mapped_column(
+        ForeignKey("third_order_feature.id", ondelete="RESTRICT")
+    )
+    incident_type_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("incident_type.id", ondelete="RESTRICT")
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    json_schema: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class SourceSystem(Base, TimestampMixin):
+    __tablename__ = "source_system"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    code: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class EmergencyService(Base, TimestampMixin):
+    __tablename__ = "emergency_service"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    code: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    notification_method: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=NotificationMethod.ARM_112.value
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class ServiceRoutingRule(Base, TimestampMixin):
+    """A system rule that adds a service for one classifier combination."""
+
+    __tablename__ = "service_routing_rule"
+    __table_args__ = (
+        UniqueConstraint("feature_schema_id", "service_id", "route_code"),
+        Index("ix_service_routing_rule_schema_active", "feature_schema_id", "is_active"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    feature_schema_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("feature_schema.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    service_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("emergency_service.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    route_code: Mapped[str] = mapped_column(String(100), nullable=False)
+    condition: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
+    notification_method: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=NotificationMethod.INTEGRATION.value
+    )
+    external_incident_type: Mapped[str | None] = mapped_column(Text)
+    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class IncidentCard(Base, TimestampMixin):
+    __tablename__ = "incident_card"
+    __table_args__ = (
+        CheckConstraint("victims_count IS NULL OR victims_count >= 0", name="victims_nonnegative"),
+        UniqueConstraint("id", "event_type_id"),
+        UniqueConstraint(
+            "workspace_id", "card_number", name="uq_incident_card_workspace_card_number"
+        ),
+        UniqueConstraint(
+            "workspace_id",
+            "source_system_id",
+            "external_card_id",
+            name="uq_incident_card_workspace_external_source",
+        ),
+        Index(
+            "ix_incident_card_workspace_status_registered",
+            "workspace_id",
+            "current_status",
+            "registered_at",
+        ),
+        Index(
+            "ix_incident_card_workspace_event_registered",
+            "workspace_id",
+            "event_type_id",
+            "registered_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("simulation_workspace.id", ondelete="RESTRICT"),
+        nullable=False,
+        default=lambda: SYSTEM_WORKSPACE_ID,
+        server_default=str(SYSTEM_WORKSPACE_ID),
+    )
+    card_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False, default=SourceType.MANUAL.value)
+    source_system_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("source_system.id", ondelete="RESTRICT")
+    )
+    external_card_id: Mapped[str | None] = mapped_column(String(255))
+    parent_card_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("incident_card.id", ondelete="SET NULL")
+    )
+    event_type_id: Mapped[int] = mapped_column(
+        ForeignKey("event_type.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    questionnaire: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
+    reported_address: Mapped[str | None] = mapped_column(Text)
+    incident_address: Mapped[str | None] = mapped_column(Text)
+    latitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
+    longitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
+    victims_count: Mapped[int | None] = mapped_column(Integer)
+    operator_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    reviewer_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    current_status: Mapped[str] = mapped_column(
+        String(40),
+        nullable=False,
+        default=CardStatus.REGISTERED.value,
+    )
+    registered_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+    features: Mapped[CardFeature | None] = relationship(
+        back_populates="card",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    services: Mapped[list[CardService]] = relationship(
+        back_populates="card",
+        primaryjoin="and_(IncidentCard.id == CardService.card_id, CardService.is_active.is_(True))",
+    )
+
+
+class CardFeature(Base):
+    __tablename__ = "card_feature"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["card_id", "event_type_id"],
+            ["incident_card.id", "incident_card.event_type_id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["event_kind_id", "event_type_id"],
+            ["event_kind.id", "event_kind.event_type_id"],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["first_order_feature_id", "event_kind_id"],
+            ["first_order_feature.id", "first_order_feature.event_kind_id"],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["second_order_feature_id", "first_order_feature_id"],
+            ["second_order_feature.id", "second_order_feature.first_order_feature_id"],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["third_order_feature_id", "second_order_feature_id"],
+            ["third_order_feature.id", "third_order_feature.second_order_feature_id"],
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "second_order_feature_id IS NULL OR first_order_feature_id IS NOT NULL",
+            name="second_requires_first",
+        ),
+        CheckConstraint(
+            "third_order_feature_id IS NULL OR second_order_feature_id IS NOT NULL",
+            name="third_requires_second",
+        ),
+        Index(
+            "ix_card_feature_classification",
+            "event_type_id",
+            "event_kind_id",
+            "first_order_feature_id",
+            "second_order_feature_id",
+            "third_order_feature_id",
+        ),
+    )
+
+    card_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    event_type_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_kind_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    first_order_feature_id: Mapped[int | None] = mapped_column(Integer)
+    second_order_feature_id: Mapped[int | None] = mapped_column(Integer)
+    third_order_feature_id: Mapped[int | None] = mapped_column(Integer)
+    incident_type_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("incident_type.id", ondelete="RESTRICT")
+    )
+    feature_schema_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("feature_schema.id", ondelete="RESTRICT")
+    )
+    additional_features: Mapped[dict[str, Any]] = mapped_column(
+        JsonType,
+        nullable=False,
+        default=dict,
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    card: Mapped[IncidentCard] = relationship(back_populates="features")
+
+
+class CardFeatureHistory(Base):
+    __tablename__ = "card_feature_history"
+    __table_args__ = (UniqueConstraint("card_id", "revision"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    card_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("incident_card.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_kind_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    first_order_feature_id: Mapped[int | None] = mapped_column(Integer)
+    second_order_feature_id: Mapped[int | None] = mapped_column(Integer)
+    third_order_feature_id: Mapped[int | None] = mapped_column(Integer)
+    incident_type_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    feature_schema_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    additional_features: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
+    changed_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class CardStatusHistory(Base):
+    __tablename__ = "card_status_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    card_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("incident_card.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    status_code: Mapped[str] = mapped_column(String(40), nullable=False)
+    set_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    cleared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reason: Mapped[str | None] = mapped_column(Text)
+    set_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+
+
+class CardEventTypeHistory(Base):
+    __tablename__ = "card_event_type_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    card_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("incident_card.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    event_type_id: Mapped[int] = mapped_column(
+        ForeignKey("event_type.id", ondelete="RESTRICT"), nullable=False
+    )
+    changed_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    reason: Mapped[str | None] = mapped_column(Text)
+
+
+class CardService(Base):
+    __tablename__ = "card_service"
+    __table_args__ = (
+        UniqueConstraint("card_id", "service_id"),
+        Index("ix_card_service_deadline", "current_status", "acceptance_deadline_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    card_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("incident_card.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    service_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("emergency_service.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    added_reason: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=ServiceAddedReason.EKP.value
+    )
+    notification_method: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=NotificationMethod.INTEGRATION.value
+    )
+    is_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    current_status: Mapped[str] = mapped_column(
+        String(40), nullable=False, default=ServiceResponseStatus.ADDED.value
+    )
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    acceptance_deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    card: Mapped[IncidentCard] = relationship(back_populates="services")
+    dispatches: Mapped[list[CardServiceDispatch]] = relationship(
+        back_populates="card_service",
+        cascade="all, delete-orphan",
+    )
+
+
+class CardServiceDispatch(Base):
+    """Resolved delivery channel created from an automatic routing rule."""
+
+    __tablename__ = "card_service_dispatch"
+    __table_args__ = (UniqueConstraint("card_service_id", "route_code"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    card_service_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("card_service.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    routing_rule_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("service_routing_rule.id", ondelete="RESTRICT")
+    )
+    route_code: Mapped[str] = mapped_column(String(100), nullable=False)
+    notification_method: Mapped[str] = mapped_column(String(32), nullable=False)
+    external_incident_type: Mapped[str | None] = mapped_column(Text)
+    payload: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    card_service: Mapped[CardService] = relationship(back_populates="dispatches")
+
+
+class ServiceStatusHistory(Base):
+    __tablename__ = "service_status_history"
+    __table_args__ = (
+        UniqueConstraint("source_system_id", "external_event_id"),
+        Index("ix_service_status_card_service_time", "card_service_id", "occurred_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    card_service_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("card_service.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    status_code: Mapped[str] = mapped_column(String(40), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    author_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    source_system_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("source_system.id", ondelete="RESTRICT")
+    )
+    comment: Mapped[str | None] = mapped_column(Text)
+    external_event_id: Mapped[str | None] = mapped_column(String(255))
+
+
+class CardListProjection(Base):
+    __tablename__ = "card_list_projection"
+    __table_args__ = (
+        Index(
+            "ix_card_projection_workspace_status_registered",
+            "workspace_id",
+            "current_status",
+            "registered_at",
+        ),
+        Index(
+            "ix_card_projection_workspace_event_registered",
+            "workspace_id",
+            "event_type_id",
+            "registered_at",
+        ),
+    )
+
+    card_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("incident_card.id", ondelete="CASCADE"), primary_key=True
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("simulation_workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    card_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_type_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_kind_id: Mapped[int | None] = mapped_column(Integer)
+    incident_address: Mapped[str | None] = mapped_column(Text)
+    victims_count: Mapped[int | None] = mapped_column(Integer)
+    current_status: Mapped[str] = mapped_column(String(40), nullable=False)
+    services_summary: Mapped[list[dict[str, Any]]] = mapped_column(JsonType, nullable=False, default=list)
+    features_summary: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
+    registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class OutboxEvent(Base):
+    __tablename__ = "outbox_event"
+    __table_args__ = (
+        UniqueConstraint("aggregate_type", "aggregate_id", "aggregate_version"),
+        Index("ix_outbox_dispatch", "status", "available_at", "created_at"),
+        Index("ix_outbox_aggregate_order", "aggregate_type", "aggregate_id", "aggregate_version"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    aggregate_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    aggregate_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    aggregate_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(150), nullable=False)
+    topic: Mapped[str] = mapped_column(String(255), nullable=False)
+    message_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=OutboxStatus.PENDING.value
+    )
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    locked_by: Mapped[str | None] = mapped_column(String(255))
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class UserAccount(Base, TimestampMixin):
+    __tablename__ = "user_account"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('ADMINISTRATOR', 'TEACHER', 'STUDENT')",
+            name="role_allowed",
+        ),
+        Index("ix_user_account_role_blocked", "role", "is_blocked"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    username: Mapped[str] = mapped_column(String(64), nullable=False)
+    normalized_username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(320))
+    normalized_email: Mapped[str | None] = mapped_column(String(320), unique=True)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=UserRole.STUDENT.value
+    )
+    is_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_event"
+    __table_args__ = (
+        Index("ix_audit_event_occurred_at", "occurred_at"),
+        Index("ix_audit_event_actor_time", "actor_id", "occurred_at"),
+        Index("ix_audit_event_action_time", "action", "occurred_at"),
+        Index("ix_audit_event_target", "target_type", "target_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    actor_username: Mapped[str | None] = mapped_column(String(64))
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_id: Mapped[str | None] = mapped_column(String(128))
+    result: Mapped[str] = mapped_column(String(20), nullable=False)
+    details: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
+    ip_address: Mapped[str | None] = mapped_column(String(64))
+    user_agent: Mapped[str | None] = mapped_column(String(512))
+    request_id: Mapped[str | None] = mapped_column(String(128))
+
+
+class SecurityPolicy(Base):
+    __tablename__ = "security_policy"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="singleton"),
+        CheckConstraint(
+            "password_min_length BETWEEN 8 AND 128",
+            name="password_min_length_range",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    password_min_length: Mapped[int] = mapped_column(Integer, nullable=False, default=12)
+    require_uppercase: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    require_lowercase: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    require_digit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    require_special: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+
+
+class CardTemplate(Base):
+    """Immutable version of a reusable training card."""
+
+    __tablename__ = "card_template"
+    __table_args__ = (
+        UniqueConstraint("template_key", "version", name="uq_card_template_key_version"),
+        CheckConstraint("version >= 1", name="version_positive"),
+        CheckConstraint("difficulty BETWEEN 1 AND 5", name="difficulty_range"),
+        Index("ix_card_template_active_name", "is_active", "name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    template_key: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, default=uuid.uuid4)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    difficulty: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    initial_card: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    expected_result: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    evaluation_rules: Mapped[dict[str, Any]] = mapped_column(
+        JsonType, nullable=False, default=dict
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_account.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class TrainingScenario(Base, TimestampMixin):
+    __tablename__ = "training_scenario"
+    __table_args__ = (
+        CheckConstraint("difficulty BETWEEN 1 AND 5", name="difficulty_range"),
+        CheckConstraint("estimated_duration_seconds > 0", name="duration_positive"),
+        CheckConstraint("cards_count >= 0", name="cards_count_nonnegative"),
+        CheckConstraint("min_participants >= 1", name="min_participants_positive"),
+        CheckConstraint(
+            "max_participants >= min_participants", name="participant_range"
+        ),
+        CheckConstraint("revision >= 1", name="revision_positive"),
+        Index("ix_training_scenario_status_difficulty", "status", "difficulty"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    difficulty: Mapped[int] = mapped_column(Integer, nullable=False)
+    estimated_duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    cards_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    workspace_mode: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=WorkspaceMode.INDIVIDUAL.value
+    )
+    min_participants: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    max_participants: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    definition: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=ScenarioStatus.DRAFT.value
+    )
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_account.id", ondelete="RESTRICT"), nullable=False
+    )
+    updated_by: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_account.id", ondelete="RESTRICT"), nullable=False
+    )
+
+
+class ScenarioAssignment(Base, TimestampMixin):
+    __tablename__ = "scenario_assignment"
+    __table_args__ = (
+        CheckConstraint("scenario_revision >= 1", name="scenario_revision_positive"),
+        CheckConstraint("max_attempts >= 1", name="max_attempts_positive"),
+        Index("ix_scenario_assignment_status_due", "status", "due_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    scenario_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("training_scenario.id", ondelete="RESTRICT"), nullable=False
+    )
+    scenario_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    scenario_snapshot: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    assigned_by: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_account.id", ondelete="RESTRICT"), nullable=False
+    )
+    workspace_mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    launch_policy: Mapped[str] = mapped_column(
+        String(40), nullable=False, default=LaunchPolicy.STUDENT_SELF_START.value
+    )
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=AssignmentStatus.ASSIGNED.value
+    )
+    available_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AssignmentParticipant(Base):
+    __tablename__ = "assignment_participant"
+    __table_args__ = (Index("ix_assignment_participant_user_status", "user_id", "status"),)
+
+    assignment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("scenario_assignment.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_account.id", ondelete="RESTRICT"), primary_key=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=ParticipantStatus.ASSIGNED.value
+    )
+    ready_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class TrainingSession(Base):
+    __tablename__ = "training_session"
+    __table_args__ = (
+        UniqueConstraint(
+            "assignment_id",
+            "attempt_number",
+            name="uq_training_session_assignment_attempt",
+        ),
+        UniqueConstraint(
+            "assignment_id",
+            "start_idempotency_key",
+            name="uq_training_session_assignment_idempotency",
+        ),
+        CheckConstraint("attempt_number >= 1", name="attempt_number_positive"),
+        CheckConstraint("score IS NULL OR (score >= 0 AND score <= 100)", name="score_range"),
+        Index("ix_training_session_assignment_status", "assignment_id", "status"),
+        Index(
+            "uq_training_session_one_active_assignment",
+            "assignment_id",
+            unique=True,
+            postgresql_where=text("status IN ('CREATED', 'RUNNING')"),
+            sqlite_where=text("status IN ('CREATED', 'RUNNING')"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    assignment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("scenario_assignment.id", ondelete="RESTRICT"), nullable=False
+    )
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=TrainingSessionStatus.CREATED.value
+    )
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    passed: Mapped[bool | None] = mapped_column(Boolean)
+    result: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
+
+
+class SimulationWorkspace(Base):
+    __tablename__ = "simulation_workspace"
+    __table_args__ = (Index("ix_simulation_workspace_status", "status"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    training_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("training_session.id", ondelete="CASCADE"), unique=True
+    )
+    mode: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=WorkspaceMode.INDIVIDUAL.value
+    )
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=WorkspaceStatus.PREPARING.value
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class WorkspaceMember(Base):
+    __tablename__ = "workspace_member"
+    __table_args__ = (Index("ix_workspace_member_user", "user_id", "left_at"),)
+
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("simulation_workspace.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_account.id", ondelete="RESTRICT"), primary_key=True
+    )
+    member_role: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=WorkspaceMemberRole.PARTICIPANT.value
+    )
+    position_code: Mapped[str | None] = mapped_column(String(100))
+    joined_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SessionScheduledCard(Base):
+    __tablename__ = "session_scheduled_card"
+    __table_args__ = (
+        UniqueConstraint(
+            "training_session_id",
+            "scenario_card_key",
+            name="uq_session_scheduled_card_session_key",
+        ),
+        Index("ix_session_scheduled_card_due", "status", "scheduled_at"),
+        Index("ix_session_scheduled_card_workspace", "workspace_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    training_session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("training_session.id", ondelete="CASCADE"), nullable=False
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("simulation_workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    scenario_card_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    trigger_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=ScenarioTriggerType.TIME_OFFSET.value
+    )
+    trigger_config: Mapped[dict[str, Any]] = mapped_column(
+        JsonType, nullable=False, default=dict
+    )
+    source_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=ScenarioCardSourceType.SNAPSHOT.value
+    )
+    card_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    expected_result: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    evaluation_rules: Mapped[dict[str, Any]] = mapped_column(
+        JsonType, nullable=False, default=dict
+    )
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=ScheduledCardStatus.PENDING.value
+    )
+    incident_card_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("incident_card.id", ondelete="SET NULL"), unique=True
+    )
+    emitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+
+class TrainingAction(Base):
+    __tablename__ = "training_action"
+    __table_args__ = (
+        UniqueConstraint(
+            "training_session_id", "request_id", name="uq_training_action_session_request"
+        ),
+        Index("ix_training_action_session_time", "training_session_id", "occurred_at"),
+        Index("ix_training_action_card_time", "incident_card_id", "occurred_at"),
+        Index("ix_training_action_actor_time", "actor_user_id", "occurred_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    training_session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("training_session.id", ondelete="CASCADE"), nullable=False
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("simulation_workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user_account.id", ondelete="RESTRICT")
+    )
+    incident_card_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("incident_card.id", ondelete="SET NULL")
+    )
+    action_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    entity_type: Mapped[str | None] = mapped_column(String(64))
+    entity_id: Mapped[str | None] = mapped_column(String(128))
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    request_id: Mapped[str | None] = mapped_column(String(128))
+    result: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=TrainingActionResult.SUCCESS.value
+    )
+    before_state: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
+    after_state: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
+    details: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
+
+
+class TrainingCardResult(Base):
+    __tablename__ = "training_card_result"
+    __table_args__ = (
+        CheckConstraint("score >= 0 AND score <= 100", name="score_range"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    session_scheduled_card_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("session_scheduled_card.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    score: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    discrepancies: Mapped[list[dict[str, Any]]] = mapped_column(
+        JsonType, nullable=False, default=list
+    )
+    evaluated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

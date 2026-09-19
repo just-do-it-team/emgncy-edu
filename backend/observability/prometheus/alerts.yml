@@ -1,0 +1,56 @@
+groups:
+  - name: system-112
+    rules:
+      - alert: ExporterUnavailable
+        expr: up{optional!="true"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Источник метрик недоступен"
+          description: "Prometheus не может опросить {{ $labels.job }} на {{ $labels.instance }}."
+
+      - alert: ComponentUnavailable
+        expr: probe_success == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Компонент стенда недоступен"
+          description: "HTTP-проверка {{ $labels.instance }} завершается ошибкой."
+
+      - alert: HostCpuHigh
+        expr: 100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокая загрузка CPU"
+          description: "Средняя загрузка CPU выше 90% в течение 10 минут."
+
+      - alert: HostMemoryHigh
+        expr: 100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокое использование RAM"
+          description: "Использование оперативной памяти выше 90%."
+
+      - alert: HostDiskHigh
+        expr: 100 * (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}) > 90
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Заканчивается место на диске"
+          description: "Использование {{ $labels.mountpoint }} выше 90%."
+
+      - alert: GpuTemperatureHigh
+        expr: nvidia_smi_temperature_gpu > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокая температура GPU"
+          description: "Температура GPU {{ $labels.uuid }} выше 85 °C."
