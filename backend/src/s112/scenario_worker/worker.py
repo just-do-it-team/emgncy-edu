@@ -93,6 +93,9 @@ class ScenarioSchedulerWorker:
         now = utcnow()
         async with self.database.write_session_factory() as session:
             async with session.begin():
+                await self.emitter.card_service.process_service_deadlines(
+                    session, now, batch_size=self.batch_size
+                )
                 await self._resolve_action_triggers(session, now)
                 statement = (
                     select(SessionScheduledCard.id)

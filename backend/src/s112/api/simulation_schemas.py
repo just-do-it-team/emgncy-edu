@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from s112.api.schemas import CardCreate, OrmModel
 from s112.common.enums import (
@@ -96,6 +96,28 @@ class ScenarioDefinition(BaseModel):
         return self
 
 
+def strip_scenario_card_runtime_fields(definition: dict[str, Any]) -> dict[str, Any]:
+    """Remove fields that are assigned only when a scenario session is running."""
+
+    result = {**definition}
+    cards: list[Any] = []
+    for value in definition.get("cards", []):
+        if not isinstance(value, dict):
+            cards.append(value)
+            continue
+        card = {**value}
+        initial_card = card.get("initial_card")
+        if isinstance(initial_card, dict):
+            card["initial_card"] = {
+                key: item
+                for key, item in initial_card.items()
+                if key not in {"workspace_id", "request_id"}
+            }
+        cards.append(card)
+    result["cards"] = cards
+    return result
+
+
 class CardTemplateCreate(BaseModel):
     template_key: uuid.UUID | None = None
     version: int = Field(default=1, ge=1)
@@ -160,6 +182,11 @@ class TrainingScenarioUpdate(BaseModel):
     status: ScenarioStatus | None = None
 
 
+class ScenarioDeleteRequest(BaseModel):
+    deleted_by: uuid.UUID
+    expected_revision: int = Field(ge=1)
+
+
 class TrainingScenarioResponse(OrmModel):
     id: uuid.UUID
     name: str
@@ -178,10 +205,16 @@ class TrainingScenarioResponse(OrmModel):
     created_at: datetime
     updated_at: datetime
 
+    @field_validator("definition", mode="before")
+    @classmethod
+    def hide_runtime_card_fields(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return strip_scenario_card_runtime_fields(value)
+
 
 class ScenarioAssignmentCreate(BaseModel):
     scenario_id: uuid.UUID
     participant_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
+    participant_positions: dict[uuid.UUID, str] = Field(default_factory=dict)
     assigned_by: uuid.UUID
     launch_policy: LaunchPolicy = LaunchPolicy.STUDENT_SELF_START
     max_attempts: int = Field(default=1, ge=1, le=100)
@@ -192,6 +225,15 @@ class ScenarioAssignmentCreate(BaseModel):
     def validate_assignment(self) -> "ScenarioAssignmentCreate":
         if len(self.participant_ids) != len(set(self.participant_ids)):
             raise ValueError("participant_ids must be unique")
+        unknown_positions = set(self.participant_positions) - set(self.participant_ids)
+        if unknown_positions:
+            raise ValueError("participant_positions contains users not in participant_ids")
+        if any(not code.strip() for code in self.participant_positions.values()):
+            raise ValueError("participant position_code must not be blank")
+        self.participant_positions = {
+            user_id: code.strip()
+            for user_id, code in self.participant_positions.items()
+        }
         if self.available_from and self.due_at and self.due_at <= self.available_from:
             raise ValueError("due_at must be later than available_from")
         return self
@@ -200,6 +242,7 @@ class ScenarioAssignmentCreate(BaseModel):
 class AssignmentParticipantResponse(OrmModel):
     user_id: uuid.UUID
     status: str
+    position_code: str | None
     ready_at: datetime | None
     completed_at: datetime | None
 
@@ -208,6 +251,7 @@ class ScenarioAssignmentResponse(OrmModel):
     id: uuid.UUID
     scenario_id: uuid.UUID
     scenario_revision: int
+    assignment_batch_id: uuid.UUID | None = None
     assigned_by: uuid.UUID
     workspace_mode: str
     launch_policy: str
@@ -247,6 +291,120 @@ class TrainingSessionResponse(OrmModel):
     score: Decimal | None
     passed: bool | None
     result: dict[str, Any]
+    expert_score: Decimal | None
+    expert_passed: bool | None
+    expert_comment: str | None
+    expert_evaluated_by: uuid.UUID | None
+    expert_evaluated_at: datetime | None
+
+
+class LearningGroupCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = None
+    teacher_id: uuid.UUID
+    student_ids: list[uuid.UUID] = Field(default_factory=list, max_length=1000)
+
+    @field_validator("student_ids")
+    @classmethod
+    def validate_unique_students(cls, value: list[uuid.UUID]) -> list[uuid.UUID]:
+        if len(value) != len(set(value)):
+            raise ValueError("student_ids must be unique")
+        return value
+
+
+class LearningGroupUpdate(BaseModel):
+    actor_id: uuid.UUID
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    is_active: bool | None = None
+
+
+class LearningGroupMembersUpdate(BaseModel):
+    actor_id: uuid.UUID
+    student_ids: list[uuid.UUID] = Field(min_length=1, max_length=1000)
+
+    @field_validator("student_ids")
+    @classmethod
+    def validate_unique_students(cls, value: list[uuid.UUID]) -> list[uuid.UUID]:
+        if len(value) != len(set(value)):
+            raise ValueError("student_ids must be unique")
+        return value
+
+
+class LearningGroupMemberResponse(BaseModel):
+    student_id: uuid.UUID
+    display_name: str
+    joined_at: datetime
+    removed_at: datetime | None
+
+
+class LearningGroupResponse(OrmModel):
+    id: uuid.UUID
+    name: str
+    description: str | None
+    teacher_id: uuid.UUID
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    members: list[LearningGroupMemberResponse] = Field(default_factory=list)
+
+
+class GroupScenarioAssignmentCreate(BaseModel):
+    scenario_id: uuid.UUID
+    assigned_by: uuid.UUID
+    participant_positions: dict[uuid.UUID, str] = Field(default_factory=dict)
+    launch_policy: LaunchPolicy = LaunchPolicy.STUDENT_SELF_START
+    max_attempts: int = Field(default=1, ge=1, le=100)
+    available_from: datetime | None = None
+    due_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_dates_and_positions(self) -> "GroupScenarioAssignmentCreate":
+        if any(not code.strip() for code in self.participant_positions.values()):
+            raise ValueError("participant position_code must not be blank")
+        self.participant_positions = {
+            user_id: code.strip()
+            for user_id, code in self.participant_positions.items()
+        }
+        if self.available_from and self.due_at and self.due_at <= self.available_from:
+            raise ValueError("due_at must be later than available_from")
+        return self
+
+
+class AssignmentBatchResponse(OrmModel):
+    id: uuid.UUID
+    group_id: uuid.UUID
+    scenario_id: uuid.UUID
+    assigned_by: uuid.UUID
+    launch_policy: str
+    max_attempts: int
+    available_from: datetime | None
+    due_at: datetime | None
+    created_at: datetime
+    assignments: list[ScenarioAssignmentResponse] = Field(default_factory=list)
+
+
+class ExpertAssessmentUpdate(BaseModel):
+    teacher_id: uuid.UUID
+    score: Decimal = Field(ge=0, le=100, max_digits=5, decimal_places=2)
+    passed: bool
+    comment: str | None = Field(default=None, max_length=10000)
+
+    @field_validator("comment")
+    @classmethod
+    def normalize_comment(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+
+class ExpertReviewCardResponse(BaseModel):
+    scenario_card_key: str
+    incident_card_id: uuid.UUID | None
+    expected_result: dict[str, Any]
+    current_state: dict[str, Any] | None
+    automatic_result: dict[str, Any] | None
 
 
 class TrainingActionResponse(OrmModel):
@@ -263,6 +421,71 @@ class TrainingActionResponse(OrmModel):
     before_state: dict[str, Any] | None
     after_state: dict[str, Any] | None
     details: dict[str, Any]
+
+
+class ExpertReviewContextResponse(BaseModel):
+    session: TrainingSessionResponse
+    scenario_snapshot: dict[str, Any]
+    participant_ids: list[uuid.UUID]
+    cards: list[ExpertReviewCardResponse]
+    actions: list[TrainingActionResponse]
+
+
+class StudentTrainingHistoryItem(BaseModel):
+    session_id: uuid.UUID
+    assignment_id: uuid.UUID
+    assignment_batch_id: uuid.UUID | None
+    group_id: uuid.UUID | None
+    group_name: str | None
+    scenario_id: uuid.UUID
+    scenario_name: str
+    attempt_number: int
+    status: str
+    started_at: datetime
+    completed_at: datetime | None
+    automatic_score: Decimal | None
+    automatic_passed: bool | None
+    automatic_result: dict[str, Any]
+    expert_score: Decimal | None
+    expert_passed: bool | None
+    final_score: Decimal | None
+    final_passed: bool | None
+    expert_comment: str | None
+    expert_evaluated_by: uuid.UUID | None
+    expert_evaluated_at: datetime | None
+
+
+class TeacherMonitoringParticipant(BaseModel):
+    user_id: uuid.UUID
+    display_name: str
+    status: str
+    position_code: str | None
+
+
+class TeacherMonitoringSession(BaseModel):
+    session_id: uuid.UUID
+    assignment_id: uuid.UUID
+    assignment_batch_id: uuid.UUID | None
+    group_id: uuid.UUID | None
+    group_name: str | None
+    scenario_id: uuid.UUID
+    scenario_name: str
+    workspace_id: uuid.UUID
+    status: str
+    attempt_number: int
+    started_at: datetime
+    completed_at: datetime | None
+    score: Decimal | None
+    passed: bool | None
+    cards_total: int
+    cards_pending: int
+    cards_emitted: int
+    pending_card_keys: list[str]
+    emitted_card_keys: list[str]
+    successful_actions: int
+    rejected_actions: int
+    last_activity_at: datetime | None
+    participants: list[TeacherMonitoringParticipant]
 
 
 class ManualCardReleaseRequest(BaseModel):

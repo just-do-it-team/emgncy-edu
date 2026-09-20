@@ -502,6 +502,14 @@ class CardService(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     acceptance_deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    open_deadline_missed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    decision_deadline_missed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -658,6 +666,40 @@ class UserAccount(Base, TimestampMixin):
     updated_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
 
 
+class LearningGroup(Base, TimestampMixin):
+    __tablename__ = "learning_group"
+    __table_args__ = (
+        UniqueConstraint("teacher_id", "name", name="uq_learning_group_teacher_name"),
+        Index("ix_learning_group_teacher_active", "teacher_id", "is_active"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    teacher_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_account.id", ondelete="RESTRICT"), nullable=False
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class LearningGroupMember(Base):
+    __tablename__ = "learning_group_member"
+    __table_args__ = (
+        Index("ix_learning_group_member_student_active", "student_id", "removed_at"),
+    )
+
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("learning_group.id", ondelete="CASCADE"), primary_key=True
+    )
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_account.id", ondelete="RESTRICT"), primary_key=True
+    )
+    joined_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_event"
     __table_args__ = (
@@ -774,17 +816,47 @@ class TrainingScenario(Base, TimestampMixin):
     )
 
 
+class AssignmentBatch(Base):
+    __tablename__ = "assignment_batch"
+    __table_args__ = (
+        CheckConstraint("max_attempts >= 1", name="max_attempts_positive"),
+        Index("ix_assignment_batch_group_created", "group_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("learning_group.id", ondelete="RESTRICT"), nullable=False
+    )
+    scenario_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("training_scenario.id", ondelete="RESTRICT"), nullable=False
+    )
+    assigned_by: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_account.id", ondelete="RESTRICT"), nullable=False
+    )
+    launch_policy: Mapped[str] = mapped_column(String(40), nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    available_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class ScenarioAssignment(Base, TimestampMixin):
     __tablename__ = "scenario_assignment"
     __table_args__ = (
         CheckConstraint("scenario_revision >= 1", name="scenario_revision_positive"),
         CheckConstraint("max_attempts >= 1", name="max_attempts_positive"),
         Index("ix_scenario_assignment_status_due", "status", "due_at"),
+        Index("ix_scenario_assignment_batch", "assignment_batch_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     scenario_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("training_scenario.id", ondelete="RESTRICT"), nullable=False
+    )
+    assignment_batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("assignment_batch.id", ondelete="SET NULL")
     )
     scenario_revision: Mapped[int] = mapped_column(Integer, nullable=False)
     scenario_snapshot: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
@@ -817,6 +889,7 @@ class AssignmentParticipant(Base):
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=ParticipantStatus.ASSIGNED.value
     )
+    position_code: Mapped[str | None] = mapped_column(String(100))
     ready_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -836,6 +909,10 @@ class TrainingSession(Base):
         ),
         CheckConstraint("attempt_number >= 1", name="attempt_number_positive"),
         CheckConstraint("score IS NULL OR (score >= 0 AND score <= 100)", name="score_range"),
+        CheckConstraint(
+            "expert_score IS NULL OR (expert_score >= 0 AND expert_score <= 100)",
+            name="expert_score_range",
+        ),
         Index("ix_training_session_assignment_status", "assignment_id", "status"),
         Index(
             "uq_training_session_one_active_assignment",
@@ -860,6 +937,13 @@ class TrainingSession(Base):
     score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     passed: Mapped[bool | None] = mapped_column(Boolean)
     result: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
+    expert_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    expert_passed: Mapped[bool | None] = mapped_column(Boolean)
+    expert_comment: Mapped[str | None] = mapped_column(Text)
+    expert_evaluated_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user_account.id", ondelete="RESTRICT")
+    )
+    expert_evaluated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class SimulationWorkspace(Base):

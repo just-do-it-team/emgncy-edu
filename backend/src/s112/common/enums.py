@@ -36,6 +36,7 @@ class ServiceAddedReason(str, Enum):
 
 class ServiceResponseStatus(str, Enum):
     ADDED = "ADDED"
+    NOT_NOTIFIED = "NOT_NOTIFIED"
     RECEIVED = "RECEIVED"
     ACCEPTED = "ACCEPTED"
     REJECTED = "REJECTED"

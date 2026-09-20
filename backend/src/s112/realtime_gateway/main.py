@@ -57,11 +57,14 @@ def create_app(
         request: Request,
         card_id: str | None = Query(default=None),
         workspace_id: str | None = Query(default=None),
+        teacher_id: str | None = Query(default=None),
     ) -> StreamingResponse:
         async def event_stream() -> AsyncIterator[str]:
             yield "retry: 3000\n\n"
             async with app_hub.subscribe(
-                card_id=card_id, workspace_id=workspace_id
+                card_id=card_id,
+                workspace_id=workspace_id,
+                teacher_id=teacher_id,
             ) as subscription:
                 while True:
                     if await request.is_disconnected():

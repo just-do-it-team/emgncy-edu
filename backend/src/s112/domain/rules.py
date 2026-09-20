@@ -3,6 +3,12 @@ from s112.common.enums import ServiceResponseStatus
 
 SERVICE_STATUS_TRANSITIONS: dict[ServiceResponseStatus, set[ServiceResponseStatus]] = {
     ServiceResponseStatus.ADDED: {
+        ServiceResponseStatus.NOT_NOTIFIED,
+        ServiceResponseStatus.RECEIVED,
+        ServiceResponseStatus.ACCEPTED,
+        ServiceResponseStatus.REJECTED,
+    },
+    ServiceResponseStatus.NOT_NOTIFIED: {
         ServiceResponseStatus.RECEIVED,
         ServiceResponseStatus.ACCEPTED,
         ServiceResponseStatus.REJECTED,

@@ -1,6 +1,6 @@
 x-app-environment: &app-environment
-  S112_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-primary:5432/${POSTGRES_DB:-s112}
-  S112_READ_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-replica:5432/${POSTGRES_DB:-s112}
+  S112_DATABASE_URL: ${S112_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-primary:5432/${POSTGRES_DB:-s112}}
+  S112_READ_DATABASE_URL: ${S112_READ_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-replica:5432/${POSTGRES_DB:-s112}}
   S112_KAFKA_BOOTSTRAP_SERVERS: kafka-1:19092,kafka-2:19092,kafka-3:19092
   S112_KAFKA_TOPIC: card.events
 
@@ -60,7 +60,7 @@ services:
       - postgres-primary-data:/var/lib/postgresql/data
       - ./infra/postgres/primary-init.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
     ports:
-      - "${POSTGRES_PRIMARY_PORT:-5432}:5432"
+      - "${INFRA_BIND_ADDRESS:?INFRA_BIND_ADDRESS_is_required}:${POSTGRES_PRIMARY_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-s112} -d ${POSTGRES_DB:-s112}"]
       interval: 5s
@@ -85,7 +85,7 @@ services:
       - postgres-replica-data:/var/lib/postgresql/data
       - ./infra/postgres/replica-entrypoint.sh:/scripts/replica-entrypoint.sh:ro
     ports:
-      - "${POSTGRES_REPLICA_PORT:-5433}:5432"
+      - "${INFRA_BIND_ADDRESS:?INFRA_BIND_ADDRESS_is_required}:${POSTGRES_REPLICA_PORT:-5433}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-s112} -d ${POSTGRES_DB:-s112} && psql -U ${POSTGRES_USER:-s112} -d ${POSTGRES_DB:-s112} -tAc 'SELECT pg_is_in_recovery()' | grep -q t"]
       interval: 5s
@@ -99,9 +99,9 @@ services:
     environment:
       <<: *kafka-environment
       KAFKA_CFG_NODE_ID: 1
-      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka-1:19092,EXTERNAL://localhost:${KAFKA_1_PORT:-29092}
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka-1:19092,EXTERNAL://${KAFKA_ADVERTISED_HOST:-localhost}:${KAFKA_1_PORT:-29092}
     ports:
-      - "${KAFKA_1_PORT:-29092}:9092"
+      - "${INFRA_BIND_ADDRESS:?INFRA_BIND_ADDRESS_is_required}:${KAFKA_1_PORT:-29092}:9092"
     volumes:
       - kafka-1-data:/bitnami/kafka
 
@@ -111,9 +111,9 @@ services:
     environment:
       <<: *kafka-environment
       KAFKA_CFG_NODE_ID: 2
-      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka-2:19092,EXTERNAL://localhost:${KAFKA_2_PORT:-39092}
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka-2:19092,EXTERNAL://${KAFKA_ADVERTISED_HOST:-localhost}:${KAFKA_2_PORT:-39092}
     ports:
-      - "${KAFKA_2_PORT:-39092}:9092"
+      - "${INFRA_BIND_ADDRESS:?INFRA_BIND_ADDRESS_is_required}:${KAFKA_2_PORT:-39092}:9092"
     volumes:
       - kafka-2-data:/bitnami/kafka
 
@@ -123,9 +123,9 @@ services:
     environment:
       <<: *kafka-environment
       KAFKA_CFG_NODE_ID: 3
-      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka-3:19092,EXTERNAL://localhost:${KAFKA_3_PORT:-49092}
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka-3:19092,EXTERNAL://${KAFKA_ADVERTISED_HOST:-localhost}:${KAFKA_3_PORT:-49092}
     ports:
-      - "${KAFKA_3_PORT:-49092}:9092"
+      - "${INFRA_BIND_ADDRESS:?INFRA_BIND_ADDRESS_is_required}:${KAFKA_3_PORT:-49092}:9092"
     volumes:
       - kafka-3-data:/bitnami/kafka
 
@@ -177,7 +177,7 @@ services:
       postgres-replica:
         condition: service_healthy
     ports:
-      - "${CARD_API_PORT:-8080}:8080"
+      - "${APP_BIND_ADDRESS:?APP_BIND_ADDRESS_is_required}:${CARD_API_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=2)"]
       interval: 10s
@@ -223,7 +223,7 @@ services:
       kafka-init:
         condition: service_completed_successfully
     ports:
-      - "${REALTIME_GATEWAY_PORT:-8081}:8081"
+      - "${APP_BIND_ADDRESS:?APP_BIND_ADDRESS_is_required}:${REALTIME_GATEWAY_PORT:-8081}:8081"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/health', timeout=2)"]
       interval: 10s
@@ -235,8 +235,8 @@ services:
       context: .
     restart: unless-stopped
     environment:
-      S112_ADMIN_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-primary:5432/${POSTGRES_DB:-s112}
-      S112_ADMIN_READ_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-replica:5432/${POSTGRES_DB:-s112}
+      S112_ADMIN_DATABASE_URL: ${S112_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-primary:5432/${POSTGRES_DB:-s112}}
+      S112_ADMIN_READ_DATABASE_URL: ${S112_READ_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-replica:5432/${POSTGRES_DB:-s112}}
       S112_ADMIN_PROMETHEUS_URL: http://prometheus:9090
       S112_ADMIN_LOKI_URL: http://loki:3100
       S112_ADMIN_GRAFANA_PUBLIC_URL: ${GRAFANA_PUBLIC_URL:-http://localhost:3000}
@@ -253,7 +253,7 @@ services:
       loki:
         condition: service_started
     ports:
-      - "127.0.0.1:${ADMIN_API_PORT:-8082}:8082"
+      - "${ADMIN_BIND_ADDRESS:?ADMIN_BIND_ADDRESS_is_required}:${ADMIN_API_PORT:-8082}:8082"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8082/health', timeout=2)"]
       interval: 10s
@@ -274,7 +274,7 @@ services:
       - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     ports:
-      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+      - "${ADMIN_BIND_ADDRESS:?ADMIN_BIND_ADDRESS_is_required}:${PROMETHEUS_PORT:-9090}:9090"
 
   grafana:
     image: grafana/grafana:13.2.2
@@ -296,7 +296,7 @@ services:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
-      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+      - "${ADMIN_BIND_ADDRESS:?ADMIN_BIND_ADDRESS_is_required}:${GRAFANA_PORT:-3000}:3000"
 
   loki:
     image: grafana/loki:3.7.0

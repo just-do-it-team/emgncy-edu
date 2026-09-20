@@ -13,6 +13,7 @@ class Subscription:
     queue: asyncio.Queue[dict[str, Any]]
     card_id: str | None
     workspace_id: str | None
+    teacher_id: str | None
 
 
 class RealtimeHub:
@@ -23,13 +24,17 @@ class RealtimeHub:
 
     @asynccontextmanager
     async def subscribe(
-        self, card_id: str | None = None, workspace_id: str | None = None
+        self,
+        card_id: str | None = None,
+        workspace_id: str | None = None,
+        teacher_id: str | None = None,
     ) -> AsyncIterator[Subscription]:
         subscription = Subscription(
             id=uuid.uuid4(),
             queue=asyncio.Queue(maxsize=self.queue_size),
             card_id=card_id,
             workspace_id=workspace_id,
+            teacher_id=teacher_id,
         )
         async with self._lock:
             self._subscriptions[subscription.id] = subscription
@@ -44,6 +49,13 @@ class RealtimeHub:
         workspace_id = str(
             event.get("workspace_id") or event.get("data", {}).get("workspace_id") or ""
         )
+        teacher_ids = {
+            str(value)
+            for value in event.get("teacher_ids", [])
+            if value is not None
+        }
+        if event.get("teacher_id") is not None:
+            teacher_ids.add(str(event["teacher_id"]))
         async with self._lock:
             subscriptions = list(self._subscriptions.values())
 
@@ -52,6 +64,8 @@ class RealtimeHub:
             if subscription.card_id and subscription.card_id != aggregate_id:
                 continue
             if subscription.workspace_id and subscription.workspace_id != workspace_id:
+                continue
+            if subscription.teacher_id and subscription.teacher_id not in teacher_ids:
                 continue
             if subscription.queue.full():
                 try:

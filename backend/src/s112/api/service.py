@@ -60,6 +60,14 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def as_utc(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+CARD_OPEN_DEADLINE_SECONDS = 30
+CARD_DECISION_DEADLINE_SECONDS = 180
+
+
 class DomainError(Exception):
     pass
 
@@ -375,8 +383,14 @@ class CardApplicationService:
         card_service.current_status = ServiceResponseStatus.ADDED.value
         card_service.added_at = added_at
         card_service.sent_at = sent_at
-        card_service.acceptance_deadline_at = sent_at + timedelta(seconds=30)
+        card_service.acceptance_deadline_at = sent_at + timedelta(
+            seconds=CARD_OPEN_DEADLINE_SECONDS
+        )
         card_service.received_at = None
+        card_service.decision_deadline_at = None
+        card_service.decided_at = None
+        card_service.open_deadline_missed_at = None
+        card_service.decision_deadline_missed_at = None
         card_service.closed_at = None
         card_service.removed_at = None
         card.version += 1
@@ -471,6 +485,23 @@ class CardApplicationService:
         card_service.current_status = request.status.value
         if request.status is ServiceResponseStatus.RECEIVED:
             card_service.received_at = request.occurred_at
+            card_service.decision_deadline_at = request.occurred_at + timedelta(
+                seconds=CARD_DECISION_DEADLINE_SECONDS
+            )
+        if request.status in {
+            ServiceResponseStatus.ACCEPTED,
+            ServiceResponseStatus.REJECTED,
+        }:
+            card_service.decided_at = request.occurred_at
+            if (
+                card_service.decision_deadline_at is not None
+                and as_utc(request.occurred_at)
+                > as_utc(card_service.decision_deadline_at)
+                and card_service.decision_deadline_missed_at is None
+            ):
+                card_service.decision_deadline_missed_at = (
+                    card_service.decision_deadline_at
+                )
         if request.status in {
             ServiceResponseStatus.WORK_COMPLETED,
             ServiceResponseStatus.WORK_REFUSED,
@@ -503,11 +534,380 @@ class CardApplicationService:
             after_state={"status": card_service.current_status},
             details={
                 "service_id": str(card_service.service_id),
+                "status": request.status.value,
                 "comment": request.comment,
             },
         )
         await session.flush()
         return history
+
+    async def open_card_for_operator(
+        self,
+        session: AsyncSession,
+        workspace_id: uuid.UUID,
+        card_id: uuid.UUID,
+        actor_id: uuid.UUID,
+    ) -> CardService:
+        card, card_service = await self._operator_card_service(
+            session, workspace_id, card_id, actor_id
+        )
+        if card_service.received_at is not None:
+            return card_service
+        if card_service.current_status == ServiceResponseStatus.ADDED.value:
+            deadline = card_service.acceptance_deadline_at
+            if deadline is not None and utcnow() > as_utc(deadline):
+                card.version += 1
+                await self._mark_open_deadline_missed(
+                    session, card, card_service, as_utc(deadline)
+                )
+        if card_service.current_status not in {
+            ServiceResponseStatus.ADDED.value,
+            ServiceResponseStatus.NOT_NOTIFIED.value,
+        }:
+            raise ConflictError(
+                f"Card service cannot be opened from status {card_service.current_status}"
+            )
+
+        now = utcnow()
+        previous_status = card_service.current_status
+        card_service.current_status = ServiceResponseStatus.RECEIVED.value
+        card_service.received_at = now
+        card_service.decision_deadline_at = now + timedelta(
+            seconds=CARD_DECISION_DEADLINE_SECONDS
+        )
+        session.add(
+            ServiceStatusHistory(
+                card_service_id=card_service.id,
+                status_code=ServiceResponseStatus.RECEIVED.value,
+                occurred_at=now,
+                author_id=actor_id,
+            )
+        )
+        card.version += 1
+        await self._refresh_projection(session, card)
+        self._add_outbox(
+            session,
+            card,
+            "card.service.opened",
+            {
+                "card_service_id": str(card_service.id),
+                "service_id": str(card_service.service_id),
+                "decision_deadline_at": card_service.decision_deadline_at.isoformat(),
+            },
+        )
+        await self._record_training_action(
+            session,
+            card,
+            actor_id=actor_id,
+            action_type="CARD_OPENED",
+            request_id=f"card-open:{card_service.id}",
+            entity_type="card_service",
+            entity_id=str(card_service.id),
+            before_state={"status": previous_status},
+            after_state={"status": card_service.current_status},
+            details={
+                "service_id": str(card_service.service_id),
+                "opened_on_time": card_service.open_deadline_missed_at is None,
+            },
+        )
+        await session.flush()
+        return card_service
+
+    async def decide_card_for_operator(
+        self,
+        session: AsyncSession,
+        workspace_id: uuid.UUID,
+        card_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        decision: ServiceResponseStatus,
+        *,
+        comment: str | None,
+        request_id: str | None,
+    ) -> CardService:
+        card, card_service = await self._operator_card_service(
+            session, workspace_id, card_id, actor_id
+        )
+        if card_service.current_status == decision.value:
+            return card_service
+        if card_service.received_at is None:
+            raise ConflictError("Card must be opened before a decision is made")
+        try:
+            validate_service_status_transition(card_service.current_status, decision)
+            validate_service_status_comment(decision, comment)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+
+        now = utcnow()
+        if (
+            card_service.decision_deadline_at is not None
+            and now > as_utc(card_service.decision_deadline_at)
+            and card_service.decision_deadline_missed_at is None
+        ):
+            card.version += 1
+            await self._mark_decision_deadline_missed(
+                session,
+                card,
+                card_service,
+                as_utc(card_service.decision_deadline_at),
+            )
+
+        previous_status = card_service.current_status
+        card_service.current_status = decision.value
+        card_service.decided_at = now
+        session.add(
+            ServiceStatusHistory(
+                card_service_id=card_service.id,
+                status_code=decision.value,
+                occurred_at=now,
+                author_id=actor_id,
+                comment=comment,
+            )
+        )
+        card.version += 1
+        await self._refresh_projection(session, card)
+        self._add_outbox(
+            session,
+            card,
+            "card.service.decision",
+            {
+                "card_service_id": str(card_service.id),
+                "service_id": str(card_service.service_id),
+                "decision": decision.value,
+                "comment": comment,
+            },
+        )
+        await self._record_training_action(
+            session,
+            card,
+            actor_id=actor_id,
+            action_type=(
+                "CARD_ACCEPTED"
+                if decision is ServiceResponseStatus.ACCEPTED
+                else "CARD_REJECTED"
+            ),
+            request_id=request_id
+            or f"card-decision:{card_service.id}:{decision.value}",
+            entity_type="card_service",
+            entity_id=str(card_service.id),
+            before_state={"status": previous_status},
+            after_state={"status": card_service.current_status},
+            details={
+                "service_id": str(card_service.service_id),
+                "decision": decision.value,
+                "comment": comment,
+                "decided_on_time": card_service.decision_deadline_missed_at is None,
+            },
+        )
+        await session.flush()
+        return card_service
+
+    async def process_service_deadlines(
+        self,
+        session: AsyncSession,
+        now: datetime,
+        *,
+        batch_size: int = 100,
+    ) -> int:
+        processed = 0
+        open_ids = list(
+            await session.scalars(
+                select(CardService.id)
+                .where(
+                    CardService.is_active.is_(True),
+                    CardService.current_status == ServiceResponseStatus.ADDED.value,
+                    CardService.acceptance_deadline_at.is_not(None),
+                    CardService.acceptance_deadline_at <= now,
+                    CardService.open_deadline_missed_at.is_(None),
+                )
+                .order_by(CardService.acceptance_deadline_at, CardService.id)
+                .limit(batch_size)
+            )
+        )
+        for card_service_id in open_ids:
+            card_service = await session.scalar(
+                select(CardService)
+                .where(CardService.id == card_service_id)
+                .with_for_update()
+            )
+            if (
+                card_service is None
+                or card_service.current_status != ServiceResponseStatus.ADDED.value
+                or card_service.open_deadline_missed_at is not None
+                or card_service.acceptance_deadline_at is None
+            ):
+                continue
+            card = await session.get(IncidentCard, card_service.card_id)
+            if card is None:
+                continue
+            card.version += 1
+            await self._mark_open_deadline_missed(
+                session,
+                card,
+                card_service,
+                as_utc(card_service.acceptance_deadline_at),
+            )
+            await self._refresh_projection(session, card)
+            processed += 1
+
+        remaining = max(0, batch_size - processed)
+        decision_ids = list(
+            await session.scalars(
+                select(CardService.id)
+                .where(
+                    CardService.is_active.is_(True),
+                    CardService.current_status == ServiceResponseStatus.RECEIVED.value,
+                    CardService.decision_deadline_at.is_not(None),
+                    CardService.decision_deadline_at <= now,
+                    CardService.decision_deadline_missed_at.is_(None),
+                )
+                .order_by(CardService.decision_deadline_at, CardService.id)
+                .limit(remaining)
+            )
+        )
+        for card_service_id in decision_ids:
+            card_service = await session.scalar(
+                select(CardService)
+                .where(CardService.id == card_service_id)
+                .with_for_update()
+            )
+            if (
+                card_service is None
+                or card_service.current_status != ServiceResponseStatus.RECEIVED.value
+                or card_service.decision_deadline_missed_at is not None
+                or card_service.decision_deadline_at is None
+            ):
+                continue
+            card = await session.get(IncidentCard, card_service.card_id)
+            if card is None:
+                continue
+            card.version += 1
+            await self._mark_decision_deadline_missed(
+                session,
+                card,
+                card_service,
+                as_utc(card_service.decision_deadline_at),
+            )
+            await self._refresh_projection(session, card)
+            processed += 1
+        await session.flush()
+        return processed
+
+    async def _operator_card_service(
+        self,
+        session: AsyncSession,
+        workspace_id: uuid.UUID,
+        card_id: uuid.UUID,
+        actor_id: uuid.UUID,
+    ) -> tuple[IncidentCard, CardService]:
+        workspace = await self._assert_workspace_access(
+            session,
+            workspace_id,
+            actor_id,
+            allowed_roles={WorkspaceMemberRole.PARTICIPANT.value},
+        )
+        if workspace.status != WorkspaceStatus.ACTIVE.value:
+            raise ConflictError("Training workspace is not active")
+        member = await session.get(WorkspaceMember, (workspace_id, actor_id))
+        if member is None or not member.position_code:
+            raise ValidationError("Participant service position is not assigned")
+        card = await session.scalar(
+            select(IncidentCard)
+            .where(
+                IncidentCard.id == card_id,
+                IncidentCard.workspace_id == workspace_id,
+            )
+            .with_for_update()
+        )
+        if card is None:
+            raise NotFoundError("Card not found in this workspace")
+        card_service = await session.scalar(
+            select(CardService)
+            .join(EmergencyService, EmergencyService.id == CardService.service_id)
+            .where(
+                CardService.card_id == card.id,
+                CardService.is_active.is_(True),
+                EmergencyService.code == member.position_code,
+                EmergencyService.is_active.is_(True),
+            )
+            .with_for_update()
+        )
+        if card_service is None:
+            raise ValidationError("Card is not routed to the participant service")
+        return card, card_service
+
+    async def _mark_open_deadline_missed(
+        self,
+        session: AsyncSession,
+        card: IncidentCard,
+        card_service: CardService,
+        missed_at: datetime,
+    ) -> None:
+        card_service.current_status = ServiceResponseStatus.NOT_NOTIFIED.value
+        card_service.open_deadline_missed_at = missed_at
+        session.add(
+            ServiceStatusHistory(
+                card_service_id=card_service.id,
+                status_code=ServiceResponseStatus.NOT_NOTIFIED.value,
+                occurred_at=missed_at,
+                comment="Card was not opened before the notification deadline",
+            )
+        )
+        self._add_outbox(
+            session,
+            card,
+            "card.service.open-deadline-missed",
+            {
+                "card_service_id": str(card_service.id),
+                "service_id": str(card_service.service_id),
+                "deadline_at": missed_at.isoformat(),
+            },
+        )
+        await self._record_training_action(
+            session,
+            card,
+            actor_id=None,
+            action_type="CARD_OPEN_DEADLINE_MISSED",
+            request_id=f"card-open-deadline:{card_service.id}",
+            entity_type="card_service",
+            entity_id=str(card_service.id),
+            after_state={"status": card_service.current_status},
+            details={
+                "service_id": str(card_service.service_id),
+                "deadline_at": missed_at.isoformat(),
+            },
+        )
+
+    async def _mark_decision_deadline_missed(
+        self,
+        session: AsyncSession,
+        card: IncidentCard,
+        card_service: CardService,
+        missed_at: datetime,
+    ) -> None:
+        card_service.decision_deadline_missed_at = missed_at
+        self._add_outbox(
+            session,
+            card,
+            "card.service.decision-deadline-missed",
+            {
+                "card_service_id": str(card_service.id),
+                "service_id": str(card_service.service_id),
+                "deadline_at": missed_at.isoformat(),
+            },
+        )
+        await self._record_training_action(
+            session,
+            card,
+            actor_id=None,
+            action_type="CARD_DECISION_DEADLINE_MISSED",
+            request_id=f"card-decision-deadline:{card_service.id}",
+            entity_type="card_service",
+            entity_id=str(card_service.id),
+            details={
+                "service_id": str(card_service.service_id),
+                "deadline_at": missed_at.isoformat(),
+            },
+        )
 
     async def _lock_card(
         self, session: AsyncSession, card_id: uuid.UUID, expected_version: int
@@ -599,9 +999,15 @@ class CardApplicationService:
             card_service.removed_at = None
             if is_new_or_reactivated:
                 card_service.current_status = ServiceResponseStatus.ADDED.value
-                card_service.sent_at = None
-                card_service.acceptance_deadline_at = None
+                card_service.sent_at = now
+                card_service.acceptance_deadline_at = now + timedelta(
+                    seconds=CARD_OPEN_DEADLINE_SECONDS
+                )
                 card_service.received_at = None
+                card_service.decision_deadline_at = None
+                card_service.decided_at = None
+                card_service.open_deadline_missed_at = None
+                card_service.decision_deadline_missed_at = None
                 card_service.closed_at = None
                 session.add(
                     ServiceStatusHistory(
@@ -900,8 +1306,10 @@ class CardApplicationService:
         workspace = await session.get(SimulationWorkspace, card.workspace_id)
         if workspace is None or workspace.training_session_id is None:
             return
+        action_id = uuid.uuid4()
         session.add(
             TrainingAction(
+                id=action_id,
                 training_session_id=workspace.training_session_id,
                 workspace_id=workspace.id,
                 actor_user_id=actor_id,
@@ -916,6 +1324,19 @@ class CardApplicationService:
                 after_state=after_state,
                 details=details or {},
             )
+        )
+        await self._add_training_monitoring_outbox(
+            session,
+            event_id=action_id,
+            training_session_id=workspace.training_session_id,
+            workspace_id=workspace.id,
+            event_type="training.action_recorded",
+            data={
+                "action_type": action_type,
+                "action_result": TrainingActionResult.SUCCESS.value,
+                "actor_user_id": str(actor_id) if actor_id else None,
+                "incident_card_id": str(card.id),
+            },
         )
 
     async def record_rejected_card_action(
@@ -937,8 +1358,10 @@ class CardApplicationService:
         stored_actor_id = actor_id
         if actor_id is not None and await session.get(UserAccount, actor_id) is None:
             stored_actor_id = None
+        action_id = uuid.uuid4()
         session.add(
             TrainingAction(
+                id=action_id,
                 training_session_id=workspace.training_session_id,
                 workspace_id=workspace.id,
                 actor_user_id=stored_actor_id,
@@ -954,6 +1377,20 @@ class CardApplicationService:
                     "attempted_actor_id": str(actor_id) if actor_id else None,
                 },
             )
+        )
+        await self._add_training_monitoring_outbox(
+            session,
+            event_id=action_id,
+            training_session_id=workspace.training_session_id,
+            workspace_id=workspace.id,
+            event_type="training.action_recorded",
+            data={
+                "action_type": action_type,
+                "action_result": TrainingActionResult.REJECTED.value,
+                "actor_user_id": str(actor_id) if actor_id else None,
+                "incident_card_id": str(card.id),
+                "error": error,
+            },
         )
 
     async def record_rejected_service_action(
@@ -975,6 +1412,54 @@ class CardApplicationService:
             action_type="SERVICE_STATUS_CHANGED",
             request_id=request_id,
             error=error,
+        )
+
+    async def _add_training_monitoring_outbox(
+        self,
+        session: AsyncSession,
+        *,
+        event_id: uuid.UUID,
+        training_session_id: uuid.UUID,
+        workspace_id: uuid.UUID,
+        event_type: str,
+        data: dict[str, Any],
+    ) -> None:
+        teacher_ids = list(
+            await session.scalars(
+                select(WorkspaceMember.user_id).where(
+                    WorkspaceMember.workspace_id == workspace_id,
+                    WorkspaceMember.member_role == WorkspaceMemberRole.INSTRUCTOR.value,
+                    WorkspaceMember.left_at.is_(None),
+                )
+            )
+        )
+        if not teacher_ids:
+            return
+        occurred_at = utcnow()
+        session.add(
+            OutboxEvent(
+                aggregate_type="training_event",
+                aggregate_id=str(event_id),
+                aggregate_version=1,
+                event_type=event_type,
+                topic=self.topic,
+                message_key=str(training_session_id),
+                payload={
+                    "event_id": str(event_id),
+                    "event_type": event_type,
+                    "aggregate_type": "training_session",
+                    "aggregate_id": str(training_session_id),
+                    "aggregate_version": 1,
+                    "workspace_id": str(workspace_id),
+                    "teacher_ids": [str(value) for value in teacher_ids],
+                    "occurred_at": occurred_at.isoformat(),
+                    "data": {
+                        "session_id": str(training_session_id),
+                        "workspace_id": str(workspace_id),
+                        **data,
+                    },
+                },
+            )
         )
 
     @staticmethod

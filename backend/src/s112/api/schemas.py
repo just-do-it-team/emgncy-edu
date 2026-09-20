@@ -208,8 +208,31 @@ class CardServiceResponse(OrmModel):
     sent_at: datetime | None
     acceptance_deadline_at: datetime | None
     received_at: datetime | None
+    decision_deadline_at: datetime | None
+    decided_at: datetime | None
+    open_deadline_missed_at: datetime | None
+    decision_deadline_missed_at: datetime | None
     closed_at: datetime | None
     removed_at: datetime | None
+
+
+class CardDecisionRequest(BaseModel):
+    decision: ServiceResponseStatus
+    comment: str | None = None
+    request_id: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_decision(self) -> "CardDecisionRequest":
+        if self.decision not in {
+            ServiceResponseStatus.ACCEPTED,
+            ServiceResponseStatus.REJECTED,
+        }:
+            raise ValueError("decision must be ACCEPTED or REJECTED")
+        if self.decision is ServiceResponseStatus.REJECTED and (
+            not self.comment or not self.comment.strip()
+        ):
+            raise ValueError("comment is required for REJECTED decision")
+        return self
 
 
 class CardResponse(OrmModel):
