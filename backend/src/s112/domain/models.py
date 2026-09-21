@@ -28,12 +28,16 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from s112.common.enums import (
     AssignmentStatus,
+    AudioMessageDirection,
+    AudioMessageKind,
+    AudioMessageStatus,
     CardStatus,
     LaunchPolicy,
     NotificationMethod,
     OutboxStatus,
     ParticipantStatus,
     ScenarioCardSourceType,
+    ScenarioCompletionPolicy,
     ScenarioStatus,
     ScenarioTriggerType,
     ScheduledCardStatus,
@@ -789,6 +793,10 @@ class TrainingScenario(Base, TimestampMixin):
             "max_participants >= min_participants", name="participant_range"
         ),
         CheckConstraint("revision >= 1", name="revision_positive"),
+        CheckConstraint(
+            "completion_policy IN ('STUDENT_CONFIRM', 'AUTO_WHEN_READY', 'TEACHER_ONLY')",
+            name="completion_policy_valid",
+        ),
         Index("ix_training_scenario_status_difficulty", "status", "difficulty"),
     )
 
@@ -800,6 +808,11 @@ class TrainingScenario(Base, TimestampMixin):
     cards_count: Mapped[int] = mapped_column(Integer, nullable=False)
     workspace_mode: Mapped[str] = mapped_column(
         String(32), nullable=False, default=WorkspaceMode.INDIVIDUAL.value
+    )
+    completion_policy: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=ScenarioCompletionPolicy.STUDENT_CONFIRM.value,
     )
     min_participants: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     max_participants: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
@@ -908,6 +921,14 @@ class TrainingSession(Base):
             name="uq_training_session_assignment_idempotency",
         ),
         CheckConstraint("attempt_number >= 1", name="attempt_number_positive"),
+        CheckConstraint(
+            "completion_policy IN ('STUDENT_CONFIRM', 'AUTO_WHEN_READY', 'TEACHER_ONLY')",
+            name="completion_policy_valid",
+        ),
+        CheckConstraint(
+            "completion_state_revision >= 0",
+            name="completion_state_revision_nonnegative",
+        ),
         CheckConstraint("score IS NULL OR (score >= 0 AND score <= 100)", name="score_range"),
         CheckConstraint(
             "expert_score IS NULL OR (expert_score >= 0 AND expert_score <= 100)",
@@ -931,6 +952,23 @@ class TrainingSession(Base):
     start_idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=TrainingSessionStatus.CREATED.value
+    )
+    completion_policy: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=ScenarioCompletionPolicy.STUDENT_CONFIRM.value,
+    )
+    completion_state: Mapped[dict[str, Any]] = mapped_column(
+        JsonType, nullable=False, default=dict
+    )
+    completion_state_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    ready_to_complete_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    completed_automatically: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
     )
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -1070,6 +1108,105 @@ class TrainingAction(Base):
     before_state: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
     after_state: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
     details: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
+
+
+class AudioMessage(Base):
+    __tablename__ = "audio_message"
+    __table_args__ = (
+        UniqueConstraint(
+            "training_session_id",
+            "idempotency_key",
+            name="uq_audio_message_session_idempotency",
+        ),
+        UniqueConstraint(
+            "training_session_id",
+            "sequence_no",
+            name="uq_audio_message_session_sequence",
+        ),
+        CheckConstraint("sequence_no > 0", name="sequence_positive"),
+        CheckConstraint("revision > 0", name="revision_positive"),
+        CheckConstraint(
+            "kind IN ('STT', 'TTS')",
+            name="kind_valid",
+        ),
+        CheckConstraint(
+            "direction IN ('INBOUND', 'OUTBOUND')",
+            name="direction_valid",
+        ),
+        CheckConstraint(
+            "status IN ('QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED')",
+            name="status_valid",
+        ),
+        CheckConstraint(
+            "size_bytes IS NULL OR size_bytes >= 0",
+            name="size_nonnegative",
+        ),
+        Index(
+            "ix_audio_message_session_sequence",
+            "training_session_id",
+            "sequence_no",
+        ),
+        Index("ix_audio_message_card_sequence", "incident_card_id", "sequence_no"),
+        Index("ix_audio_message_status_created", "status", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    training_session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("training_session.id", ondelete="CASCADE"), nullable=False
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("simulation_workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    incident_card_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("incident_card.id", ondelete="SET NULL")
+    )
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user_account.id", ondelete="RESTRICT")
+    )
+    kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=AudioMessageKind.STT.value
+    )
+    direction: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=AudioMessageDirection.INBOUND.value
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=AudioMessageStatus.QUEUED.value
+    )
+    sequence_no: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_text: Mapped[str | None] = mapped_column(Text)
+    transcript: Mapped[str | None] = mapped_column(Text)
+    object_key: Mapped[str] = mapped_column(String(1024), nullable=False)
+    object_etag: Mapped[str | None] = mapped_column(String(255))
+    sha256: Mapped[str | None] = mapped_column(String(64))
+    content_type: Mapped[str | None] = mapped_column(String(128))
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    sample_rate: Mapped[int | None] = mapped_column(Integer)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    client_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    processing_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    action_recorded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
+
+class EventInbox(Base):
+    __tablename__ = "event_inbox"
+    __table_args__ = (Index("ix_event_inbox_processed_at", "processed_at"),)
+
+    consumer_name: Mapped[str] = mapped_column(String(100), primary_key=True)
+    event_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    processed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
 
 class TrainingCardResult(Base):

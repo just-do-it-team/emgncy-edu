@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from s112.common.config import Settings, get_settings
@@ -41,6 +42,13 @@ def create_app(
                 await consumer.stop()
 
     app = FastAPI(title="System-112 Realtime Gateway", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.state.hub = app_hub
     app.state.settings = app_settings
 

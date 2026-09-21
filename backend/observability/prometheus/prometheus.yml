@@ -47,6 +47,9 @@ scrape_configs:
           - http://card-api:8080/health
           - http://realtime-gateway:8081/health
           - http://admin-api:8082/health
+          - http://speech-api:8083/health
+          - http://seaweed-filer-1:8888/healthz
+          - http://seaweed-filer-2:8888/healthz
           - http://grafana:3000/api/health
           - http://loki:3100/ready
     relabel_configs:

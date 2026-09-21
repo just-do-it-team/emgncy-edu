@@ -54,6 +54,23 @@ class OutboxStatus(str, Enum):
     PUBLISHED = "PUBLISHED"
 
 
+class AudioMessageKind(str, Enum):
+    STT = "STT"
+    TTS = "TTS"
+
+
+class AudioMessageDirection(str, Enum):
+    INBOUND = "INBOUND"
+    OUTBOUND = "OUTBOUND"
+
+
+class AudioMessageStatus(str, Enum):
+    QUEUED = "QUEUED"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
 class UserRole(str, Enum):
     ADMINISTRATOR = "ADMINISTRATOR"
     TEACHER = "TEACHER"
@@ -99,6 +116,12 @@ class TrainingSessionStatus(str, Enum):
     COMPLETED = "COMPLETED"
     ABORTED = "ABORTED"
     TIMED_OUT = "TIMED_OUT"
+
+
+class ScenarioCompletionPolicy(str, Enum):
+    STUDENT_CONFIRM = "STUDENT_CONFIRM"
+    AUTO_WHEN_READY = "AUTO_WHEN_READY"
+    TEACHER_ONLY = "TEACHER_ONLY"
 
 
 class WorkspaceStatus(str, Enum):

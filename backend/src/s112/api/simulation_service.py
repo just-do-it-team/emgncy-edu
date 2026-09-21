@@ -10,9 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from s112.api.schemas import CardCreate
+from s112.api.scenario_completion import (
+    CompletionNotReadyError,
+    ScenarioCompletionService,
+)
 from s112.api.service import ConflictError, NotFoundError, ValidationError
 from s112.api.simulation_schemas import (
     CardTemplateCreate,
+    CardTemplateDeleteRequest,
     ExpertAssessmentUpdate,
     GroupScenarioAssignmentCreate,
     LearningGroupCreate,
@@ -30,6 +35,7 @@ from s112.common.enums import (
     LaunchPolicy,
     ParticipantStatus,
     ScenarioCardSourceType,
+    ScenarioCompletionPolicy,
     ScenarioStatus,
     ScenarioTriggerType,
     ScheduledCardStatus,
@@ -76,6 +82,7 @@ def _as_utc(value: datetime) -> datetime:
 class SimulationApplicationService:
     def __init__(self, topic: str = "card.events") -> None:
         self.topic = topic
+        self.completion = ScenarioCompletionService(topic)
 
     async def create_template(
         self, session: AsyncSession, request: CardTemplateCreate
@@ -111,6 +118,45 @@ class SimulationApplicationService:
         await session.flush()
         return template
 
+    async def delete_template(
+        self,
+        session: AsyncSession,
+        template_id: uuid.UUID,
+        request: CardTemplateDeleteRequest,
+    ) -> None:
+        await self._require_user_role(
+            session, request.deleted_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
+        )
+        template = await session.scalar(
+            select(CardTemplate)
+            .where(CardTemplate.id == template_id)
+            .with_for_update()
+        )
+        if template is None:
+            raise NotFoundError("Card template not found")
+        if not template.is_active:
+            return
+
+        scenarios = list(
+            await session.scalars(
+                select(TrainingScenario).where(
+                    TrainingScenario.status != ScenarioStatus.ARCHIVED.value
+                )
+            )
+        )
+        for scenario in scenarios:
+            definition = ScenarioDefinition.model_validate(scenario.definition)
+            if any(
+                card.source_type is ScenarioCardSourceType.TEMPLATE
+                and card.template_id == template.id
+                for card in definition.cards
+            ):
+                raise ConflictError(
+                    "Card template is referenced by an active training scenario"
+                )
+        template.is_active = False
+        await session.flush()
+
     async def create_scenario(
         self, session: AsyncSession, request: TrainingScenarioCreate
     ) -> TrainingScenario:
@@ -125,6 +171,10 @@ class SimulationApplicationService:
             estimated_duration_seconds=request.estimated_duration_seconds,
             cards_count=len(request.definition.cards),
             workspace_mode=request.workspace_mode.value,
+            completion_policy=self._resolve_completion_policy(
+                request.workspace_mode.value,
+                request.completion_policy.value if request.completion_policy else None,
+            ),
             min_participants=request.min_participants,
             max_participants=request.max_participants,
             definition=strip_scenario_card_runtime_fields(
@@ -166,12 +216,24 @@ class SimulationApplicationService:
             raise ValidationError("Use the scenario delete endpoint to archive a scenario")
 
         values = request.model_dump(
-            exclude={"expected_revision", "updated_by", "definition"}, exclude_unset=True
+            exclude={
+                "expected_revision",
+                "updated_by",
+                "definition",
+                "completion_policy",
+            },
+            exclude_unset=True,
         )
         for field, value in values.items():
             if hasattr(value, "value"):
                 value = value.value
             setattr(scenario, field, value)
+        if request.completion_policy is not None:
+            scenario.completion_policy = request.completion_policy.value
+        elif request.workspace_mode is not None:
+            scenario.completion_policy = self._resolve_completion_policy(
+                scenario.workspace_mode, None
+            )
         if request.definition is not None:
             await self._validate_template_references(session, request.definition)
             scenario.definition = strip_scenario_card_runtime_fields(
@@ -183,6 +245,9 @@ class SimulationApplicationService:
             scenario.workspace_mode,
             scenario.min_participants,
             scenario.max_participants,
+        )
+        self._resolve_completion_policy(
+            scenario.workspace_mode, scenario.completion_policy
         )
         scenario.updated_by = request.updated_by
         scenario.revision += 1
@@ -336,6 +401,11 @@ class SimulationApplicationService:
             raise ValidationError(
                 "participant_positions contains users outside the learning group"
             )
+        missing_positions = set(student_ids) - set(request.participant_positions)
+        if missing_positions:
+            raise ValidationError(
+                "participant_positions must contain every active group member"
+            )
         scenario = await session.get(TrainingScenario, request.scenario_id)
         if scenario is None:
             raise NotFoundError("Training scenario not found")
@@ -469,6 +539,7 @@ class SimulationApplicationService:
             "difficulty": scenario.difficulty,
             "estimated_duration_seconds": scenario.estimated_duration_seconds,
             "workspace_mode": scenario.workspace_mode,
+            "completion_policy": scenario.completion_policy,
             "min_participants": scenario.min_participants,
             "max_participants": scenario.max_participants,
             "definition": {
@@ -617,6 +688,7 @@ class SimulationApplicationService:
             attempt_number=attempts + 1,
             start_idempotency_key=idempotency_key,
             status=TrainingSessionStatus.RUNNING.value,
+            completion_policy=self._snapshot_completion_policy(assignment),
             started_at=now,
             result={},
         )
@@ -789,6 +861,7 @@ class SimulationApplicationService:
             attempt_number=attempts + 1,
             start_idempotency_key=idempotency_key,
             status=TrainingSessionStatus.RUNNING.value,
+            completion_policy=self._snapshot_completion_policy(assignment),
             started_at=now,
             result={},
         )
@@ -882,7 +955,12 @@ class SimulationApplicationService:
         return training_session, workspace, False
 
     async def complete_session(
-        self, session: AsyncSession, session_id: uuid.UUID, user_id: uuid.UUID
+        self,
+        session: AsyncSession,
+        session_id: uuid.UUID,
+        user_id: uuid.UUID | None,
+        *,
+        automatic: bool = False,
     ) -> TrainingSession:
         training_session = await session.scalar(
             select(TrainingSession)
@@ -902,14 +980,39 @@ class SimulationApplicationService:
         )
         if workspace is None:
             raise ConflictError("Training session workspace is missing")
-        member = await session.get(WorkspaceMember, (workspace.id, user_id))
-        if member is None or member.left_at is not None:
-            raise ValidationError("User is not a member of this workspace")
-        if (
-            workspace.mode == WorkspaceMode.SHARED.value
-            and member.member_role != WorkspaceMemberRole.INSTRUCTOR.value
-        ):
-            raise ValidationError("Only the instructor can complete a shared session")
+        if automatic:
+            if (
+                training_session.completion_policy
+                != ScenarioCompletionPolicy.AUTO_WHEN_READY.value
+            ):
+                raise ValidationError("This session is not configured for automatic completion")
+        else:
+            if user_id is None:
+                raise ValidationError("user_id is required for manual completion")
+            member = await session.get(WorkspaceMember, (workspace.id, user_id))
+            if member is None or member.left_at is not None:
+                raise ValidationError("User is not a member of this workspace")
+            if (
+                training_session.completion_policy
+                == ScenarioCompletionPolicy.TEACHER_ONLY.value
+                and member.member_role != WorkspaceMemberRole.INSTRUCTOR.value
+            ):
+                raise ValidationError("Only the instructor can complete this session")
+            if (
+                training_session.completion_policy
+                == ScenarioCompletionPolicy.STUDENT_CONFIRM.value
+                and member.member_role != WorkspaceMemberRole.PARTICIPANT.value
+            ):
+                raise ValidationError("Only a participant can complete this session")
+            if (
+                training_session.completion_policy
+                == ScenarioCompletionPolicy.AUTO_WHEN_READY.value
+            ):
+                raise ConflictError("This session completes automatically when ready")
+
+        readiness, _ = await self.completion.refresh(session, training_session)
+        if not readiness["can_complete"]:
+            raise CompletionNotReadyError(readiness)
 
         scheduled_cards = list(
             await session.scalars(
@@ -923,34 +1026,7 @@ class SimulationApplicationService:
         evaluated_count = 0
         for item in scheduled_cards:
             if item.status != ScheduledCardStatus.EMITTED.value or item.incident_card_id is None:
-                if item.status == ScheduledCardStatus.PENDING.value:
-                    item.status = ScheduledCardStatus.CANCELLED.value
-                if item.trigger_type != ScenarioTriggerType.MANUAL.value:
-                    missing_result = TrainingCardResult(
-                        session_scheduled_card_id=item.id,
-                        score=Decimal("0"),
-                        passed=False,
-                        discrepancies=[
-                            {
-                                "path": "incident_card",
-                                "expected": "EMITTED",
-                                "actual": item.status,
-                                "reason": "scenario_card_not_emitted",
-                            }
-                        ],
-                    )
-                    session.add(missing_result)
-                    evaluated_count += 1
-                    card_results.append(
-                        {
-                            "scenario_card_key": item.scenario_card_key,
-                            "incident_card_id": None,
-                            "score": 0.0,
-                            "passed": False,
-                            "discrepancies": missing_result.discrepancies,
-                        }
-                    )
-                continue
+                raise CompletionNotReadyError(readiness)
             result = await self._evaluate_card(session, item)
             session.add(result)
             total_score += result.score
@@ -973,6 +1049,7 @@ class SimulationApplicationService:
         training_session.score = score.quantize(Decimal("0.01"))
         training_session.passed = passed
         training_session.result = {"cards": card_results}
+        training_session.completed_automatically = automatic
         workspace.status = WorkspaceStatus.READ_ONLY.value
         workspace.closed_at = now
         completed_action_id = uuid.uuid4()
@@ -988,7 +1065,11 @@ class SimulationApplicationService:
                 occurred_at=now,
                 request_id=f"session-complete:{training_session.id}",
                 result=TrainingActionResult.SUCCESS.value,
-                details={"score": float(training_session.score), "passed": passed},
+                details={
+                    "score": float(training_session.score),
+                    "passed": passed,
+                    "completed_automatically": automatic,
+                },
             )
         )
 
@@ -1018,7 +1099,11 @@ class SimulationApplicationService:
                 training_session=training_session,
                 workspace_id=workspace.id,
                 teacher_id=assignment.assigned_by,
-                data={"score": float(training_session.score), "passed": passed},
+                data={
+                    "score": float(training_session.score),
+                    "passed": passed,
+                    "completed_automatically": automatic,
+                },
             )
         await session.flush()
         return training_session
@@ -1470,3 +1555,30 @@ class SimulationApplicationService:
             raise ValidationError("max_participants must not be lower than min_participants")
         if mode == WorkspaceMode.INDIVIDUAL.value and (minimum != 1 or maximum != 1):
             raise ValidationError("INDIVIDUAL scenario requires exactly one participant")
+
+    @staticmethod
+    def _resolve_completion_policy(mode: str, policy: str | None) -> str:
+        if policy is None:
+            return (
+                ScenarioCompletionPolicy.TEACHER_ONLY.value
+                if mode == WorkspaceMode.SHARED.value
+                else ScenarioCompletionPolicy.STUDENT_CONFIRM.value
+            )
+        if (
+            mode == WorkspaceMode.SHARED.value
+            and policy != ScenarioCompletionPolicy.TEACHER_ONLY.value
+        ):
+            raise ValidationError("SHARED scenario requires TEACHER_ONLY completion policy")
+        if (
+            mode == WorkspaceMode.INDIVIDUAL.value
+            and policy == ScenarioCompletionPolicy.TEACHER_ONLY.value
+        ):
+            raise ValidationError("INDIVIDUAL scenario cannot use TEACHER_ONLY completion policy")
+        return policy
+
+    @classmethod
+    def _snapshot_completion_policy(cls, assignment: ScenarioAssignment) -> str:
+        return cls._resolve_completion_policy(
+            assignment.workspace_mode,
+            assignment.scenario_snapshot.get("completion_policy"),
+        )

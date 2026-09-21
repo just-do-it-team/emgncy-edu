@@ -2,7 +2,20 @@ x-app-environment: &app-environment
   S112_DATABASE_URL: ${S112_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-primary:5432/${POSTGRES_DB:-s112}}
   S112_READ_DATABASE_URL: ${S112_READ_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-replica:5432/${POSTGRES_DB:-s112}}
   S112_KAFKA_BOOTSTRAP_SERVERS: kafka-1:19092,kafka-2:19092,kafka-3:19092
-  S112_KAFKA_TOPIC: card.events
+  S112_KAFKA_TOPIC: ${S112_KAFKA_TOPIC:-card.events}
+  S112_AUDIO_STT_REQUEST_TOPIC: ${S112_AUDIO_STT_REQUEST_TOPIC:-audio.stt.requested.v1}
+  S112_AUDIO_STT_RESULT_TOPIC: ${S112_AUDIO_STT_RESULT_TOPIC:-audio.stt.completed.v1}
+  S112_AUDIO_TTS_REQUEST_TOPIC: ${S112_AUDIO_TTS_REQUEST_TOPIC:-audio.tts.requested.v1}
+  S112_AUDIO_TTS_RESULT_TOPIC: ${S112_AUDIO_TTS_RESULT_TOPIC:-audio.tts.completed.v1}
+  S112_AUDIO_FAILED_TOPIC: ${S112_AUDIO_FAILED_TOPIC:-audio.processing.failed.v1}
+  S112_SPEECH_REQUEST_CONSUMER_GROUP: ${S112_SPEECH_REQUEST_CONSUMER_GROUP:-speech-request-worker-v1}
+  S112_SPEECH_RESULT_CONSUMER_GROUP: ${S112_SPEECH_RESULT_CONSUMER_GROUP:-speech-result-worker-v1}
+  S112_SEAWEED_FILER_URLS: ${S112_SEAWEED_FILER_URLS:-http://seaweed-filer-1:8888,http://seaweed-filer-2:8888}
+  S112_SEAWEED_AUDIO_PREFIX: ${S112_SEAWEED_AUDIO_PREFIX:-/audio}
+  S112_SEAWEED_TIMEOUT_SECONDS: ${S112_SEAWEED_TIMEOUT_SECONDS:-60}
+  S112_AUDIO_MAX_UPLOAD_BYTES: ${S112_AUDIO_MAX_UPLOAD_BYTES:-26214400}
+  S112_TTS_MAX_TEXT_CHARS: ${S112_TTS_MAX_TEXT_CHARS:-8000}
+  S112_SPEECH_API_URL: ${S112_SPEECH_API_URL:-http://speech-api:8083}
 
 x-kafka-environment: &kafka-environment
   KAFKA_CFG_PROCESS_ROLES: broker,controller
@@ -93,6 +106,188 @@ services:
       retries: 20
       start_period: 15s
 
+  seaweed-master-1:
+    image: chrislusf/seaweedfs:4.47
+    restart: unless-stopped
+    command:
+      - master
+      - -ip=seaweed-master-1
+      - -ip.bind=0.0.0.0
+      - -mdir=/data
+      - -peers=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      - -defaultReplication=010
+    volumes:
+      - seaweed-master-1-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:9333/cluster/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  seaweed-master-2:
+    image: chrislusf/seaweedfs:4.47
+    restart: unless-stopped
+    command:
+      - master
+      - -ip=seaweed-master-2
+      - -ip.bind=0.0.0.0
+      - -mdir=/data
+      - -peers=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      - -defaultReplication=010
+    volumes:
+      - seaweed-master-2-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:9333/cluster/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  seaweed-master-3:
+    image: chrislusf/seaweedfs:4.47
+    restart: unless-stopped
+    command:
+      - master
+      - -ip=seaweed-master-3
+      - -ip.bind=0.0.0.0
+      - -mdir=/data
+      - -peers=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      - -defaultReplication=010
+    volumes:
+      - seaweed-master-3-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:9333/cluster/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  seaweed-volume-1:
+    image: chrislusf/seaweedfs:4.47
+    restart: unless-stopped
+    command:
+      - volume
+      - -ip=seaweed-volume-1
+      - -ip.bind=0.0.0.0
+      - -port=8080
+      - -mserver=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      - -dir=/data
+      - -max=0
+      - -dataCenter=dc1
+      - -rack=rack1
+    volumes:
+      - seaweed-volume-1-data:/data
+    depends_on:
+      seaweed-master-1:
+        condition: service_healthy
+      seaweed-master-2:
+        condition: service_healthy
+      seaweed-master-3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  seaweed-volume-2:
+    image: chrislusf/seaweedfs:4.47
+    restart: unless-stopped
+    command:
+      - volume
+      - -ip=seaweed-volume-2
+      - -ip.bind=0.0.0.0
+      - -port=8080
+      - -mserver=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      - -dir=/data
+      - -max=0
+      - -dataCenter=dc1
+      - -rack=rack2
+    volumes:
+      - seaweed-volume-2-data:/data
+    depends_on:
+      seaweed-master-1:
+        condition: service_healthy
+      seaweed-master-2:
+        condition: service_healthy
+      seaweed-master-3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  seaweed-filer-1:
+    image: chrislusf/seaweedfs:4.47
+    restart: unless-stopped
+    command:
+      - filer
+      - -ip=seaweed-filer-1
+      - -ip.bind=0.0.0.0
+      - -port=8888
+      - -master=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      - -defaultReplicaPlacement=010
+    environment: &seaweed-filer-environment
+      WEED_LEVELDB2_ENABLED: "false"
+      WEED_POSTGRES_ENABLED: "true"
+      WEED_POSTGRES_HOSTNAME: postgres-primary
+      WEED_POSTGRES_PORT: "5432"
+      WEED_POSTGRES_USERNAME: ${POSTGRES_USER:-s112}
+      WEED_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-s112}
+      WEED_POSTGRES_DATABASE: ${POSTGRES_DB:-s112}
+      WEED_POSTGRES_SSLMODE: disable
+    volumes:
+      - ./infra/seaweedfs/filer.toml:/etc/seaweedfs/filer.toml:ro
+    ports:
+      - "${INFRA_BIND_ADDRESS:?INFRA_BIND_ADDRESS_is_required}:${SEAWEED_FILER_1_PORT:-8888}:8888"
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      seaweed-volume-1:
+        condition: service_healthy
+      seaweed-volume-2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8888/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  seaweed-filer-2:
+    image: chrislusf/seaweedfs:4.47
+    restart: unless-stopped
+    command:
+      - filer
+      - -ip=seaweed-filer-2
+      - -ip.bind=0.0.0.0
+      - -port=8888
+      - -master=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      - -defaultReplicaPlacement=010
+    environment:
+      <<: *seaweed-filer-environment
+    volumes:
+      - ./infra/seaweedfs/filer.toml:/etc/seaweedfs/filer.toml:ro
+    ports:
+      - "${INFRA_BIND_ADDRESS:?INFRA_BIND_ADDRESS_is_required}:${SEAWEED_FILER_2_PORT:-8889}:8888"
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      seaweed-volume-1:
+        condition: service_healthy
+      seaweed-volume-2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8888/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
   kafka-1:
     <<: *kafka-common
     hostname: kafka-1
@@ -141,16 +336,24 @@ services:
     entrypoint: ["/bin/bash", "-ec"]
     command:
       - >-
-        /opt/bitnami/kafka/bin/kafka-topics.sh
-        --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092
-        --create --if-not-exists
-        --topic card.events
-        --partitions 6
-        --replication-factor 3
-        --config min.insync.replicas=2
+        for topic in
+        ${S112_KAFKA_TOPIC:-card.events}
+        ${S112_AUDIO_STT_REQUEST_TOPIC:-audio.stt.requested.v1}
+        ${S112_AUDIO_STT_RESULT_TOPIC:-audio.stt.completed.v1}
+        ${S112_AUDIO_TTS_REQUEST_TOPIC:-audio.tts.requested.v1}
+        ${S112_AUDIO_TTS_RESULT_TOPIC:-audio.tts.completed.v1}
+        ${S112_AUDIO_FAILED_TOPIC:-audio.processing.failed.v1};
+        do
+          /opt/bitnami/kafka/bin/kafka-topics.sh
+          --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092
+          --create --if-not-exists
+          --topic "$${topic}"
+          --partitions 6
+          --replication-factor 3
+          --config min.insync.replicas=2;
+        done
         && /opt/bitnami/kafka/bin/kafka-topics.sh
-        --bootstrap-server kafka-1:19092
-        --describe --topic card.events
+        --bootstrap-server kafka-1:19092 --list
     restart: "no"
 
   migrate:
@@ -176,6 +379,10 @@ services:
         condition: service_completed_successfully
       postgres-replica:
         condition: service_healthy
+      seaweed-filer-1:
+        condition: service_healthy
+      seaweed-filer-2:
+        condition: service_healthy
     ports:
       - "${APP_BIND_ADDRESS:?APP_BIND_ADDRESS_is_required}:${CARD_API_PORT:-8080}:8080"
     healthcheck:
@@ -183,6 +390,66 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
+  speech-api:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile.speech
+      args:
+        CUDA_VERSION: ${CUDA_VERSION:-13.0.2}
+        CUDA_ARCHITECTURES: ${CUDA_ARCHITECTURES:-120a-real}
+        LLAMA_CPP_REF: ${LLAMA_CPP_REF:-master}
+        PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cu130}
+    restart: unless-stopped
+    init: true
+    environment:
+      S112_PRELOAD_MODELS: ${S112_PRELOAD_MODELS:-true}
+      S112_AUDIO_MAX_UPLOAD_BYTES: ${S112_AUDIO_MAX_UPLOAD_BYTES:-26214400}
+      S112_TTS_MAX_TEXT_CHARS: ${S112_TTS_MAX_TEXT_CHARS:-8000}
+      S112_STT_MODEL_PATH: /models/GigaAM-v3-e2e-rnnt
+      S112_STT_DEVICE: ${S112_STT_DEVICE:-auto}
+      S112_STT_FP16: ${S112_STT_FP16:-true}
+      S112_TTS_WORKER_BINARY: /opt/speech/bin/qwen-tts-worker
+      S112_TTS_MODEL_PATH: /models/Qwen3-TTS-12Hz-0.6B-Base-Q8_0.gguf
+      S112_TTS_MMPROJ_PATH: /models/mmproj-Qwen3-TTS-12Hz-0.6B-Base-F16.gguf
+      S112_TTS_REFERENCE_AUDIO_PATH: /models/reference.wav
+      S112_TTS_LANGUAGE: ${S112_TTS_LANGUAGE:-ru}
+      S112_TTS_TIMEOUT_SECONDS: ${S112_TTS_TIMEOUT_SECONDS:-180}
+      S112_TTS_STARTUP_TIMEOUT_SECONDS: ${S112_TTS_STARTUP_TIMEOUT_SECONDS:-180}
+      S112_TTS_GPU_LAYERS: ${S112_TTS_GPU_LAYERS:-99}
+      S112_TTS_CONTEXT_SIZE: ${S112_TTS_CONTEXT_SIZE:-4096}
+      S112_TTS_BATCH_SIZE: ${S112_TTS_BATCH_SIZE:-512}
+      S112_TTS_UBATCH_SIZE: ${S112_TTS_UBATCH_SIZE:-512}
+      S112_TTS_MAX_FRAMES: ${S112_TTS_MAX_FRAMES:-160}
+      S112_TTS_TOP_K: ${S112_TTS_TOP_K:-40}
+      S112_TTS_TOP_P: ${S112_TTS_TOP_P:-0.9}
+      S112_TTS_TEMPERATURE: ${S112_TTS_TEMPERATURE:-0.8}
+      S112_TTS_SEED: ${S112_TTS_SEED:--1}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    shm_size: "2gb"
+    volumes:
+      - type: bind
+        source: ${SPEECH_MODELS_DIR:-../models}
+        target: /models
+        read_only: true
+      - type: bind
+        source: ${TTS_REFERENCE_AUDIO_FILE:-../reference.wav}
+        target: /models/reference.wav
+        read_only: true
+    ports:
+      - "${APP_BIND_ADDRESS:?APP_BIND_ADDRESS_is_required}:${SPEECH_API_PORT:-8083}:8083"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8083/health', timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 180s
 
   outbox-worker:
     build:
@@ -196,6 +463,59 @@ services:
         condition: service_completed_successfully
       kafka-init:
         condition: service_completed_successfully
+
+  speech-request-worker:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      S112_SPEECH_WORKER_RETRY_LIMIT: ${S112_SPEECH_WORKER_RETRY_LIMIT:-5}
+      S112_SPEECH_WORKER_RETRY_BASE_SECONDS: ${S112_SPEECH_WORKER_RETRY_BASE_SECONDS:-1}
+      S112_SPEECH_WORKER_MAX_POLL_INTERVAL_SECONDS: ${S112_SPEECH_WORKER_MAX_POLL_INTERVAL_SECONDS:-1800}
+      S112_SPEECH_API_TIMEOUT_SECONDS: ${S112_SPEECH_API_TIMEOUT_SECONDS:-240}
+    command: ["python", "-m", "s112.speech_worker.request_main"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+      speech-api:
+        condition: service_healthy
+      seaweed-filer-1:
+        condition: service_healthy
+      seaweed-filer-2:
+        condition: service_healthy
+
+  speech-result-worker:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+    command: ["python", "-m", "s112.speech_worker.result_main"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+
+  audio-reconciler:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      S112_AUDIO_RECONCILE_INTERVAL_SECONDS: ${S112_AUDIO_RECONCILE_INTERVAL_SECONDS:-300}
+      S112_AUDIO_ORPHAN_GRACE_SECONDS: ${S112_AUDIO_ORPHAN_GRACE_SECONDS:-3600}
+    command: ["python", "-m", "s112.audio.reconciler_main"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      seaweed-filer-1:
+        condition: service_healthy
+      seaweed-filer-2:
+        condition: service_healthy
 
   scenario-worker:
     build:
@@ -398,6 +718,11 @@ services:
 volumes:
   postgres-primary-data:
   postgres-replica-data:
+  seaweed-master-1-data:
+  seaweed-master-2-data:
+  seaweed-master-3-data:
+  seaweed-volume-1-data:
+  seaweed-volume-2-data:
   kafka-1-data:
   kafka-2-data:
   kafka-3-data:

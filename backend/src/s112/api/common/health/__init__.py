@@ -1,0 +1,1 @@
+"""Card API health endpoint."""

@@ -1,0 +1,118 @@
+# Вкладка преподавателя «Успеваемость»
+
+Вкладка показывает попытки конкретного обучаемого, детальный контекст проверки
+и позволяет сохранить экспертную оценку с комментарием.
+
+## История обучаемого
+
+```http
+GET /api/v1/students/{studentId}/training-history?teacher_id={teacherId}&limit=100
+```
+
+`teacher_id` и `studentId` обязательны, `limit` — 1–500. Backend возвращает
+только сессии назначений этого преподавателя, новые попытки идут первыми.
+
+```json
+[
+  {
+    "session_id": "session-uuid",
+    "assignment_id": "assignment-uuid",
+    "assignment_batch_id": "batch-uuid",
+    "group_id": "group-uuid",
+    "group_name": "Группа 101",
+    "scenario_id": "scenario-uuid",
+    "scenario_name": "Пожар в жилом доме",
+    "attempt_number": 1,
+    "status": "COMPLETED",
+    "started_at": "2026-09-21T10:00:00Z",
+    "completed_at": "2026-09-21T10:12:00Z",
+    "automatic_score": "82.50",
+    "automatic_passed": true,
+    "automatic_result": {"cards": []},
+    "expert_score": null,
+    "expert_passed": null,
+    "final_score": "82.50",
+    "final_passed": true,
+    "expert_comment": null,
+    "expert_evaluated_by": null,
+    "expert_evaluated_at": null
+  }
+]
+```
+
+`final_score`/`final_passed` уже выбирают экспертный результат при его наличии,
+иначе автоматический. Оценки типа Decimal приходят JSON-строками.
+
+Метод пока не имеет offset-пагинации. Для больших списков frontend ограничивает
+выборку через `limit` и может дополнительно фильтровать загруженные строки.
+
+## Контекст проверки
+
+```http
+GET /api/v1/training-sessions/{sessionId}/expert-review-context?teacher_id={teacherId}
+```
+
+Ответ содержит:
+
+- `session` — базовые результаты попытки;
+- `scenario_snapshot` — неизменяемая версия сценария на момент назначения;
+- `participant_ids` — участники;
+- `cards[]` — ожидаемое состояние, фактическое состояние и автоматический
+  результат каждой карточки;
+- `actions[]` — полная хронология действий.
+
+Элемент `cards[].automatic_result`:
+
+```json
+{
+  "score": 75.0,
+  "passed": false,
+  "discrepancies": [
+    {
+      "path": "features.event_kind_id",
+      "expected": 10,
+      "actual": 20,
+      "reason": "value_mismatch"
+    }
+  ],
+  "evaluated_at": "2026-09-21T10:12:00Z"
+}
+```
+
+Frontend должен показывать `path`, ожидаемое и фактическое значения и переводить
+известные `reason`. Если `automatic_result=null`, карточка ещё не оценена.
+
+## Сохранить экспертную оценку
+
+```http
+PUT /api/v1/training-sessions/{sessionId}/expert-assessment
+Content-Type: application/json
+
+{
+  "teacher_id": "teacher-uuid",
+  "score": "90.00",
+  "passed": true,
+  "comment": "Верно выбрана служба, но адрес уточнён с задержкой"
+}
+```
+
+Ограничения:
+
+- `score` — от 0 до 100, не более двух знаков после запятой;
+- `comment` — до 10 000 символов; пробелы по краям удаляются, пустая строка
+  сохраняется как `null`;
+- оценивать можно только сессию `COMPLETED` своего назначения; администратор
+  может оценить любое назначение.
+
+Ответ — обновлённый `TrainingSessionResponse`. PUT заменяет предыдущую экспертную
+оценку целиком, поэтому после успеха нужно обновить строку истории значениями
+`expert_*` и `final_*`.
+
+## Ошибки
+
+- список истории для неизвестной или не связанной с преподавателем пары
+  `studentId`/`teacher_id` возвращает пустой массив;
+- `404` — сессия для просмотра/оценки не найдена;
+- `409` — сессия не завершена или отсутствуют связанные данные;
+- `422` — преподаватель не владеет назначением, неверная роль либо оценка не
+  прошла валидацию.

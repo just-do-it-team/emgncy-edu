@@ -1,0 +1,20 @@
+[filer.options]
+recursive_delete = false
+
+[leveldb2]
+enabled = false
+
+[postgres]
+enabled = true
+createTable = true
+hostname = "postgres-primary"
+port = 5432
+username = "s112"
+password = "s112"
+database = "s112"
+schema = ""
+sslmode = "disable"
+connection_max_idle = 25
+connection_max_open = 50
+connection_max_lifetime_seconds = 300
+enableUpsert = true

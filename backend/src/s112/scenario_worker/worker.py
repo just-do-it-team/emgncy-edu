@@ -9,10 +9,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from s112.api.schemas import CardCreate
+from s112.api.scenario_completion import ScenarioCompletionService
 from s112.api.service import CardApplicationService
+from s112.api.simulation_service import SimulationApplicationService
 from s112.common.database import Database
 from s112.common.enums import (
     ScenarioTriggerType,
+    ScenarioCompletionPolicy,
     ScheduledCardStatus,
     TrainingActionResult,
     TrainingSessionStatus,
@@ -88,6 +91,8 @@ class ScenarioSchedulerWorker:
         self.batch_size = batch_size
         self.retry_limit = retry_limit
         self.emitter = ScenarioCardEmitter(kafka_topic)
+        self.completion = ScenarioCompletionService(kafka_topic)
+        self.simulation = SimulationApplicationService(kafka_topic)
 
     async def run_once(self) -> int:
         now = utcnow()
@@ -134,7 +139,56 @@ class ScenarioSchedulerWorker:
             except Exception as exc:
                 logger.exception("Failed to emit scenario card %s", item_id)
                 await self._record_failure(item_id, exc)
+        await self._refresh_completion_states()
         return emitted
+
+    async def _refresh_completion_states(self) -> None:
+        async with self.database.write_session_factory() as session:
+            session_ids = list(
+                await session.scalars(
+                    select(TrainingSession.id)
+                    .where(
+                        TrainingSession.status == TrainingSessionStatus.RUNNING.value
+                    )
+                    .order_by(TrainingSession.started_at, TrainingSession.id)
+                    .limit(self.batch_size)
+                )
+            )
+
+        for session_id in session_ids:
+            try:
+                async with self.database.write_session_factory() as session:
+                    async with session.begin():
+                        training_session = await session.scalar(
+                            select(TrainingSession)
+                            .where(TrainingSession.id == session_id)
+                            .with_for_update()
+                        )
+                        if (
+                            training_session is None
+                            or training_session.status
+                            != TrainingSessionStatus.RUNNING.value
+                        ):
+                            continue
+                        readiness, _ = await self.completion.refresh(
+                            session, training_session
+                        )
+                        if (
+                            readiness["can_complete"]
+                            and training_session.completion_policy
+                            == ScenarioCompletionPolicy.AUTO_WHEN_READY.value
+                        ):
+                            await self.simulation.complete_session(
+                                session,
+                                training_session.id,
+                                None,
+                                automatic=True,
+                            )
+            except Exception:
+                logger.exception(
+                    "Failed to refresh completion state for training session %s",
+                    session_id,
+                )
 
     async def _resolve_action_triggers(
         self, session: AsyncSession, now: datetime

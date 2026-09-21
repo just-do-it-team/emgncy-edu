@@ -11,6 +11,7 @@ from s112.api.schemas import CardCreate, OrmModel
 from s112.common.enums import (
     LaunchPolicy,
     ScenarioCardSourceType,
+    ScenarioCompletionPolicy,
     ScenarioStatus,
     ScenarioTriggerType,
     WorkspaceMode,
@@ -145,12 +146,17 @@ class CardTemplateResponse(OrmModel):
     created_at: datetime
 
 
+class CardTemplateDeleteRequest(BaseModel):
+    deleted_by: uuid.UUID
+
+
 class TrainingScenarioCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
     difficulty: int = Field(ge=1, le=5)
     estimated_duration_seconds: int = Field(gt=0)
     workspace_mode: WorkspaceMode = WorkspaceMode.INDIVIDUAL
+    completion_policy: ScenarioCompletionPolicy | None = None
     min_participants: int = Field(default=1, ge=1, le=100)
     max_participants: int = Field(default=1, ge=1, le=100)
     definition: ScenarioDefinition
@@ -165,6 +171,22 @@ class TrainingScenarioCreate(BaseModel):
             self.min_participants != 1 or self.max_participants != 1
         ):
             raise ValueError("INDIVIDUAL scenario requires exactly one participant")
+        if self.completion_policy is None:
+            self.completion_policy = (
+                ScenarioCompletionPolicy.TEACHER_ONLY
+                if self.workspace_mode is WorkspaceMode.SHARED
+                else ScenarioCompletionPolicy.STUDENT_CONFIRM
+            )
+        if (
+            self.workspace_mode is WorkspaceMode.SHARED
+            and self.completion_policy is not ScenarioCompletionPolicy.TEACHER_ONLY
+        ):
+            raise ValueError("SHARED scenario requires TEACHER_ONLY completion policy")
+        if (
+            self.workspace_mode is WorkspaceMode.INDIVIDUAL
+            and self.completion_policy is ScenarioCompletionPolicy.TEACHER_ONLY
+        ):
+            raise ValueError("INDIVIDUAL scenario cannot use TEACHER_ONLY completion policy")
         return self
 
 
@@ -176,6 +198,7 @@ class TrainingScenarioUpdate(BaseModel):
     difficulty: int | None = Field(default=None, ge=1, le=5)
     estimated_duration_seconds: int | None = Field(default=None, gt=0)
     workspace_mode: WorkspaceMode | None = None
+    completion_policy: ScenarioCompletionPolicy | None = None
     min_participants: int | None = Field(default=None, ge=1, le=100)
     max_participants: int | None = Field(default=None, ge=1, le=100)
     definition: ScenarioDefinition | None = None
@@ -195,6 +218,7 @@ class TrainingScenarioResponse(OrmModel):
     estimated_duration_seconds: int
     cards_count: int
     workspace_mode: str
+    completion_policy: str
     min_participants: int
     max_participants: int
     definition: dict[str, Any]
@@ -228,6 +252,9 @@ class ScenarioAssignmentCreate(BaseModel):
         unknown_positions = set(self.participant_positions) - set(self.participant_ids)
         if unknown_positions:
             raise ValueError("participant_positions contains users not in participant_ids")
+        missing_positions = set(self.participant_ids) - set(self.participant_positions)
+        if missing_positions:
+            raise ValueError("participant_positions must contain every participant")
         if any(not code.strip() for code in self.participant_positions.values()):
             raise ValueError("participant position_code must not be blank")
         self.participant_positions = {
@@ -286,6 +313,11 @@ class TrainingSessionResponse(OrmModel):
     assignment_id: uuid.UUID
     attempt_number: int
     status: str
+    completion_policy: str
+    completion_state: dict[str, Any]
+    completion_state_revision: int
+    ready_to_complete_at: datetime | None
+    completed_automatically: bool
     started_at: datetime
     completed_at: datetime | None
     score: Decimal | None
@@ -296,6 +328,47 @@ class TrainingSessionResponse(OrmModel):
     expert_comment: str | None
     expert_evaluated_by: uuid.UUID | None
     expert_evaluated_at: datetime | None
+
+
+class CompletionBlocker(BaseModel):
+    code: str
+    message: str
+    scenario_card_key: str | None = None
+    incident_card_id: uuid.UUID | None = None
+    service_code: str | None = None
+    audio_message_id: uuid.UUID | None = None
+    sequence_no: int | None = None
+
+
+class PendingServiceDecision(BaseModel):
+    scenario_card_key: str
+    incident_card_id: uuid.UUID
+    service_code: str
+
+
+class SessionCompletionReadinessResponse(BaseModel):
+    training_session_id: uuid.UUID
+    status: str
+    completion_policy: str
+    can_complete: bool
+    ready_to_complete_at: datetime | None
+    cards_total: int
+    cards_pending: int
+    cards_emitted: int
+    cards_failed: int
+    cards_cancelled: int
+    decisions_required: int
+    decisions_completed: int
+    audio_messages_total: int = 0
+    audio_messages_pending: int = 0
+    audio_messages_failed: int = 0
+    pending_card_keys: list[str]
+    failed_card_keys: list[str]
+    cancelled_card_keys: list[str]
+    waiting_for_decision: list[PendingServiceDecision]
+    next_scheduled_at: datetime | None
+    blockers: list[CompletionBlocker]
+    revision: int
 
 
 class LearningGroupCreate(BaseModel):
