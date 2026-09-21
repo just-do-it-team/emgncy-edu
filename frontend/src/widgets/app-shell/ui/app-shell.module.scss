@@ -1,0 +1,44 @@
+.headerInner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 100%;
+  padding: 0 12px;
+}
+
+.clockPlate {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 12px;
+}
+
+.clock {
+  font-variant-numeric: tabular-nums;
+}
+
+.navbarInner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  height: 100%;
+  padding: 6px;
+}
+
+.spacer {
+  margin-top: auto;
+}
+
+.link.link,
+.linkCollapsed.linkCollapsed {
+  --nl-color: var(--mantine-color-text);
+}
+
+.linkCollapsed {
+  justify-content: center;
+}
+
+.linkIconCollapsed {
+  margin-inline-end: 0;
+}

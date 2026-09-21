@@ -1,95 +1,95 @@
 .header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 398px;
-  min-height: 120px;
+  grid-template-columns: minmax(0, 1fr) 500px;
+  min-height: 149px;
 }
 
 .searchPanel {
   min-width: 0;
-  padding: 15px 16px 25px 15px;
-  background: #ececec;
-  color: #000;
+  padding: 19px 20px 31px 19px;
+  background: var(--mantine-color-povLight2-6);
+  color: var(--mantine-color-black);
 }
 
 .header .searchInput {
-  height: 48px;
+  height: 60px;
   min-height: 0;
   padding-left: 0;
-  padding-right: 42px;
+  padding-right: 52px;
   border: 0;
-  border-bottom: 1px solid #000;
+  border-bottom: 1px solid var(--mantine-color-black);
   border-radius: 0;
   background: transparent;
   font-family: inherit;
-  font-size: 32px;
-  color: #000;
+  font-size: 40px;
+  color: var(--mantine-color-black);
 
   &::placeholder {
-    color: #000;
+    color: var(--mantine-color-black);
     opacity: 1;
   }
 }
 
 .header .searchIcon {
-  color: #303536;
+  color: var(--mantine-color-povDark-6);
 }
 
 .searchActions {
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .header .advancedSearch,
 .header .reset {
-  height: 26px;
+  height: 32px;
   padding: 0;
   border-radius: 0;
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 400;
 }
 
 .header .advancedSearch {
-  color: #000;
+  color: var(--mantine-color-black);
   background: transparent;
 
   [data-position="right"] {
-    margin-left: 3px;
+    margin-left: 4px;
   }
 }
 
 .header .reset {
-  padding: 0 9px;
-  border-color: #657078;
+  padding: 0 11px;
+  border-color: var(--pov-header-border);
   background: transparent;
-  color: #7e8d98;
+  color: var(--pov-header-muted);
 }
 
 .accountPanel {
-  background: #2e363c;
-  color: #fff;
+  background: var(--mantine-color-povDark-6);
+  color: var(--mantine-color-white);
 }
 
 .accountTop {
   position: relative;
-  height: 80px;
-  padding: 16px 8px;
-  border-bottom: 1px solid #687780;
+  height: 100px;
+  padding: 20px 10px;
+  border-bottom: 1px solid var(--pov-header-line);
 }
 
 .date {
   display: block;
-  width: 216px;
-  font-size: 14px;
+  width: 270px;
+  font-size: 18px;
   font-weight: 700;
-  line-height: 20px;
+  line-height: 25px;
 }
 
 .clock {
   position: absolute;
-  top: 7px;
-  right: 5px;
+  top: 9px;
+  right: 6px;
   display: flex;
   align-items: flex-start;
-  font-size: 52px;
+  font-size: 65px;
   font-weight: 700;
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
@@ -97,21 +97,21 @@
 
 .seconds {
   padding-top: 2px;
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 400;
 }
 
 .accountActions {
-  margin-top: 6px;
-  font-size: 11px;
-  line-height: 16px;
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 20px;
 }
 
 .header .accountIcon {
-  width: 16px;
-  min-width: 16px;
-  height: 16px;
-  color: #fff;
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  color: var(--mantine-color-white);
 }
 
 @media (max-width: 900px) {
@@ -124,26 +124,26 @@
   }
 
   .accountTop {
-    height: 80px;
+    height: 100px;
   }
 }
 
 @media (max-width: 480px) {
   .header .searchInput {
-    font-size: 24px;
+    font-size: 30px;
   }
 
   .date {
-    width: calc(100% - 142px);
-    font-size: 12px;
+    width: calc(100% - 178px);
+    font-size: 15px;
   }
 
   .clock {
-    top: 10px;
-    font-size: 40px;
+    top: 12px;
+    font-size: 50px;
   }
 
   .seconds {
-    font-size: 14px;
+    font-size: 18px;
   }
 }

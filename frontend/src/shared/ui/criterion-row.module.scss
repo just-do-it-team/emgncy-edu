@@ -1,0 +1,27 @@
+.criterionRow {
+  display: grid;
+  grid-template-columns: 1fr 44px 58px 34px;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.criterionLost {
+  background: var(--mantine-color-povOrange2-0);
+}
+
+.criterionBar {
+  position: relative;
+  height: 5px;
+  background: var(--mantine-color-povLine-6);
+}
+
+.criterionBarValue {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: var(--mantine-color-povBlue-6);
+}

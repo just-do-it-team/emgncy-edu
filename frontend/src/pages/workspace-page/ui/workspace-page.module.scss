@@ -1,53 +1,52 @@
 .page {
   min-height: 100vh;
   min-height: 100svh;
-  background: #859198;
-  color: #d1dce3;
-  font-family: Arial, sans-serif;
-  font-size: 12px;
+  background: var(--mantine-color-povGray-6);
+  color: var(--pov-journal-text);
+  font-size: 15px;
 }
 
 .content {
-  padding: 14px 23px 40px 15px;
+  padding: 18px 29px 50px 19px;
 }
 
 .listToolbar {
-  min-height: 30px;
-  margin-bottom: 2px;
-  padding-left: 29px;
-  gap: 12px;
+  min-height: 38px;
+  margin-bottom: 3px;
+  padding-left: 36px;
+  gap: 15px;
 }
 
 .page .listTitle {
   margin: 0;
-  color: #fff;
+  color: var(--mantine-color-white);
   font-family: inherit;
-  font-size: 18px;
+  font-size: 23px;
   font-weight: 700;
-  line-height: 24px;
+  line-height: 30px;
 }
 
 .page .toolbarIcon {
-  color: #fff;
+  color: var(--mantine-color-white);
 }
 
 .page .notifications,
 .page .displayOptions,
 .page .paginationButton,
 .page .sortButton {
-  height: 28px;
+  height: 35px;
   padding: 0;
   border-radius: 0;
   background: transparent;
-  color: #d1dce3;
-  font-size: 12px;
+  color: var(--pov-journal-text);
+  font-size: 15px;
   font-weight: 400;
 }
 
 .page .displayOptions {
-  width: 202px;
-  padding: 0 8px;
-  border: 1px solid #d1dce3;
+  width: 253px;
+  padding: 0 10px;
+  border: 1px solid var(--pov-journal-text);
 
   > span {
     justify-content: space-between;
@@ -55,28 +54,28 @@
 }
 
 .page .sortButton [data-position="right"] {
-  margin-left: 5px;
+  margin-left: 6px;
 }
 
 .page .table {
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
-  color: #d1dce3;
-  font-size: 12px;
+  color: var(--pov-journal-text);
+  font-size: 15px;
 
   th {
-    height: 37px;
-    padding: 0 2px;
+    height: 46px;
+    padding: 0 3px;
     text-align: center;
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 400;
     white-space: nowrap;
   }
 
   td {
-    height: 31px;
-    padding: 0 3px;
+    height: 37px;
+    padding: 0 4px;
     text-align: center;
     overflow-wrap: anywhere;
   }
@@ -86,16 +85,16 @@
   }
 
   .serviceStatus {
-    padding-left: 8px;
+    padding-left: 10px;
     text-align: left;
   }
 }
 
 .incidentRow {
-  background: #47555e;
+  background: var(--mantine-color-povDark2-6);
 
   td + td {
-    border-left: 1px solid #859198;
+    border-left: 1px solid var(--mantine-color-povGray-6);
   }
 
   svg {
@@ -104,99 +103,99 @@
 }
 
 .page .rowIcon {
-  color: #d1dce3;
+  color: var(--pov-journal-text);
 }
 
 .page .phoneIcon {
   flex-shrink: 0;
-  color: #ff512b;
+  color: var(--mantine-color-povOrange-6);
 }
 
 .operator {
-  background: #673f58;
+  background: var(--mantine-color-povMaroon-6);
 }
 
 .darkCell,
 .incidentTime {
-  background: #2e363c;
+  background: var(--mantine-color-povDark-6);
 }
 
 .page .incidentTime {
-  color: #fff;
-  font-size: 16px;
+  color: var(--mantine-color-white);
+  font-size: 20px;
   font-weight: 700;
   white-space: nowrap;
 
   sup {
-    font-size: 10px;
+    font-size: 13px;
     font-weight: 400;
   }
 }
 
 .page .descriptionRow td {
-  height: 30px;
+  height: 36px;
   padding: 0;
-  border-top: 1px solid #859198;
-  background: #47555e;
+  border-top: 1px solid var(--mantine-color-povGray-6);
+  background: var(--mantine-color-povDark2-6);
   text-align: left;
-  line-height: 20px;
+  line-height: 25px;
 }
 
 .page .descriptionButton {
   display: block;
   width: 100%;
-  min-height: 30px;
-  padding: 5px 8px;
+  min-height: 36px;
+  padding: 6px 10px;
   color: inherit;
   font: inherit;
-  line-height: 20px;
+  line-height: 25px;
   text-align: left;
 
   &:focus-visible {
-    outline: 2px solid #fff;
+    outline: 2px solid var(--mantine-color-white);
     outline-offset: -2px;
   }
 }
 
 .page .descriptionRow + .incidentRow td {
-  height: 41px;
-  border-top: 10px solid #859198;
+  height: 49px;
+  border-top: 12px solid var(--mantine-color-povGray-6);
 }
 
-.page .typeCell {
-  padding-left: 6px;
-  color: #fff;
-  font-size: 16px;
+.page .table .typeCell {
+  padding-left: 8px;
+  color: var(--mantine-color-white);
+  font-size: 20px;
   font-weight: 700;
   text-align: left;
 }
 
 .addressText {
-  font-size: 14px;
+  font-size: 17.5px;
   font-weight: 700;
   text-align: left;
 }
 
 .descriptionLabel {
-  margin-right: 28px;
+  margin-right: 35px;
 }
 
 .descriptionMeta {
-  color: #bccbd5;
+  color: var(--pov-journal-muted);
 }
 
 .descriptionText {
-  color: #fff;
-  font-size: 14px;
+  color: var(--mantine-color-white);
+  font-size: 17.5px;
 }
 
 .pagination {
-  margin-top: 17px;
-  gap: 12px;
+  margin-top: 21px;
+  gap: 15px;
 }
 
 .count {
-  color: #fff;
+  color: var(--mantine-color-white);
 }
 
 @media (max-width: 900px) {
@@ -207,6 +206,6 @@
 
 @media (max-width: 480px) {
   .content {
-    padding-right: 15px;
+    padding-right: 19px;
   }
 }

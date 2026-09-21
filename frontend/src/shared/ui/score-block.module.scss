@@ -1,0 +1,35 @@
+.totalRow {
+  display: flex;
+  align-items: stretch;
+}
+
+.totalScore {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 104px;
+  padding: 10px 0;
+  color: var(--mantine-color-white);
+  background: var(--mantine-color-povDark-6);
+}
+
+.totalValue {
+  font-size: 34px;
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.verdict {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  color: var(--mantine-color-white);
+  background: var(--mantine-color-povMaroon-6);
+}

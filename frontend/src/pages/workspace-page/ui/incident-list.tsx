@@ -180,14 +180,14 @@ export function IncidentList({ incidents, onOpenIncident }: IncidentListProps) {
           aria-label="Список происшествий"
         >
           <colgroup>
-            {[31, 30, 30, 32, 32, 55, 41, 71, 73, 68].map((width, index) => (
+            {[39, 35, 39, 38, 39, 66, 51, 88, 90, 84].map((width, index) => (
               <col key={index} style={{ width }} />
             ))}
             <col style={{ width: "21%" }} />
-            <col style={{ width: 41 }} />
+            <col style={{ width: 50 }} />
             <col />
-            <col style={{ width: 165 }} />
-            <col style={{ width: 44 }} />
+            <col style={{ width: 205 }} />
+            <col style={{ width: 54 }} />
           </colgroup>
           <Table.Thead>
             <Table.Tr>
