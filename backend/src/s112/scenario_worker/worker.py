@@ -18,11 +18,13 @@ from s112.common.enums import (
     ScenarioCompletionPolicy,
     ScheduledCardStatus,
     TrainingActionResult,
+    TrainingCallStatus,
     TrainingSessionStatus,
 )
 from s112.domain.models import (
     SessionScheduledCard,
     TrainingAction,
+    TrainingCall,
     TrainingSession,
 )
 
@@ -78,6 +80,48 @@ class ScenarioCardEmitter:
         return item
 
 
+class ScenarioCallEmitter:
+    async def emit(
+        self,
+        session: AsyncSession,
+        item: TrainingCall,
+        *,
+        actor_id: uuid.UUID | None = None,
+    ) -> TrainingCall:
+        if item.status == TrainingCallStatus.RINGING.value:
+            return item
+        if item.status != TrainingCallStatus.PENDING.value:
+            raise ValueError(f"Training call cannot ring from status {item.status}")
+        training_session = await session.get(TrainingSession, item.training_session_id)
+        if (
+            training_session is None
+            or training_session.status != TrainingSessionStatus.RUNNING.value
+        ):
+            raise ValueError("Training session is not running")
+
+        now = utcnow()
+        item.status = TrainingCallStatus.RINGING.value
+        item.ringing_at = now
+        item.attempts += 1
+        item.last_error = None
+        session.add(
+            TrainingAction(
+                training_session_id=item.training_session_id,
+                workspace_id=item.workspace_id,
+                actor_user_id=actor_id,
+                action_type="INCOMING_CALL_RINGING",
+                entity_type="training_call",
+                entity_id=str(item.id),
+                occurred_at=now,
+                request_id=f"incoming-call-ring:{item.id}",
+                result=TrainingActionResult.SUCCESS.value,
+                details={"scenario_item_key": item.scenario_item_key},
+            )
+        )
+        await session.flush()
+        return item
+
+
 class ScenarioSchedulerWorker:
     def __init__(
         self,
@@ -91,6 +135,7 @@ class ScenarioSchedulerWorker:
         self.batch_size = batch_size
         self.retry_limit = retry_limit
         self.emitter = ScenarioCardEmitter(kafka_topic)
+        self.call_emitter = ScenarioCallEmitter()
         self.completion = ScenarioCompletionService(kafka_topic)
         self.simulation = SimulationApplicationService(kafka_topic)
 
@@ -120,6 +165,24 @@ class ScenarioSchedulerWorker:
                 if session.bind and session.bind.dialect.name == "postgresql":
                     statement = statement.with_for_update(skip_locked=True)
                 item_ids = list(await session.scalars(statement))
+                call_statement = (
+                    select(TrainingCall.id)
+                    .join(
+                        TrainingSession,
+                        TrainingSession.id == TrainingCall.training_session_id,
+                    )
+                    .where(
+                        TrainingCall.status == TrainingCallStatus.PENDING.value,
+                        TrainingCall.scheduled_at.is_not(None),
+                        TrainingCall.scheduled_at <= now,
+                        TrainingSession.status == TrainingSessionStatus.RUNNING.value,
+                    )
+                    .order_by(TrainingCall.scheduled_at, TrainingCall.id)
+                    .limit(self.batch_size)
+                )
+                if session.bind and session.bind.dialect.name == "postgresql":
+                    call_statement = call_statement.with_for_update(skip_locked=True)
+                call_ids = list(await session.scalars(call_statement))
 
         emitted = 0
         for item_id in item_ids:
@@ -139,6 +202,21 @@ class ScenarioSchedulerWorker:
             except Exception as exc:
                 logger.exception("Failed to emit scenario card %s", item_id)
                 await self._record_failure(item_id, exc)
+        for call_id in call_ids:
+            try:
+                async with self.database.write_session_factory() as session:
+                    async with session.begin():
+                        statement = select(TrainingCall).where(TrainingCall.id == call_id)
+                        if session.bind and session.bind.dialect.name == "postgresql":
+                            statement = statement.with_for_update(skip_locked=True)
+                        item = await session.scalar(statement)
+                        if item is None or item.status != TrainingCallStatus.PENDING.value:
+                            continue
+                        await self.call_emitter.emit(session, item)
+                emitted += 1
+            except Exception as exc:
+                logger.exception("Failed to emit incoming call %s", call_id)
+                await self._record_call_failure(call_id, exc)
         await self._refresh_completion_states()
         return emitted
 
@@ -204,28 +282,11 @@ class ScenarioSchedulerWorker:
             )
         )
         for item in pending:
-            source_key = item.trigger_config.get("card_key")
-            action_type = item.trigger_config.get("action_type")
-            if not source_key or not action_type:
-                continue
-            source = await session.scalar(
-                select(SessionScheduledCard).where(
-                    SessionScheduledCard.training_session_id == item.training_session_id,
-                    SessionScheduledCard.scenario_card_key == source_key,
-                )
-            )
-            if source is None or source.incident_card_id is None:
-                continue
-            action = await session.scalar(
-                select(TrainingAction)
-                .where(
-                    TrainingAction.training_session_id == item.training_session_id,
-                    TrainingAction.incident_card_id == source.incident_card_id,
-                    TrainingAction.action_type == action_type,
-                    TrainingAction.result == TrainingActionResult.SUCCESS.value,
-                )
-                .order_by(TrainingAction.occurred_at)
-                .limit(1)
+            action = await self._source_action(
+                session,
+                training_session_id=item.training_session_id,
+                source_key=item.trigger_config.get("card_key"),
+                action_type=item.trigger_config.get("action_type"),
             )
             if action is not None:
                 occurred_at = action.occurred_at
@@ -234,6 +295,79 @@ class ScenarioSchedulerWorker:
                 item.scheduled_at = occurred_at + timedelta(
                     seconds=int(item.trigger_config.get("delay_seconds", 0))
                 )
+
+        pending_calls = list(
+            await session.scalars(
+                select(TrainingCall).where(
+                    TrainingCall.status == TrainingCallStatus.PENDING.value,
+                    TrainingCall.trigger_type == ScenarioTriggerType.AFTER_ACTION.value,
+                    TrainingCall.scheduled_at.is_(None),
+                )
+            )
+        )
+        for item in pending_calls:
+            action = await self._source_action(
+                session,
+                training_session_id=item.training_session_id,
+                source_key=item.trigger_config.get("card_key"),
+                action_type=item.trigger_config.get("action_type"),
+            )
+            if action is not None:
+                occurred_at = action.occurred_at
+                if occurred_at.tzinfo is None:
+                    occurred_at = occurred_at.replace(tzinfo=timezone.utc)
+                item.scheduled_at = occurred_at + timedelta(
+                    seconds=int(item.trigger_config.get("delay_seconds", 0))
+                )
+
+    @staticmethod
+    async def _source_action(
+        session: AsyncSession,
+        *,
+        training_session_id: uuid.UUID,
+        source_key: str | None,
+        action_type: str | None,
+    ) -> TrainingAction | None:
+        if not source_key or not action_type:
+            return None
+        source_card = await session.scalar(
+            select(SessionScheduledCard).where(
+                SessionScheduledCard.training_session_id == training_session_id,
+                SessionScheduledCard.scenario_card_key == source_key,
+            )
+        )
+        if source_card is not None and source_card.incident_card_id is not None:
+            return await session.scalar(
+                select(TrainingAction)
+                .where(
+                    TrainingAction.training_session_id == training_session_id,
+                    TrainingAction.incident_card_id == source_card.incident_card_id,
+                    TrainingAction.action_type == action_type,
+                    TrainingAction.result == TrainingActionResult.SUCCESS.value,
+                )
+                .order_by(TrainingAction.occurred_at)
+                .limit(1)
+            )
+        source_call = await session.scalar(
+            select(TrainingCall).where(
+                TrainingCall.training_session_id == training_session_id,
+                TrainingCall.scenario_item_key == source_key,
+            )
+        )
+        if source_call is None:
+            return None
+        return await session.scalar(
+            select(TrainingAction)
+            .where(
+                TrainingAction.training_session_id == training_session_id,
+                TrainingAction.entity_type == "training_call",
+                TrainingAction.entity_id == str(source_call.id),
+                TrainingAction.action_type == action_type,
+                TrainingAction.result == TrainingActionResult.SUCCESS.value,
+            )
+            .order_by(TrainingAction.occurred_at)
+            .limit(1)
+        )
 
     async def _record_failure(self, item_id: uuid.UUID, exc: Exception) -> None:
         async with self.database.write_session_factory() as session:
@@ -249,6 +383,25 @@ class ScenarioSchedulerWorker:
                 item.last_error = str(exc)[:2000]
                 if item.attempts >= self.retry_limit:
                     item.status = ScheduledCardStatus.FAILED.value
+                else:
+                    item.scheduled_at = utcnow() + timedelta(
+                        seconds=min(60, 2 ** item.attempts)
+                    )
+
+    async def _record_call_failure(self, item_id: uuid.UUID, exc: Exception) -> None:
+        async with self.database.write_session_factory() as session:
+            async with session.begin():
+                item = await session.scalar(
+                    select(TrainingCall)
+                    .where(TrainingCall.id == item_id)
+                    .with_for_update()
+                )
+                if item is None or item.status != TrainingCallStatus.PENDING.value:
+                    return
+                item.attempts += 1
+                item.last_error = str(exc)[:2000]
+                if item.attempts >= self.retry_limit:
+                    item.status = TrainingCallStatus.FAILED.value
                 else:
                     item.scheduled_at = utcnow() + timedelta(
                         seconds=min(60, 2 ** item.attempts)

@@ -45,6 +45,7 @@ from s112.common.enums import (
     ServiceResponseStatus,
     SourceType,
     TrainingActionResult,
+    TrainingCallStatus,
     TrainingSessionStatus,
     UserRole,
     WorkspaceMemberRole,
@@ -782,6 +783,36 @@ class CardTemplate(Base):
     )
 
 
+class IncomingCallTemplate(Base):
+    """Immutable version of a reusable simulated incoming call."""
+
+    __tablename__ = "incoming_call_template"
+    __table_args__ = (
+        UniqueConstraint(
+            "template_key", "version", name="uq_incoming_call_template_key_version"
+        ),
+        CheckConstraint("version >= 1", name="version_positive"),
+        CheckConstraint("difficulty BETWEEN 1 AND 5", name="difficulty_range"),
+        Index("ix_incoming_call_template_active_name", "is_active", "name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    template_key: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, default=uuid.uuid4)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    difficulty: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    initial_call: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    expected_result: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_account.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class TrainingScenario(Base, TimestampMixin):
     __tablename__ = "training_scenario"
     __table_args__ = (
@@ -1071,6 +1102,57 @@ class SessionScheduledCard(Base):
     last_error: Mapped[str | None] = mapped_column(Text)
 
 
+class TrainingCall(Base):
+    """A scheduled and subsequently active incoming call in a training session."""
+
+    __tablename__ = "training_call"
+    __table_args__ = (
+        UniqueConstraint(
+            "training_session_id",
+            "scenario_item_key",
+            name="uq_training_call_session_item",
+        ),
+        CheckConstraint(
+            "status IN ('PENDING', 'RINGING', 'ACTIVE', 'COMPLETED', 'FAILED', 'CANCELLED')",
+            name="status_valid",
+        ),
+        Index("ix_training_call_due", "status", "scheduled_at"),
+        Index("ix_training_call_workspace", "workspace_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    training_session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("training_session.id", ondelete="CASCADE"), nullable=False
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("simulation_workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    scenario_item_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    trigger_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=ScenarioTriggerType.TIME_OFFSET.value
+    )
+    trigger_config: Mapped[dict[str, Any]] = mapped_column(
+        JsonType, nullable=False, default=dict
+    )
+    source_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=ScenarioCardSourceType.SNAPSHOT.value
+    )
+    call_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    expected_result: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=TrainingCallStatus.PENDING.value
+    )
+    incident_card_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("incident_card.id", ondelete="SET NULL"), unique=True
+    )
+    ringing_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+
 class TrainingAction(Base):
     __tablename__ = "training_action"
     __table_args__ = (
@@ -1147,6 +1229,7 @@ class AudioMessage(Base):
             "sequence_no",
         ),
         Index("ix_audio_message_card_sequence", "incident_card_id", "sequence_no"),
+        Index("ix_audio_message_call_sequence", "training_call_id", "sequence_no"),
         Index("ix_audio_message_status_created", "status", "created_at"),
     )
 
@@ -1159,6 +1242,9 @@ class AudioMessage(Base):
     )
     incident_card_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("incident_card.id", ondelete="SET NULL")
+    )
+    training_call_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("training_call.id", ondelete="CASCADE")
     )
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("user_account.id", ondelete="RESTRICT")

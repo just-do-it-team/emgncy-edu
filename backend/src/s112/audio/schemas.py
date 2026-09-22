@@ -26,6 +26,7 @@ class AudioMessageResponse(BaseModel):
     training_session_id: uuid.UUID
     workspace_id: uuid.UUID
     incident_card_id: uuid.UUID | None
+    training_call_id: uuid.UUID | None
     actor_user_id: uuid.UUID | None
     kind: str
     direction: str

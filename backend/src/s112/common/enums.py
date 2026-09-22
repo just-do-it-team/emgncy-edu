@@ -149,9 +149,23 @@ class ScenarioCardSourceType(str, Enum):
     SNAPSHOT = "SNAPSHOT"
 
 
+class ScenarioItemType(str, Enum):
+    INCIDENT_CARD = "INCIDENT_CARD"
+    INCOMING_CALL = "INCOMING_CALL"
+
+
 class ScheduledCardStatus(str, Enum):
     PENDING = "PENDING"
     EMITTED = "EMITTED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class TrainingCallStatus(str, Enum):
+    PENDING = "PENDING"
+    RINGING = "RINGING"
+    ACTIVE = "ACTIVE"
+    COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
 

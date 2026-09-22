@@ -11,13 +11,16 @@ from s112.api.simulation_schemas import (
     CardTemplateCreate,
     CardTemplateDeleteRequest,
     CardTemplateResponse,
+    IncomingCallTemplateCreate,
+    IncomingCallTemplateDeleteRequest,
+    IncomingCallTemplateResponse,
     ScenarioDeleteRequest,
     TrainingScenarioCreate,
     TrainingScenarioResponse,
     TrainingScenarioUpdate,
 )
 from s112.api.simulation_service import SimulationApplicationService
-from s112.domain.models import CardTemplate, TrainingScenario
+from s112.domain.models import CardTemplate, IncomingCallTemplate, TrainingScenario
 
 
 router = APIRouter(prefix="/api/v1", tags=["teacher/training_content"])
@@ -79,6 +82,76 @@ async def delete_card_template(
     try:
         async with session.begin():
             await service.delete_template(session, template_id, request)
+    except DomainError as exc:
+        raise_http_error(exc)
+
+
+@router.post(
+    "/incoming-call-templates",
+    response_model=IncomingCallTemplateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_incoming_call_template(
+    request: IncomingCallTemplateCreate,
+    session: AsyncSession = Depends(get_write_session),
+    service: SimulationApplicationService = Depends(simulation_service),
+) -> IncomingCallTemplate:
+    try:
+        async with session.begin():
+            return await service.create_incoming_call_template(session, request)
+    except DomainError as exc:
+        raise_http_error(exc)
+
+
+@router.get(
+    "/incoming-call-templates",
+    response_model=list[IncomingCallTemplateResponse],
+)
+async def list_incoming_call_templates(
+    active_only: bool = True,
+    session: AsyncSession = Depends(get_read_session),
+) -> list[IncomingCallTemplate]:
+    statement = select(IncomingCallTemplate)
+    if active_only:
+        statement = statement.where(IncomingCallTemplate.is_active.is_(True))
+    return list(
+        await session.scalars(
+            statement.order_by(
+                IncomingCallTemplate.name,
+                IncomingCallTemplate.template_key,
+                IncomingCallTemplate.version,
+            )
+        )
+    )
+
+
+@router.get(
+    "/incoming-call-templates/{template_id}",
+    response_model=IncomingCallTemplateResponse,
+)
+async def get_incoming_call_template(
+    template_id: uuid.UUID,
+    session: AsyncSession = Depends(get_read_session),
+) -> IncomingCallTemplate:
+    template = await session.get(IncomingCallTemplate, template_id)
+    if template is None:
+        raise HTTPException(status_code=404, detail="Incoming call template not found")
+    return template
+
+
+@router.delete(
+    "/incoming-call-templates/{template_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_incoming_call_template(
+    template_id: uuid.UUID,
+    request: IncomingCallTemplateDeleteRequest,
+    session: AsyncSession = Depends(get_write_session),
+    service: SimulationApplicationService = Depends(simulation_service),
+) -> None:
+    try:
+        async with session.begin():
+            await service.delete_incoming_call_template(session, template_id, request)
     except DomainError as exc:
         raise_http_error(exc)
 

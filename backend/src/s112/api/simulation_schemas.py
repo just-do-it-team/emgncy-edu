@@ -12,6 +12,7 @@ from s112.common.enums import (
     LaunchPolicy,
     ScenarioCardSourceType,
     ScenarioCompletionPolicy,
+    ScenarioItemType,
     ScenarioStatus,
     ScenarioTriggerType,
     WorkspaceMode,
@@ -34,13 +35,32 @@ class ExpectedResult(BaseModel):
     required_actions: list[RequiredAction] = Field(default_factory=list)
 
 
+class InitialIncomingCall(BaseModel):
+    """Prompt data kept server-side and supplied to the caller LLM."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    initial_utterance: str = Field(min_length=1, max_length=10_000)
+    context: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("initial_utterance")
+    @classmethod
+    def normalize_initial_utterance(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("initial_utterance must not be blank")
+        return normalized
+
+
 class ScenarioCardDefinition(BaseModel):
     key: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_.-]+$")
+    item_type: ScenarioItemType = ScenarioItemType.INCIDENT_CARD
     trigger_type: ScenarioTriggerType
     trigger_config: dict[str, Any] = Field(default_factory=dict)
     source_type: ScenarioCardSourceType
     template_id: uuid.UUID | None = None
     initial_card: CardCreate | None = None
+    initial_call: InitialIncomingCall | None = None
     expected_result: ExpectedResult | None = None
     evaluation_rules: dict[str, Any] = Field(default_factory=dict)
 
@@ -56,15 +76,35 @@ class ScenarioCardDefinition(BaseModel):
         if self.source_type is ScenarioCardSourceType.TEMPLATE:
             if self.template_id is None:
                 raise ValueError("template_id is required for TEMPLATE source")
-            if self.initial_card is not None or self.expected_result is not None:
-                raise ValueError("TEMPLATE source must not duplicate template card data")
+            if (
+                self.initial_card is not None
+                or self.initial_call is not None
+                or self.expected_result is not None
+            ):
+                raise ValueError("TEMPLATE source must not duplicate template data")
         elif self.source_type is ScenarioCardSourceType.INLINE:
-            if self.initial_card is None or self.expected_result is None:
-                raise ValueError("INLINE source requires initial_card and expected_result")
+            payload = (
+                self.initial_card
+                if self.item_type is ScenarioItemType.INCIDENT_CARD
+                else self.initial_call
+            )
+            if payload is None or self.expected_result is None:
+                raise ValueError("INLINE source requires an initial payload and expected_result")
             if self.template_id is not None:
                 raise ValueError("INLINE source must not contain template_id")
         else:
             raise ValueError("SNAPSHOT source is reserved for assigned scenarios")
+
+        if self.item_type is ScenarioItemType.INCIDENT_CARD:
+            if self.initial_call is not None:
+                raise ValueError("INCIDENT_CARD item must not contain initial_call")
+        elif self.item_type is ScenarioItemType.INCOMING_CALL:
+            if self.initial_card is not None:
+                raise ValueError("INCOMING_CALL item must not contain initial_card")
+            if self.evaluation_rules:
+                raise ValueError(
+                    "INCOMING_CALL semantic reference belongs in expected_result"
+                )
 
         if self.trigger_type is ScenarioTriggerType.TIME_OFFSET:
             offset = self.trigger_config.get("offset_seconds")
@@ -91,9 +131,13 @@ class ScenarioDefinition(BaseModel):
 
     @model_validator(mode="after")
     def validate_card_keys(self) -> "ScenarioDefinition":
+        if self.schema_version < 2 and any(
+            item.item_type is ScenarioItemType.INCOMING_CALL for item in self.cards
+        ):
+            raise ValueError("INCOMING_CALL items require scenario schema_version 2")
         keys = [card.key for card in self.cards]
         if len(keys) != len(set(keys)):
-            raise ValueError("Scenario card keys must be unique")
+            raise ValueError("Scenario item keys must be unique")
         known = set(keys)
         for card in self.cards:
             if card.trigger_type is ScenarioTriggerType.AFTER_ACTION:
@@ -101,7 +145,7 @@ class ScenarioDefinition(BaseModel):
                 if dependency not in known:
                     raise ValueError(f"Unknown AFTER_ACTION card_key: {dependency}")
                 if dependency == card.key:
-                    raise ValueError("A scenario card cannot depend on itself")
+                    raise ValueError("A scenario item cannot depend on itself")
         return self
 
 
@@ -162,6 +206,35 @@ class CardTemplateResponse(OrmModel):
 
 
 class CardTemplateDeleteRequest(BaseModel):
+    deleted_by: uuid.UUID
+
+
+class IncomingCallTemplateCreate(BaseModel):
+    template_key: uuid.UUID | None = None
+    version: int = Field(default=1, ge=1)
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = None
+    difficulty: int = Field(default=1, ge=1, le=5)
+    initial_call: InitialIncomingCall
+    expected_result: ExpectedResult
+    created_by: uuid.UUID
+
+
+class IncomingCallTemplateResponse(OrmModel):
+    id: uuid.UUID
+    template_key: uuid.UUID
+    version: int
+    name: str
+    description: str | None
+    difficulty: int
+    initial_call: dict[str, Any]
+    expected_result: dict[str, Any]
+    is_active: bool
+    created_by: uuid.UUID
+    created_at: datetime
+
+
+class IncomingCallTemplateDeleteRequest(BaseModel):
     deleted_by: uuid.UUID
 
 
@@ -353,6 +426,8 @@ class CompletionBlocker(BaseModel):
     service_code: str | None = None
     audio_message_id: uuid.UUID | None = None
     sequence_no: int | None = None
+    scenario_item_key: str | None = None
+    training_call_id: uuid.UUID | None = None
 
 
 class PendingServiceDecision(BaseModel):
@@ -372,6 +447,13 @@ class SessionCompletionReadinessResponse(BaseModel):
     cards_emitted: int
     cards_failed: int
     cards_cancelled: int
+    calls_total: int = 0
+    calls_pending: int = 0
+    calls_ringing: int = 0
+    calls_active: int = 0
+    calls_completed: int = 0
+    calls_failed: int = 0
+    calls_cancelled: int = 0
     decisions_required: int
     decisions_completed: int
     audio_messages_total: int = 0
@@ -498,6 +580,16 @@ class ExpertReviewCardResponse(BaseModel):
     automatic_result: dict[str, Any] | None
 
 
+class ExpertReviewCallResponse(BaseModel):
+    scenario_item_key: str
+    training_call_id: uuid.UUID
+    incident_card_id: uuid.UUID | None
+    status: str
+    expected_result: dict[str, Any]
+    current_state: dict[str, Any] | None
+    automatic_result: dict[str, Any] | None
+
+
 class TrainingActionResponse(OrmModel):
     id: uuid.UUID
     training_session_id: uuid.UUID
@@ -519,6 +611,7 @@ class ExpertReviewContextResponse(BaseModel):
     scenario_snapshot: dict[str, Any]
     participant_ids: list[uuid.UUID]
     cards: list[ExpertReviewCardResponse]
+    incoming_calls: list[ExpertReviewCallResponse] = Field(default_factory=list)
     actions: list[TrainingActionResponse]
 
 
@@ -571,6 +664,11 @@ class TeacherMonitoringSession(BaseModel):
     cards_total: int
     cards_pending: int
     cards_emitted: int
+    calls_total: int = 0
+    calls_pending: int = 0
+    calls_ringing: int = 0
+    calls_active: int = 0
+    calls_completed: int = 0
     pending_card_keys: list[str]
     emitted_card_keys: list[str]
     successful_actions: int
@@ -596,3 +694,29 @@ class ScheduledCardResponse(OrmModel):
     emitted_at: datetime | None
     attempts: int
     last_error: str | None
+
+
+class TrainingCallResponse(OrmModel):
+    id: uuid.UUID
+    training_session_id: uuid.UUID
+    workspace_id: uuid.UUID
+    scenario_item_key: str
+    trigger_type: str
+    trigger_config: dict[str, Any]
+    status: str
+    incident_card_id: uuid.UUID | None
+    scheduled_at: datetime | None
+    ringing_at: datetime | None
+    answered_at: datetime | None
+    completed_at: datetime | None
+    attempts: int
+    last_error: str | None
+
+
+class TrainingCallActionRequest(BaseModel):
+    user_id: uuid.UUID
+
+
+class TrainingCallCardLinkRequest(BaseModel):
+    user_id: uuid.UUID
+    incident_card_id: uuid.UUID

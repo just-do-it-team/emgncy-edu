@@ -3,14 +3,17 @@ from __future__ import annotations
 import io
 import logging
 import math
+import os
 import queue
 import re
 import subprocess
+import tempfile
 import threading
 import textwrap
 import wave
 from array import array
 from collections import deque
+from pathlib import Path
 from typing import Any
 
 from s112.common.config import Settings
@@ -138,13 +141,21 @@ class SpeechService:
     def transcribe(self, audio_path: str) -> str:
         with self._stt_lock:
             model = self._get_stt_model()
+            chunks = _split_long_wav_for_stt(audio_path)
             try:
-                result = model.transcribe(audio_path)
+                if chunks:
+                    texts = [
+                        _transcript_text(model.transcribe(str(chunk)))
+                        for chunk in chunks
+                    ]
+                    text = " ".join(value for value in texts if value).strip()
+                else:
+                    text = _transcript_text(model.transcribe(audio_path))
             except ValueError as exc:
                 if "Too long" in str(exc):
                     raise SpeechServiceError(
                         "Запись слишком длинная для короткого режима GigaAM. "
-                        "Говорите не дольше 20 секунд."
+                        "Поддерживается автоматическое деление только WAV-аудио."
                     ) from exc
                 raise SpeechServiceError(
                     f"Ошибка распознавания GigaAM: {exc}"
@@ -153,8 +164,10 @@ class SpeechService:
                 raise SpeechServiceError(
                     f"Ошибка распознавания GigaAM: {exc}"
                 ) from exc
+            finally:
+                for chunk in chunks:
+                    chunk.unlink(missing_ok=True)
 
-        text = str(getattr(result, "text", result)).strip()
         if not text:
             raise SpeechServiceError("Речь не распознана")
         return text
@@ -454,6 +467,49 @@ class SpeechService:
             "--seed",
             str(self.settings.tts_seed),
         ]
+
+
+def _transcript_text(result: Any) -> str:
+    return str(getattr(result, "text", result)).strip()
+
+
+def _split_long_wav_for_stt(
+    audio_path: str,
+    *,
+    max_chunk_seconds: int = 18,
+) -> list[Path]:
+    """Split a long PCM WAV into GigaAM short-mode compatible chunks."""
+
+    chunks: list[Path] = []
+    try:
+        with wave.open(audio_path, "rb") as reader:
+            params = reader.getparams()
+            max_frames = params.framerate * max_chunk_seconds
+            if params.nframes <= max_frames:
+                return []
+            while frames := reader.readframes(max_frames):
+                descriptor, filename = tempfile.mkstemp(
+                    prefix="s112-stt-chunk-",
+                    suffix=".wav",
+                )
+                os.close(descriptor)
+                try:
+                    with wave.open(filename, "wb") as writer:
+                        writer.setparams(params)
+                        writer.writeframes(frames)
+                except Exception:
+                    Path(filename).unlink(missing_ok=True)
+                    raise
+                chunks.append(Path(filename))
+    except (EOFError, wave.Error):
+        for chunk in chunks:
+            chunk.unlink(missing_ok=True)
+        return []
+    except Exception:
+        for chunk in chunks:
+            chunk.unlink(missing_ok=True)
+        raise
+    return chunks
 
 
 def _split_tts_text(text: str, max_chars: int = 120) -> list[str]:

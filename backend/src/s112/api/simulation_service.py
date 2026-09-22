@@ -23,11 +23,15 @@ from s112.api.simulation_schemas import (
     LearningGroupCreate,
     LearningGroupMembersUpdate,
     LearningGroupUpdate,
+    IncomingCallTemplateCreate,
+    IncomingCallTemplateDeleteRequest,
     ScenarioAssignmentCreate,
     ScenarioDefinition,
     ScenarioDeleteRequest,
     TrainingScenarioCreate,
     TrainingScenarioUpdate,
+    TrainingCallActionRequest,
+    TrainingCallCardLinkRequest,
     strip_scenario_card_runtime_fields,
 )
 from s112.common.enums import (
@@ -36,10 +40,12 @@ from s112.common.enums import (
     ParticipantStatus,
     ScenarioCardSourceType,
     ScenarioCompletionPolicy,
+    ScenarioItemType,
     ScenarioStatus,
     ScenarioTriggerType,
     ScheduledCardStatus,
     TrainingActionResult,
+    TrainingCallStatus,
     TrainingSessionStatus,
     UserRole,
     WorkspaceMemberRole,
@@ -54,6 +60,7 @@ from s112.domain.models import (
     CardTemplate,
     EmergencyService,
     IncidentCard,
+    IncomingCallTemplate,
     LearningGroup,
     LearningGroupMember,
     OutboxEvent,
@@ -61,6 +68,7 @@ from s112.domain.models import (
     SessionScheduledCard,
     SimulationWorkspace,
     TrainingAction,
+    TrainingCall,
     TrainingCardResult,
     TrainingScenario,
     TrainingSession,
@@ -69,6 +77,7 @@ from s112.domain.models import (
 )
 from s112.semantic_evaluation.rules import (
     EVALUATION_RESULT_ACTION,
+    LEGACY_CALL_ACTION,
     outbound_call_rule,
 )
 
@@ -151,12 +160,83 @@ class SimulationApplicationService:
         for scenario in scenarios:
             definition = ScenarioDefinition.model_validate(scenario.definition)
             if any(
-                card.source_type is ScenarioCardSourceType.TEMPLATE
-                and card.template_id == template.id
-                for card in definition.cards
+                item.item_type is ScenarioItemType.INCIDENT_CARD
+                and item.source_type is ScenarioCardSourceType.TEMPLATE
+                and item.template_id == template.id
+                for item in definition.cards
             ):
                 raise ConflictError(
                     "Card template is referenced by an active training scenario"
+                )
+        template.is_active = False
+        await session.flush()
+
+    async def create_incoming_call_template(
+        self, session: AsyncSession, request: IncomingCallTemplateCreate
+    ) -> IncomingCallTemplate:
+        await self._require_user_role(
+            session, request.created_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
+        )
+        template_key = request.template_key or uuid.uuid4()
+        existing = await session.scalar(
+            select(IncomingCallTemplate.id).where(
+                IncomingCallTemplate.template_key == template_key,
+                IncomingCallTemplate.version == request.version,
+            )
+        )
+        if existing is not None:
+            raise ConflictError("This incoming call template version already exists")
+
+        template = IncomingCallTemplate(
+            template_key=template_key,
+            version=request.version,
+            name=request.name,
+            description=request.description,
+            difficulty=request.difficulty,
+            initial_call=request.initial_call.model_dump(mode="json"),
+            expected_result=request.expected_result.model_dump(mode="json"),
+            created_by=request.created_by,
+        )
+        session.add(template)
+        await session.flush()
+        return template
+
+    async def delete_incoming_call_template(
+        self,
+        session: AsyncSession,
+        template_id: uuid.UUID,
+        request: IncomingCallTemplateDeleteRequest,
+    ) -> None:
+        await self._require_user_role(
+            session, request.deleted_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
+        )
+        template = await session.scalar(
+            select(IncomingCallTemplate)
+            .where(IncomingCallTemplate.id == template_id)
+            .with_for_update()
+        )
+        if template is None:
+            raise NotFoundError("Incoming call template not found")
+        if not template.is_active:
+            return
+
+        scenarios = list(
+            await session.scalars(
+                select(TrainingScenario).where(
+                    TrainingScenario.status != ScenarioStatus.ARCHIVED.value
+                )
+            )
+        )
+        for scenario in scenarios:
+            definition = ScenarioDefinition.model_validate(scenario.definition)
+            if any(
+                item.item_type is ScenarioItemType.INCOMING_CALL
+                and item.source_type is ScenarioCardSourceType.TEMPLATE
+                and item.template_id == template.id
+                for item in definition.cards
+            ):
+                raise ConflictError(
+                    "Incoming call template is referenced by an active training scenario"
                 )
         template.is_active = False
         await session.flush()
@@ -514,26 +594,42 @@ class SimulationApplicationService:
 
         definition = ScenarioDefinition.model_validate(scenario.definition)
         resolved_cards: list[dict[str, Any]] = []
-        for card in definition.cards:
-            raw = card.model_dump(mode="json", exclude_none=True)
-            if card.source_type is ScenarioCardSourceType.TEMPLATE:
-                template = await session.get(CardTemplate, card.template_id)
-                if template is None or not template.is_active:
-                    raise ValidationError(f"Inactive or missing card template: {card.template_id}")
-                raw["source_type"] = ScenarioCardSourceType.SNAPSHOT.value
-                raw["template_id"] = str(template.id)
-                raw["template_key"] = str(template.template_key)
-                raw["template_version"] = template.version
-                raw["initial_card"] = dict(template.initial_card)
-                raw["expected_result"] = dict(template.expected_result)
-                raw["evaluation_rules"] = {
-                    **template.evaluation_rules,
-                    **card.evaluation_rules,
-                }
+        for item in definition.cards:
+            raw = item.model_dump(mode="json", exclude_none=True)
+            if item.source_type is ScenarioCardSourceType.TEMPLATE:
+                if item.item_type is ScenarioItemType.INCOMING_CALL:
+                    template = await session.get(IncomingCallTemplate, item.template_id)
+                    if template is None or not template.is_active:
+                        raise ValidationError(
+                            f"Inactive or missing incoming call template: {item.template_id}"
+                        )
+                    raw["source_type"] = ScenarioCardSourceType.SNAPSHOT.value
+                    raw["template_id"] = str(template.id)
+                    raw["template_key"] = str(template.template_key)
+                    raw["template_version"] = template.version
+                    raw["initial_call"] = dict(template.initial_call)
+                    raw["expected_result"] = dict(template.expected_result)
+                else:
+                    template = await session.get(CardTemplate, item.template_id)
+                    if template is None or not template.is_active:
+                        raise ValidationError(
+                            f"Inactive or missing card template: {item.template_id}"
+                        )
+                    raw["source_type"] = ScenarioCardSourceType.SNAPSHOT.value
+                    raw["template_id"] = str(template.id)
+                    raw["template_key"] = str(template.template_key)
+                    raw["template_version"] = template.version
+                    raw["initial_card"] = dict(template.initial_card)
+                    raw["expected_result"] = dict(template.expected_result)
+                    raw["evaluation_rules"] = {
+                        **template.evaluation_rules,
+                        **item.evaluation_rules,
+                    }
             else:
                 raw["source_type"] = ScenarioCardSourceType.SNAPSHOT.value
-            raw["initial_card"].pop("workspace_id", None)
-            raw["initial_card"].pop("request_id", None)
+            if item.item_type is ScenarioItemType.INCIDENT_CARD:
+                raw["initial_card"].pop("workspace_id", None)
+                raw["initial_card"].pop("request_id", None)
             resolved_cards.append(raw)
 
         snapshot = {
@@ -750,29 +846,13 @@ class SimulationApplicationService:
             data={"attempt_number": training_session.attempt_number},
         )
 
-        cards = assignment.scenario_snapshot["definition"]["cards"]
-        for item in cards:
-            trigger_type = item["trigger_type"]
-            scheduled_at: datetime | None = None
-            if trigger_type == ScenarioTriggerType.TIME_OFFSET.value:
-                scheduled_at = now + timedelta(
-                    seconds=int(item["trigger_config"]["offset_seconds"])
-                )
-            session.add(
-                SessionScheduledCard(
-                    training_session_id=training_session.id,
-                    workspace_id=workspace.id,
-                    scenario_card_key=item["key"],
-                    trigger_type=trigger_type,
-                    trigger_config=item.get("trigger_config", {}),
-                    source_type=ScenarioCardSourceType.SNAPSHOT.value,
-                    card_payload=item["initial_card"],
-                    expected_result=item["expected_result"],
-                    evaluation_rules=item.get("evaluation_rules", {}),
-                    scheduled_at=scheduled_at,
-                    status=ScheduledCardStatus.PENDING.value,
-                )
-            )
+        self._add_scheduled_items(
+            session,
+            training_session_id=training_session.id,
+            workspace_id=workspace.id,
+            items=assignment.scenario_snapshot["definition"]["cards"],
+            started_at=now,
+        )
 
         assignment.status = AssignmentStatus.RUNNING.value
         participant.status = ParticipantStatus.RUNNING.value
@@ -931,27 +1011,13 @@ class SimulationApplicationService:
             },
         )
 
-        for item in assignment.scenario_snapshot["definition"]["cards"]:
-            scheduled_at: datetime | None = None
-            if item["trigger_type"] == ScenarioTriggerType.TIME_OFFSET.value:
-                scheduled_at = now + timedelta(
-                    seconds=int(item["trigger_config"]["offset_seconds"])
-                )
-            session.add(
-                SessionScheduledCard(
-                    training_session_id=training_session.id,
-                    workspace_id=workspace.id,
-                    scenario_card_key=item["key"],
-                    trigger_type=item["trigger_type"],
-                    trigger_config=item.get("trigger_config", {}),
-                    source_type=ScenarioCardSourceType.SNAPSHOT.value,
-                    card_payload=item["initial_card"],
-                    expected_result=item["expected_result"],
-                    evaluation_rules=item.get("evaluation_rules", {}),
-                    scheduled_at=scheduled_at,
-                    status=ScheduledCardStatus.PENDING.value,
-                )
-            )
+        self._add_scheduled_items(
+            session,
+            training_session_id=training_session.id,
+            workspace_id=workspace.id,
+            items=assignment.scenario_snapshot["definition"]["cards"],
+            started_at=now,
+        )
         assignment.status = AssignmentStatus.RUNNING.value
         for participant in participants:
             participant.status = ParticipantStatus.RUNNING.value
@@ -1025,7 +1091,15 @@ class SimulationApplicationService:
                 .order_by(SessionScheduledCard.scenario_card_key)
             )
         )
+        training_calls = list(
+            await session.scalars(
+                select(TrainingCall)
+                .where(TrainingCall.training_session_id == training_session.id)
+                .order_by(TrainingCall.scenario_item_key)
+            )
+        )
         card_results: list[dict[str, Any]] = []
+        call_results: list[dict[str, Any]] = []
         total_score = Decimal("0")
         evaluated_count = 0
         for item in scheduled_cards:
@@ -1045,14 +1119,39 @@ class SimulationApplicationService:
                 }
             )
 
+        for item in training_calls:
+            if (
+                item.status != TrainingCallStatus.COMPLETED.value
+                or item.incident_card_id is None
+            ):
+                raise CompletionNotReadyError(readiness)
+            result = await self._evaluate_incoming_call(session, item)
+            total_score += result["score"]
+            evaluated_count += 1
+            call_results.append(
+                {
+                    "scenario_item_key": item.scenario_item_key,
+                    "training_call_id": str(item.id),
+                    "incident_card_id": str(item.incident_card_id),
+                    "score": float(result["score"]),
+                    "passed": result["passed"],
+                    "discrepancies": result["discrepancies"],
+                }
+            )
+
         score = total_score / evaluated_count if evaluated_count else Decimal("0")
-        passed = evaluated_count > 0 and all(item["passed"] for item in card_results)
+        passed = evaluated_count > 0 and all(
+            item["passed"] for item in [*card_results, *call_results]
+        )
         now = utcnow()
         training_session.status = TrainingSessionStatus.COMPLETED.value
         training_session.completed_at = now
         training_session.score = score.quantize(Decimal("0.01"))
         training_session.passed = passed
-        training_session.result = {"cards": card_results}
+        training_session.result = {
+            "cards": card_results,
+            "incoming_calls": call_results,
+        }
         training_session.completed_automatically = automatic
         workspace.status = WorkspaceStatus.READ_ONLY.value
         workspace.closed_at = now
@@ -1261,11 +1360,41 @@ class SimulationApplicationService:
                     ),
                 }
             )
+        training_calls = list(
+            await session.scalars(
+                select(TrainingCall)
+                .where(TrainingCall.training_session_id == training_session.id)
+                .order_by(TrainingCall.scenario_item_key)
+            )
+        )
+        stored_call_results = {
+            item.get("training_call_id"): item
+            for item in (training_session.result or {}).get("incoming_calls", [])
+        }
+        incoming_calls: list[dict[str, Any]] = []
+        for item in training_calls:
+            current_state: dict[str, Any] | None = None
+            if item.incident_card_id is not None:
+                card = await session.get(IncidentCard, item.incident_card_id)
+                if card is not None:
+                    current_state = await self._card_state(session, card)
+            incoming_calls.append(
+                {
+                    "scenario_item_key": item.scenario_item_key,
+                    "training_call_id": item.id,
+                    "incident_card_id": item.incident_card_id,
+                    "status": item.status,
+                    "expected_result": item.expected_result,
+                    "current_state": current_state,
+                    "automatic_result": stored_call_results.get(str(item.id)),
+                }
+            )
         return {
             "session": training_session,
             "scenario_snapshot": assignment.scenario_snapshot,
             "participant_ids": participant_ids,
             "cards": cards,
+            "incoming_calls": incoming_calls,
             "actions": actions,
         }
 
@@ -1297,6 +1426,11 @@ class SimulationApplicationService:
             )
         )
         for required in expected.get("required_actions", []):
+            if required["action_type"] == LEGACY_CALL_ACTION:
+                # Difficulty-2 templates created before outbound_call describe
+                # this operation as an exact action. The semantic result below
+                # is its canonical implementation and assessment.
+                continue
             checks += 1
             matching = [
                 action
@@ -1320,7 +1454,7 @@ class SimulationApplicationService:
                 )
 
         try:
-            call_rule = outbound_call_rule(item.evaluation_rules)
+            call_rule = outbound_call_rule(item.evaluation_rules, expected)
         except ValueError as exc:
             checks += 1
             discrepancies.append(
@@ -1344,6 +1478,34 @@ class SimulationApplicationService:
                     for action in evaluations
                     if action.result == TrainingActionResult.SUCCESS.value
                 ]
+                legacy_call = next(
+                    (
+                        required
+                        for required in expected.get("required_actions", [])
+                        if required["action_type"] == LEGACY_CALL_ACTION
+                    ),
+                    None,
+                )
+                if (
+                    legacy_call is not None
+                    and legacy_call.get("deadline_seconds") is not None
+                    and item.emitted_at is not None
+                ):
+                    limit = _as_utc(item.emitted_at) + timedelta(
+                        seconds=int(legacy_call["deadline_seconds"])
+                    )
+                    on_time_audio_ids = {
+                        action.entity_id
+                        for action in actions
+                        if action.action_type == "AUDIO_MESSAGE_TRANSCRIBED"
+                        and action.entity_id is not None
+                        and _as_utc(action.occurred_at) <= limit
+                    }
+                    successful = [
+                        action
+                        for action in successful
+                        if action.entity_id in on_time_audio_ids
+                    ]
                 if not successful:
                     latest = evaluations[-1] if evaluations else None
                     discrepancies.append(
@@ -1440,6 +1602,170 @@ class SimulationApplicationService:
             discrepancies=discrepancies,
         )
 
+    async def _evaluate_incoming_call(
+        self, session: AsyncSession, item: TrainingCall
+    ) -> dict[str, Any]:
+        card = await session.scalar(
+            select(IncidentCard)
+            .options(selectinload(IncidentCard.features))
+            .where(IncidentCard.id == item.incident_card_id)
+        )
+        if card is None:
+            raise ConflictError("Incident card created from the incoming call is missing")
+        state = await self._card_state(session, card)
+        expected = item.expected_result
+        discrepancies: list[dict[str, Any]] = []
+        checks = self._compare_expected(
+            expected.get("final_state", {}), state, "", discrepancies
+        )
+        actions = list(
+            await session.scalars(
+                select(TrainingAction)
+                .where(
+                    TrainingAction.training_session_id == item.training_session_id,
+                    (
+                        (
+                            TrainingAction.entity_type == "training_call"
+                        )
+                        & (TrainingAction.entity_id == str(item.id))
+                    )
+                    | (TrainingAction.incident_card_id == item.incident_card_id),
+                )
+                .order_by(TrainingAction.occurred_at)
+            )
+        )
+        for required in expected.get("required_actions", []):
+            checks += 1
+            matching = [
+                action
+                for action in actions
+                if action.action_type == required["action_type"]
+                and action.result == TrainingActionResult.SUCCESS.value
+                and self._dict_contains(action.details, required.get("parameters", {}))
+            ]
+            deadline = required.get("deadline_seconds")
+            if deadline is not None and item.ringing_at is not None:
+                limit = _as_utc(item.ringing_at) + timedelta(seconds=int(deadline))
+                matching = [
+                    action for action in matching if _as_utc(action.occurred_at) <= limit
+                ]
+            if not matching:
+                discrepancies.append(
+                    {
+                        "path": "required_actions",
+                        "expected": required,
+                        "actual": None,
+                        "reason": "required_action_missing",
+                    }
+                )
+        matched = max(0, checks - len(discrepancies))
+        score = Decimal("100") if checks == 0 else (
+            Decimal(matched) * Decimal("100") / Decimal(checks)
+        )
+        return {
+            "score": score.quantize(Decimal("0.01")),
+            "passed": not discrepancies,
+            "discrepancies": discrepancies,
+        }
+
+    async def answer_incoming_call(
+        self,
+        session: AsyncSession,
+        call_id: uuid.UUID,
+        request: TrainingCallActionRequest,
+    ) -> TrainingCall:
+        item, training_session = await self._training_call_context(
+            session, call_id, request.user_id
+        )
+        if item.status == TrainingCallStatus.ACTIVE.value:
+            return item
+        if item.status != TrainingCallStatus.RINGING.value:
+            raise ConflictError(f"Incoming call cannot be answered from status {item.status}")
+        now = utcnow()
+        item.status = TrainingCallStatus.ACTIVE.value
+        item.answered_at = now
+        self._add_training_call_action(
+            session,
+            item,
+            request.user_id,
+            "INCOMING_CALL_ANSWERED",
+            now,
+        )
+        await self.completion.refresh(session, training_session)
+        return item
+
+    async def link_incoming_call_card(
+        self,
+        session: AsyncSession,
+        call_id: uuid.UUID,
+        request: TrainingCallCardLinkRequest,
+    ) -> TrainingCall:
+        item, training_session = await self._training_call_context(
+            session, call_id, request.user_id
+        )
+        if item.status != TrainingCallStatus.ACTIVE.value:
+            raise ConflictError("Only an active incoming call can be linked to a card")
+        card = await session.scalar(
+            select(IncidentCard).where(
+                IncidentCard.id == request.incident_card_id,
+                IncidentCard.workspace_id == item.workspace_id,
+            )
+        )
+        if card is None:
+            raise NotFoundError("Incident card not found in the call workspace")
+        if item.incident_card_id is not None:
+            if item.incident_card_id == card.id:
+                return item
+            raise ConflictError("Incoming call is already linked to another card")
+        existing_call = await session.scalar(
+            select(TrainingCall.id).where(
+                TrainingCall.incident_card_id == card.id,
+                TrainingCall.id != item.id,
+            )
+        )
+        if existing_call is not None:
+            raise ConflictError("Incident card is already linked to another incoming call")
+        item.incident_card_id = card.id
+        self._add_training_call_action(
+            session,
+            item,
+            request.user_id,
+            "INCIDENT_CARD_CREATED_FROM_CALL",
+            utcnow(),
+            incident_card_id=card.id,
+        )
+        await self.completion.refresh(session, training_session)
+        return item
+
+    async def complete_incoming_call(
+        self,
+        session: AsyncSession,
+        call_id: uuid.UUID,
+        request: TrainingCallActionRequest,
+    ) -> TrainingCall:
+        item, training_session = await self._training_call_context(
+            session, call_id, request.user_id
+        )
+        if item.status == TrainingCallStatus.COMPLETED.value:
+            return item
+        if item.status != TrainingCallStatus.ACTIVE.value:
+            raise ConflictError(f"Incoming call cannot complete from status {item.status}")
+        if item.incident_card_id is None:
+            raise ConflictError("Create and link an incident card before completing the call")
+        now = utcnow()
+        item.status = TrainingCallStatus.COMPLETED.value
+        item.completed_at = now
+        self._add_training_call_action(
+            session,
+            item,
+            request.user_id,
+            "INCOMING_CALL_COMPLETED",
+            now,
+            incident_card_id=item.incident_card_id,
+        )
+        await self.completion.refresh(session, training_session)
+        return item
+
     async def _card_state(
         self, session: AsyncSession, card: IncidentCard
     ) -> dict[str, Any]:
@@ -1517,14 +1843,130 @@ class SimulationApplicationService:
                 return False
         return True
 
+    async def _training_call_context(
+        self,
+        session: AsyncSession,
+        call_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> tuple[TrainingCall, TrainingSession]:
+        item = await session.scalar(
+            select(TrainingCall)
+            .where(TrainingCall.id == call_id)
+            .with_for_update()
+        )
+        if item is None:
+            raise NotFoundError("Incoming training call not found")
+        member = await session.get(WorkspaceMember, (item.workspace_id, user_id))
+        if (
+            member is None
+            or member.left_at is not None
+            or member.member_role != WorkspaceMemberRole.PARTICIPANT.value
+        ):
+            raise ValidationError("Active student workspace membership is required")
+        training_session = await session.get(TrainingSession, item.training_session_id)
+        workspace = await session.get(SimulationWorkspace, item.workspace_id)
+        if training_session is None or workspace is None:
+            raise ConflictError("Incoming call training context is missing")
+        if training_session.status != TrainingSessionStatus.RUNNING.value:
+            raise ConflictError("Training session is not running")
+        if workspace.status != WorkspaceStatus.ACTIVE.value:
+            raise ConflictError("Training workspace is not active")
+        return item, training_session
+
+    @staticmethod
+    def _add_training_call_action(
+        session: AsyncSession,
+        item: TrainingCall,
+        actor_user_id: uuid.UUID,
+        action_type: str,
+        occurred_at: datetime,
+        *,
+        incident_card_id: uuid.UUID | None = None,
+    ) -> None:
+        session.add(
+            TrainingAction(
+                training_session_id=item.training_session_id,
+                workspace_id=item.workspace_id,
+                actor_user_id=actor_user_id,
+                incident_card_id=incident_card_id,
+                action_type=action_type,
+                entity_type="training_call",
+                entity_id=str(item.id),
+                occurred_at=occurred_at,
+                request_id=f"training-call:{item.id}:{action_type}",
+                result=TrainingActionResult.SUCCESS.value,
+                details={"scenario_item_key": item.scenario_item_key},
+            )
+        )
+
     async def _validate_template_references(
         self, session: AsyncSession, definition: ScenarioDefinition
     ) -> None:
-        for card in definition.cards:
-            if card.source_type is ScenarioCardSourceType.TEMPLATE:
-                template = await session.get(CardTemplate, card.template_id)
+        for item in definition.cards:
+            if item.source_type is not ScenarioCardSourceType.TEMPLATE:
+                continue
+            if item.item_type is ScenarioItemType.INCOMING_CALL:
+                template = await session.get(IncomingCallTemplate, item.template_id)
                 if template is None or not template.is_active:
-                    raise ValidationError(f"Inactive or missing card template: {card.template_id}")
+                    raise ValidationError(
+                        f"Inactive or missing incoming call template: {item.template_id}"
+                    )
+            else:
+                template = await session.get(CardTemplate, item.template_id)
+                if template is None or not template.is_active:
+                    raise ValidationError(
+                        f"Inactive or missing card template: {item.template_id}"
+                    )
+
+    @staticmethod
+    def _add_scheduled_items(
+        session: AsyncSession,
+        *,
+        training_session_id: uuid.UUID,
+        workspace_id: uuid.UUID,
+        items: list[dict[str, Any]],
+        started_at: datetime,
+    ) -> None:
+        for item in items:
+            trigger_type = item["trigger_type"]
+            scheduled_at: datetime | None = None
+            if trigger_type == ScenarioTriggerType.TIME_OFFSET.value:
+                scheduled_at = started_at + timedelta(
+                    seconds=int(item["trigger_config"]["offset_seconds"])
+                )
+            if item.get("item_type", ScenarioItemType.INCIDENT_CARD.value) == (
+                ScenarioItemType.INCOMING_CALL.value
+            ):
+                session.add(
+                    TrainingCall(
+                        training_session_id=training_session_id,
+                        workspace_id=workspace_id,
+                        scenario_item_key=item["key"],
+                        trigger_type=trigger_type,
+                        trigger_config=item.get("trigger_config", {}),
+                        source_type=ScenarioCardSourceType.SNAPSHOT.value,
+                        call_payload=item["initial_call"],
+                        expected_result=item["expected_result"],
+                        scheduled_at=scheduled_at,
+                        status=TrainingCallStatus.PENDING.value,
+                    )
+                )
+                continue
+            session.add(
+                SessionScheduledCard(
+                    training_session_id=training_session_id,
+                    workspace_id=workspace_id,
+                    scenario_card_key=item["key"],
+                    trigger_type=trigger_type,
+                    trigger_config=item.get("trigger_config", {}),
+                    source_type=ScenarioCardSourceType.SNAPSHOT.value,
+                    card_payload=item["initial_card"],
+                    expected_result=item["expected_result"],
+                    evaluation_rules=item.get("evaluation_rules", {}),
+                    scheduled_at=scheduled_at,
+                    status=ScheduledCardStatus.PENDING.value,
+                )
+            )
 
     async def _require_user_role(
         self,

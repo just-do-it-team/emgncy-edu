@@ -71,6 +71,12 @@ Content-Type: application/json
 `outbound_call` запрещены. Правило применяется только к распознанным
 аудиосообщениям с направлением `OUTBOUND`.
 
+Ранее созданные шаблоны сложности 2 с `evaluation_rules.call_evaluation` и
+действием `RESPONSE_TEAM_LEADER_CALLED` также поддерживаются. Ожидаемый текст
+берётся из `parameters.expected_transcript`: сначала из поля, указанного в
+`comparison_field`, затем из `required_facts` или `reference_text`. Для новых
+шаблонов предпочтителен компактный контракт `outbound_call` выше.
+
 ```http
 DELETE /api/v1/card-templates/{templateId}
 Content-Type: application/json
@@ -80,6 +86,59 @@ Content-Type: application/json
 
 Успех — `204`. Метод деактивирует версию и возвращает `409`, если она используется
 неархивированным сценарием.
+
+## Шаблоны входящих звонков
+
+```http
+POST /api/v1/incoming-call-templates
+GET /api/v1/incoming-call-templates?active_only=true
+GET /api/v1/incoming-call-templates/{templateId}
+DELETE /api/v1/incoming-call-templates/{templateId}
+```
+
+Шаблон также версионируется и после создания не изменяется. В `initial_call`
+хранятся только стартовая реплика и закрытый серверный контекст для будущего
+LLM-абонента. Эталон речи остаётся частью `expected_result`, обычно в параметрах
+обязательного действия семантической оценки:
+
+```json
+{
+  "name": "Очевидец пожара",
+  "difficulty": 2,
+  "initial_call": {
+    "initial_utterance": "Алло, из окна соседней квартиры идёт дым!",
+    "context": {
+      "caller_role": "WITNESS",
+      "incident_address": "г. Москва, ул. Лесная, д. 12, кв. 45",
+      "people_inside": "неизвестно"
+    }
+  },
+  "expected_result": {
+    "final_state": {
+      "event_type_id": 1,
+      "incident_address": "г. Москва, ул. Лесная, д. 12, кв. 45"
+    },
+    "required_actions": [
+      {"action_type": "INCOMING_CALL_ANSWERED"},
+      {
+        "action_type": "INCOMING_CALL_DIALOGUE_EVALUATED",
+        "parameters": {
+          "expected_transcript": {
+            "language": "ru",
+            "reference_text": "Что произошло? Назовите точный адрес. Есть ли люди в квартире?"
+          }
+        }
+      },
+      {"action_type": "INCIDENT_CARD_CREATED_FROM_CALL"},
+      {"action_type": "INCOMING_CALL_COMPLETED"}
+    ]
+  },
+  "created_by": "teacher-uuid"
+}
+```
+
+`context` не возвращается в runtime-ответе обучаемому; его будет читать серверный
+оркестратор LLM/STT/TTS.
 
 ## Список сценариев
 
@@ -145,6 +204,45 @@ backend установит подходящее значение по умолч
 - `TEMPLATE` — нужен `template_id`, поля карточки и результата не передаются;
 - `INLINE` — нужны `initial_card` и `expected_result`;
 - `SNAPSHOT` зарезервирован backend и в конструкторе запрещён.
+
+Начиная со `schema_version: 2`, список `cards` является совместимым списком
+элементов сценария. Старые элементы не требуют `item_type` и считаются
+`INCIDENT_CARD`. Для входящего звонка укажите `item_type: INCOMING_CALL`; тогда
+`template_id` относится к `incoming_call_template`:
+
+```json
+"definition": {
+  "schema_version": 2,
+  "cards": [
+    {
+      "key": "caller-fire-001",
+      "item_type": "INCOMING_CALL",
+      "trigger_type": "TIME_OFFSET",
+      "trigger_config": {"offset_seconds": 5},
+      "source_type": "TEMPLATE",
+      "template_id": "incoming-call-template-uuid"
+    },
+    {
+      "key": "dispatch-followup-001",
+      "item_type": "INCIDENT_CARD",
+      "trigger_type": "AFTER_ACTION",
+      "trigger_config": {
+        "card_key": "caller-fire-001",
+        "action_type": "INCOMING_CALL_COMPLETED",
+        "delay_seconds": 30
+      },
+      "source_type": "TEMPLATE",
+      "template_id": "card-template-uuid"
+    }
+  ]
+}
+```
+
+При назначении оба вида шаблонов разворачиваются в неизменяемые снимки. При
+старте `INCIDENT_CARD` создаёт запланированную карточку, а `INCOMING_CALL` —
+экземпляр `training_call`; карточка происшествия для него заранее не создаётся.
+Существующее поле ответа `cards_count` сохранено для совместимости и теперь
+содержит общее число элементов обоих типов.
 
 Триггеры:
 

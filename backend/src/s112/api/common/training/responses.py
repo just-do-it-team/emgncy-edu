@@ -11,7 +11,11 @@ from s112.api.simulation_schemas import (
     TeacherMonitoringParticipant,
     TeacherMonitoringSession,
 )
-from s112.common.enums import ScheduledCardStatus, TrainingActionResult
+from s112.common.enums import (
+    ScheduledCardStatus,
+    TrainingActionResult,
+    TrainingCallStatus,
+)
 from s112.domain.models import (
     AssignmentBatch,
     AssignmentParticipant,
@@ -21,6 +25,7 @@ from s112.domain.models import (
     SessionScheduledCard,
     SimulationWorkspace,
     TrainingAction,
+    TrainingCall,
     TrainingSession,
     UserAccount,
 )
@@ -178,6 +183,13 @@ async def teacher_monitoring_response(
             .order_by(SessionScheduledCard.scenario_card_key)
         )
     )
+    training_calls = list(
+        await session.scalars(
+            select(TrainingCall)
+            .where(TrainingCall.training_session_id == training_session.id)
+            .order_by(TrainingCall.scenario_item_key)
+        )
+    )
     successful_actions = int(
         await session.scalar(
             select(func.count())
@@ -226,6 +238,19 @@ async def teacher_monitoring_response(
         ),
         cards_emitted=sum(
             item.status == ScheduledCardStatus.EMITTED.value for item in scheduled_cards
+        ),
+        calls_total=len(training_calls),
+        calls_pending=sum(
+            item.status == TrainingCallStatus.PENDING.value for item in training_calls
+        ),
+        calls_ringing=sum(
+            item.status == TrainingCallStatus.RINGING.value for item in training_calls
+        ),
+        calls_active=sum(
+            item.status == TrainingCallStatus.ACTIVE.value for item in training_calls
+        ),
+        calls_completed=sum(
+            item.status == TrainingCallStatus.COMPLETED.value for item in training_calls
         ),
         pending_card_keys=[
             item.scenario_card_key

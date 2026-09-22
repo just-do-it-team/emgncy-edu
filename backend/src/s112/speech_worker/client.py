@@ -45,6 +45,13 @@ class SpeechModelClient:
             if not isinstance(text, str) or not text.strip():
                 raise SpeechModelAPIError("Speech API returned an empty transcript")
             return text.strip()
+        except httpx.HTTPStatusError as exc:
+            details = exc.response.text.strip()
+            if len(details) > 2000:
+                details = f"{details[:2000]}..."
+            raise SpeechModelAPIError(
+                f"STT request failed with HTTP {exc.response.status_code}: {details}"
+            ) from exc
         except (httpx.HTTPError, ValueError) as exc:
             raise SpeechModelAPIError(f"STT request failed: {exc}") from exc
 

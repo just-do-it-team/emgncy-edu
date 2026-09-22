@@ -12,10 +12,12 @@ from s112.api.simulation_schemas import (
     ManualCardReleaseRequest,
     ScheduledCardResponse,
     TeacherMonitoringSession,
+    TrainingCallResponse,
 )
 from s112.common.enums import (
     ScenarioTriggerType,
     ScheduledCardStatus,
+    TrainingCallStatus,
     UserRole,
     WorkspaceMemberRole,
 )
@@ -24,10 +26,11 @@ from s112.domain.models import (
     SessionScheduledCard,
     SimulationWorkspace,
     TrainingSession,
+    TrainingCall,
     UserAccount,
     WorkspaceMember,
 )
-from s112.scenario_worker.worker import ScenarioCardEmitter
+from s112.scenario_worker.worker import ScenarioCallEmitter, ScenarioCardEmitter
 
 
 router = APIRouter(prefix="/api/v1", tags=["teacher/active_sessions"])
@@ -154,3 +157,48 @@ async def release_manual_scenario_card(
             return item
     except DomainError as exc:
         raise_http_error(exc)
+
+
+@router.post(
+    "/training-sessions/{session_id}/incoming-calls/{scenario_item_key}/release",
+    response_model=TrainingCallResponse,
+)
+async def release_manual_incoming_call(
+    session_id: uuid.UUID,
+    scenario_item_key: str,
+    body: ManualCardReleaseRequest,
+    session: AsyncSession = Depends(get_write_session),
+) -> TrainingCall:
+    async with session.begin():
+        item = await session.scalar(
+            select(TrainingCall)
+            .where(
+                TrainingCall.training_session_id == session_id,
+                TrainingCall.scenario_item_key == scenario_item_key,
+            )
+            .with_for_update()
+        )
+        if item is None:
+            raise HTTPException(status_code=404, detail="Incoming call not found")
+        if item.trigger_type != ScenarioTriggerType.MANUAL.value:
+            raise HTTPException(
+                status_code=409,
+                detail="Only a MANUAL incoming call can be released here",
+            )
+        if item.status not in {
+            TrainingCallStatus.PENDING.value,
+            TrainingCallStatus.RINGING.value,
+        }:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Incoming call cannot be released from status {item.status}",
+            )
+        member = await session.get(WorkspaceMember, (item.workspace_id, body.user_id))
+        if (
+            member is None
+            or member.left_at is not None
+            or member.member_role != WorkspaceMemberRole.INSTRUCTOR.value
+        ):
+            raise HTTPException(status_code=403, detail="Instructor access required")
+        await ScenarioCallEmitter().emit(session, item, actor_id=body.user_id)
+        return item

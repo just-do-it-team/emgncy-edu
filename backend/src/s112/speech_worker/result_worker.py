@@ -221,7 +221,10 @@ class SpeechResultWorker:
         if scheduled_card is None:
             return
         try:
-            rule = outbound_call_rule(scheduled_card.evaluation_rules)
+            rule = outbound_call_rule(
+                scheduled_card.evaluation_rules,
+                scheduled_card.expected_result,
+            )
         except ValueError as exc:
             self._record_semantic_configuration_error(session, message, exc)
             return

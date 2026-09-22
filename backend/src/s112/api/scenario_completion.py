@@ -13,6 +13,7 @@ from s112.common.enums import (
     AudioMessageStatus,
     ScheduledCardStatus,
     TrainingActionResult,
+    TrainingCallStatus,
     TrainingSessionStatus,
     WorkspaceMemberRole,
 )
@@ -25,6 +26,7 @@ from s112.domain.models import (
     SessionScheduledCard,
     SimulationWorkspace,
     TrainingAction,
+    TrainingCall,
     TrainingSession,
     WorkspaceMember,
 )
@@ -114,6 +116,17 @@ class ScenarioCompletionService:
             for item in scheduled_cards
             if item.status == ScheduledCardStatus.CANCELLED.value
         ]
+        training_calls = list(
+            await session.scalars(
+                select(TrainingCall)
+                .where(TrainingCall.training_session_id == training_session.id)
+                .order_by(TrainingCall.scenario_item_key)
+            )
+        )
+        calls_by_status = {
+            status.value: [item for item in training_calls if item.status == status.value]
+            for status in TrainingCallStatus
+        }
 
         audio_messages = list(
             await session.scalars(
@@ -212,6 +225,27 @@ class ScenarioCompletionService:
                     }
                 )
 
+        for item in training_calls:
+            if item.status == TrainingCallStatus.COMPLETED.value:
+                if item.incident_card_id is None:
+                    blockers.append(
+                        {
+                            "code": "COMPLETED_CALL_MISSING_INCIDENT_CARD",
+                            "message": "A completed incoming call has no incident card",
+                            "scenario_item_key": item.scenario_item_key,
+                            "training_call_id": str(item.id),
+                        }
+                    )
+                continue
+            blockers.append(
+                {
+                    "code": f"INCOMING_CALL_{item.status}",
+                    "message": "An incoming call has not been completed successfully",
+                    "scenario_item_key": item.scenario_item_key,
+                    "training_call_id": str(item.id),
+                }
+            )
+
         for message in pending_audio:
             blockers.append(
                 {
@@ -308,7 +342,11 @@ class ScenarioCompletionService:
             )
 
         next_scheduled_at = min(
-            (item.scheduled_at for item in pending if item.scheduled_at is not None),
+            (
+                item.scheduled_at
+                for item in [*pending, *calls_by_status[TrainingCallStatus.PENDING.value]]
+                if item.scheduled_at is not None
+            ),
             default=None,
         )
         return {
@@ -322,6 +360,13 @@ class ScenarioCompletionService:
             "cards_emitted": len(emitted),
             "cards_failed": len(failed),
             "cards_cancelled": len(cancelled),
+            "calls_total": len(training_calls),
+            "calls_pending": len(calls_by_status[TrainingCallStatus.PENDING.value]),
+            "calls_ringing": len(calls_by_status[TrainingCallStatus.RINGING.value]),
+            "calls_active": len(calls_by_status[TrainingCallStatus.ACTIVE.value]),
+            "calls_completed": len(calls_by_status[TrainingCallStatus.COMPLETED.value]),
+            "calls_failed": len(calls_by_status[TrainingCallStatus.FAILED.value]),
+            "calls_cancelled": len(calls_by_status[TrainingCallStatus.CANCELLED.value]),
             "decisions_required": len(service_rows),
             "decisions_completed": decisions_completed,
             "audio_messages_total": len(audio_messages),
