@@ -6,6 +6,12 @@ import {
   Monitor,
   Search,
   Settings,
+  Headphones,
+  List,
+  BarChart3,
+  Users,
+  FileText,
+  Globe,
 } from "lucide-react";
 import type { UserRole } from "@/entities/session";
 import { LogoutButton } from "@/features/auth";
@@ -64,9 +70,21 @@ function Clock() {
   );
 }
 
-export function WorkspaceHeader({ role }: { role: UserRole }) {
+export function WorkspaceHeader({
+  role,
+  operatorMode = false,
+  onCreateCard,
+}: {
+  role: UserRole;
+  operatorMode?: boolean;
+  onCreateCard?: () => void;
+}) {
   return (
-    <Box component="header" className={classes.header}>
+    <Box
+      component="header"
+      className={classes.header}
+      data-operator={operatorMode || undefined}
+    >
       <div className={classes.searchPanel}>
         <TextInput
           aria-label="Поиск происшествий"
@@ -101,6 +119,12 @@ export function WorkspaceHeader({ role }: { role: UserRole }) {
       <div className={classes.accountPanel}>
         <div className={classes.accountTop}>
           <Clock />
+          {operatorMode && (
+            <div className={classes.connection}>
+              <Headphones size={22} />
+              <span>Учебный режим</span>
+            </div>
+          )}
           <Group gap={6} wrap="nowrap" className={classes.accountActions}>
             <span title={roleLabels[role]}>, УМЦ О п</span>
             <ActionIcon
@@ -118,7 +142,43 @@ export function WorkspaceHeader({ role }: { role: UserRole }) {
             <LogoutButton className={classes.accountIcon} />
           </Group>
         </div>
+        {operatorMode && (
+          <nav
+            className={classes.operatorNav}
+            aria-label="Панель оператора 112"
+          >
+            {[
+              { label: "журнал", Icon: List, active: true },
+              { label: "экран", Icon: Monitor },
+              { label: "статистика", Icon: BarChart3 },
+              { label: "заявители", Icon: Users },
+              { label: "техника", Icon: Settings },
+              { label: "отчёты", Icon: FileText },
+              { label: "регионы", Icon: Globe },
+            ].map(({ label, Icon, active }) => (
+              <button
+                key={label}
+                type="button"
+                disabled={!active}
+                aria-current={active ? "page" : undefined}
+                title={
+                  active ? "Список карточек" : "Недоступно в учебном режиме"
+                }
+              >
+                <Icon size={16} />
+                <span>{label}</span>
+              </button>
+            ))}
+          </nav>
+        )}
       </div>
+      {operatorMode && (
+        <div className={classes.createPanel}>
+          <Button className={classes.createCard} onClick={onCreateCard}>
+            Создание карточки
+          </Button>
+        </div>
+      )}
     </Box>
   );
 }

@@ -147,3 +147,117 @@
     font-size: 18px;
   }
 }
+
+.header[data-operator] {
+  grid-template-columns: minmax(260px, 1fr) 650px 145px;
+  .accountTop {
+    height: 105px;
+    padding-top: 16px;
+  }
+  .date {
+    font-size: 15px;
+  }
+  .clock {
+    top: 14px;
+  }
+}
+.connection {
+  position: absolute;
+  left: 300px;
+  top: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--pov-header-muted);
+  font-size: 11px;
+}
+.operatorNav {
+  display: flex;
+  height: 44px;
+  button {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    border: 0;
+    border-right: 1px solid var(--pov-header-line);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 10px;
+    &[aria-current] {
+      background: var(--mantine-color-povBlue-6);
+    }
+    &:disabled {
+      color: var(--pov-header-muted);
+      cursor: not-allowed;
+    }
+  }
+}
+.createPanel {
+  padding: 13px;
+  background: var(--mantine-color-povOrange-6);
+}
+.header .createCard {
+  height: 100%;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid white;
+  border-radius: 0;
+  color: white;
+  background: transparent;
+  font-size: 17px;
+  :global(.mantine-Button-label) {
+    white-space: normal;
+    text-align: left;
+  }
+}
+@media (max-width: 1350px) {
+  .header[data-operator] {
+    grid-template-columns: minmax(260px, 1fr) 500px 130px;
+    .connection {
+      left: 285px;
+      top: 73px;
+      flex-direction: row;
+    }
+  }
+}
+@media (max-width: 1050px) {
+  .header[data-operator] {
+    grid-template-columns: minmax(0, 1fr) 140px;
+    .searchPanel {
+      grid-column: 1 / -1;
+      grid-row: 2;
+    }
+    .accountPanel {
+      grid-row: 1;
+    }
+    .createPanel {
+      grid-row: 1;
+    }
+  }
+}
+@media (max-width: 650px) {
+  .header[data-operator] {
+    grid-template-columns: minmax(0, 1fr);
+    .accountPanel {
+      grid-row: 1;
+    }
+    .searchPanel {
+      grid-row: 2;
+    }
+    .createPanel {
+      grid-row: 3;
+    }
+    .connection {
+      display: none;
+    }
+    .createCard {
+      min-height: 42px;
+    }
+  }
+}

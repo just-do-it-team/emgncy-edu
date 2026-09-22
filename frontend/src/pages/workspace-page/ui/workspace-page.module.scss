@@ -209,3 +209,11 @@
     padding-right: 19px;
   }
 }
+
+.trainingBar {
+  min-height: 58px;
+  padding: 10px 16px;
+  background: var(--mantine-color-white);
+  border-bottom: 1px solid var(--pov-card-border);
+  color: var(--pov-card-text);
+}
