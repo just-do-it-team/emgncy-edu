@@ -83,6 +83,18 @@ class ScenarioStatus(str, Enum):
     ARCHIVED = "ARCHIVED"
 
 
+class ScenarioMode(str, Enum):
+    STATIC = "STATIC"
+    PROCEDURAL = "PROCEDURAL"
+    HYBRID = "HYBRID"
+
+
+class ProceduralGenerationStatus(str, Enum):
+    RUNNING = "RUNNING"
+    EXHAUSTED = "EXHAUSTED"
+    FAILED = "FAILED"
+
+
 class WorkspaceMode(str, Enum):
     INDIVIDUAL = "INDIVIDUAL"
     SHARED = "SHARED"

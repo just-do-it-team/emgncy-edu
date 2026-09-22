@@ -38,10 +38,24 @@ Content-Type: application/json
     }
   },
   "expected_result": {
-    "final_state": {"event_type_id": 1},
-    "required_actions": [
-      {"action_type": "CARD_FEATURES_UPDATED", "deadline_seconds": 120}
-    ]
+    "card": {
+      "event_type_id": 1,
+      "description": "Пожар в жилом доме",
+      "questionnaire": null,
+      "reported_address": null,
+      "incident_address": "Учебный адрес",
+      "victims_count": 0,
+      "current_status": "REGISTERED",
+      "features": {
+        "event_kind_id": 10,
+        "first_order_feature_id": 100,
+        "second_order_feature_id": null,
+        "third_order_feature_id": null,
+        "additional_features": {}
+      },
+      "services": [],
+      "service_statuses": {}
+    }
   },
   "evaluation_rules": {},
   "created_by": "teacher-uuid"
@@ -52,14 +66,19 @@ Content-Type: application/json
 передайте тот же `template_key` и новый `version`. PATCH шаблона намеренно нет:
 созданная версия неизменяема.
 
-`expected_result` допускает только `final_state` и `required_actions`; неизвестные
-поля, включая `forbidden_actions`, дают `422`.
+Для нового задания `expected_result.card` задаёт полное проверяемое состояние
+карточки. Поля в нём обязательны, допускают `null` там, где это допускает
+карточка; неизвестные поля дают `422`. По завершении сессии они сравниваются с
+фактической карточкой. Старые опубликованные задания с `final_state` и
+`required_actions` продолжают оцениваться прежним способом; с новым `card`
+эти поля совмещать нельзя. При создании новой версии шаблона их не используйте.
 
-Для карточки с обязательным исходящим звонком семантическое правило задаётся
-отдельно от точных действий:
+Для карточки с обязательным исходящим звонком эталонный текст и порог находятся
+в `expected_result` рядом с `card`:
 
 ```json
-"evaluation_rules": {
+"expected_result": {
+  "card": {"...": "полное итоговое состояние карточки"},
   "outbound_call": {
     "expected_text": "Текст, смысл которого должен передать оператор",
     "minimum_similarity": 0.8
@@ -75,7 +94,11 @@ Content-Type: application/json
 действием `RESPONSE_TEAM_LEADER_CALLED` также поддерживаются. Ожидаемый текст
 берётся из `parameters.expected_transcript`: сначала из поля, указанного в
 `comparison_field`, затем из `required_facts` или `reference_text`. Для новых
-шаблонов предпочтителен компактный контракт `outbound_call` выше.
+шаблонов используйте `expected_result.outbound_call`.
+
+`evaluation_rules` пока остаётся в модели данных: для уже назначенных заданий
+из него читается `outbound_call` либо старое `call_evaluation`. До переноса
+всех таких заданий удаление поля выключит семантическую проверку звонков.
 
 ```http
 DELETE /api/v1/card-templates/{templateId}
@@ -97,58 +120,71 @@ DELETE /api/v1/incoming-call-templates/{templateId}
 ```
 
 Шаблон также версионируется и после создания не изменяется. В `initial_call`
-хранятся только стартовая реплика и закрытый серверный контекст для будущего
-LLM-абонента. Эталон речи остаётся частью `expected_result`, обычно в параметрах
-обязательного действия семантической оценки:
+хранится только стартовая реплика; `context` более не принимается. Для входящего
+звонка оценивается итоговая карточка, а не вопросы и ответы в ходе разговора:
 
 ```json
 {
   "name": "Очевидец пожара",
   "difficulty": 2,
   "initial_call": {
-    "initial_utterance": "Алло, из окна соседней квартиры идёт дым!",
-    "context": {
-      "caller_role": "WITNESS",
-      "incident_address": "г. Москва, ул. Лесная, д. 12, кв. 45",
-      "people_inside": "неизвестно"
-    }
+    "initial_utterance": "Алло, из окна соседней квартиры идёт дым!"
   },
   "expected_result": {
-    "final_state": {
+    "card": {
       "event_type_id": 1,
-      "incident_address": "г. Москва, ул. Лесная, д. 12, кв. 45"
-    },
-    "required_actions": [
-      {"action_type": "INCOMING_CALL_ANSWERED"},
-      {
-        "action_type": "INCOMING_CALL_DIALOGUE_EVALUATED",
-        "parameters": {
-          "expected_transcript": {
-            "language": "ru",
-            "reference_text": "Что произошло? Назовите точный адрес. Есть ли люди в квартире?"
-          }
-        }
-      },
-      {"action_type": "INCIDENT_CARD_CREATED_FROM_CALL"},
-      {"action_type": "INCOMING_CALL_COMPLETED"}
-    ]
+      "description": "Пожар в квартире",
+      "questionnaire": null,
+      "reported_address": null,
+      "incident_address": "г. Москва, ул. Лесная, д. 12, кв. 45",
+      "victims_count": 0,
+      "current_status": "REGISTERED",
+      "features": null,
+      "services": [],
+      "service_statuses": {}
+    }
   },
   "created_by": "teacher-uuid"
 }
 ```
 
-`context` не возвращается в runtime-ответе обучаемому; его будет читать серверный
-оркестратор LLM/STT/TTS.
+Если по сценарию в карточке должны быть записаны вопросы и ответы, задайте
+`card.questionnaire` как объект с двумя строковыми ключами `questions` и
+`answers`. Это сравнение данных карточки, а не проверка аудио разговора.
 
 ## Список сценариев
 
+`training_scenario.definition` содержит `schema_version` и непустой массив
+`cards`. У каждого элемента уникальный `key`, `item_type` (`INCIDENT_CARD` или
+`INCOMING_CALL`), `source_type` (`INLINE` или `TEMPLATE`) и триггер. Для
+`TIME_OFFSET` нужен `trigger_config.offset_seconds >= 0`; для `AFTER_ACTION` —
+существующий `card_key`, `action_type` и необязательная задержка
+`delay_seconds >= 0`. `MANUAL` пока не поддерживается. `INLINE` содержит
+`initial_card` либо `initial_call` и `expected_result`; `TEMPLATE` ссылается
+на `template_id`. Входящие звонки требуют `schema_version >= 2`.
+
+При назначении в `scenario_assignment.scenario_snapshot` сохраняются метаданные
+сценария и разрешённая копия `definition`: ссылки на шаблоны заменяются
+`source_type=SNAPSHOT`, конкретными `template_id`, `template_key`,
+`template_version`, исходной карточкой/звонком и эталоном результата. Для карточки
+удаляются runtime-поля `workspace_id` и `request_id`. Последующее изменение
+сценария или новая версия шаблона уже назначенное задание не меняют.
+
 ```http
 GET /api/v1/training-scenarios?status=DRAFT&difficulty=2&include_archived=false
+X-User-Id: <teacher-or-administrator-uuid>
+
 GET /api/v1/training-scenarios/{scenarioId}
+X-User-Id: <teacher-or-administrator-uuid>
 ```
 
 Статусы: `DRAFT`, `PUBLISHED`, `ARCHIVED`. Без `status` архивные сценарии скрыты,
 если не передан `include_archived=true`.
+
+Оба метода возвращают полный `definition` с эталонами и поэтому доступны только
+преподавателю или администратору. Для списка назначений обучаемого используется
+`GET /api/v1/student/scenario-assignments`: он возвращает безопасные метаданные
+без ожидаемых результатов и правил оценки.
 
 ## Создать сценарий
 

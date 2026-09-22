@@ -28,10 +28,12 @@ from s112.api.simulation_schemas import (
     ScenarioAssignmentCreate,
     ScenarioDefinition,
     ScenarioDeleteRequest,
+    ScenarioSnapshot,
     TrainingScenarioCreate,
     TrainingScenarioUpdate,
     TrainingCallActionRequest,
     TrainingCallCardLinkRequest,
+    TrainingDiscrepancy,
     strip_scenario_card_runtime_fields,
 )
 from s112.common.enums import (
@@ -607,7 +609,9 @@ class SimulationApplicationService:
                     raw["template_id"] = str(template.id)
                     raw["template_key"] = str(template.template_key)
                     raw["template_version"] = template.version
-                    raw["initial_call"] = dict(template.initial_call)
+                    raw["initial_call"] = {
+                        "initial_utterance": template.initial_call["initial_utterance"]
+                    }
                     raw["expected_result"] = dict(template.expected_result)
                 else:
                     template = await session.get(CardTemplate, item.template_id)
@@ -636,6 +640,7 @@ class SimulationApplicationService:
             "scenario_id": str(scenario.id),
             "scenario_revision": scenario.revision,
             "name": scenario.name,
+            "description": scenario.description,
             "difficulty": scenario.difficulty,
             "estimated_duration_seconds": scenario.estimated_duration_seconds,
             "workspace_mode": scenario.workspace_mode,
@@ -647,6 +652,7 @@ class SimulationApplicationService:
                 "cards": resolved_cards,
             },
         }
+        ScenarioSnapshot.model_validate(snapshot)
         assignment = ScenarioAssignment(
             scenario_id=scenario.id,
             scenario_revision=scenario.revision,
@@ -1146,6 +1152,13 @@ class SimulationApplicationService:
         now = utcnow()
         training_session.status = TrainingSessionStatus.COMPLETED.value
         training_session.completed_at = now
+        training_session.completion_state_revision += 1
+        training_session.completion_state = {
+            **(training_session.completion_state or {}),
+            "status": TrainingSessionStatus.COMPLETED.value,
+            "can_complete": False,
+            "revision": training_session.completion_state_revision,
+        }
         training_session.score = score.quantize(Decimal("0.01"))
         training_session.passed = passed
         training_session.result = {
@@ -1412,7 +1425,10 @@ class SimulationApplicationService:
         expected = item.expected_result
         discrepancies: list[dict[str, Any]] = []
         checks = self._compare_expected(
-            expected.get("final_state", {}), state, "", discrepancies
+            expected.get("card") or expected.get("final_state", {}),
+            state,
+            "card" if expected.get("card") else "",
+            discrepancies,
         )
 
         actions = list(
@@ -1457,11 +1473,16 @@ class SimulationApplicationService:
             call_rule = outbound_call_rule(item.evaluation_rules, expected)
         except ValueError as exc:
             checks += 1
+            rule_path = (
+                "expected_result.outbound_call"
+                if expected.get("outbound_call") is not None
+                else "evaluation_rules.outbound_call"
+            )
             discrepancies.append(
                 {
-                    "path": "evaluation_rules.outbound_call",
+                    "path": rule_path,
                     "expected": "VALID_RULE",
-                    "actual": item.evaluation_rules.get("outbound_call"),
+                    "actual": expected.get("outbound_call") or item.evaluation_rules.get("outbound_call"),
                     "reason": f"invalid_semantic_evaluation_rule: {exc}",
                 }
             )
@@ -1510,7 +1531,11 @@ class SimulationApplicationService:
                     latest = evaluations[-1] if evaluations else None
                     discrepancies.append(
                         {
-                            "path": "evaluation_rules.outbound_call",
+                            "path": (
+                                "expected_result.outbound_call"
+                                if expected.get("outbound_call") is not None
+                                else "evaluation_rules.outbound_call"
+                            ),
                             "expected": {
                                 "minimum_similarity": call_rule.minimum_similarity,
                             },
@@ -1599,7 +1624,10 @@ class SimulationApplicationService:
             session_scheduled_card_id=item.id,
             score=score.quantize(Decimal("0.01")),
             passed=failures == 0,
-            discrepancies=discrepancies,
+            discrepancies=[
+                TrainingDiscrepancy.model_validate(entry).model_dump(mode="json")
+                for entry in discrepancies
+            ],
         )
 
     async def _evaluate_incoming_call(
@@ -1616,7 +1644,10 @@ class SimulationApplicationService:
         expected = item.expected_result
         discrepancies: list[dict[str, Any]] = []
         checks = self._compare_expected(
-            expected.get("final_state", {}), state, "", discrepancies
+            expected.get("card") or expected.get("final_state", {}),
+            state,
+            "card" if expected.get("card") else "",
+            discrepancies,
         )
         actions = list(
             await session.scalars(
@@ -1665,7 +1696,10 @@ class SimulationApplicationService:
         return {
             "score": score.quantize(Decimal("0.01")),
             "passed": not discrepancies,
-            "discrepancies": discrepancies,
+            "discrepancies": [
+                TrainingDiscrepancy.model_validate(entry).model_dump(mode="json")
+                for entry in discrepancies
+            ],
         }
 
     async def answer_incoming_call(
@@ -1713,6 +1747,19 @@ class SimulationApplicationService:
         )
         if card is None:
             raise NotFoundError("Incident card not found in the call workspace")
+        if card.operator_id != request.user_id:
+            raise ValidationError(
+                "Only a card created by the answering student can be linked"
+            )
+        scheduled_card = await session.scalar(
+            select(SessionScheduledCard.id).where(
+                SessionScheduledCard.incident_card_id == card.id
+            )
+        )
+        if scheduled_card is not None:
+            raise ConflictError(
+                "A pre-created scenario card cannot be linked to an incoming call"
+            )
         if item.incident_card_id is not None:
             if item.incident_card_id == card.id:
                 return item

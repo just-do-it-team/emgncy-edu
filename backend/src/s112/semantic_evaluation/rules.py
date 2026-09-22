@@ -31,6 +31,12 @@ def outbound_call_rule(
     evaluation_rules: dict[str, Any] | None,
     expected_result: dict[str, Any] | None = None,
 ) -> OutboundCallRule | None:
+    if expected_result and expected_result.get("outbound_call") is not None:
+        raw = expected_result["outbound_call"]
+        if not isinstance(raw, dict):
+            raise ValueError("expected_result.outbound_call must be an object")
+        return OutboundCallRule.model_validate(raw)
+
     if evaluation_rules and OUTBOUND_CALL_RULE_KEY in evaluation_rules:
         raw = evaluation_rules[OUTBOUND_CALL_RULE_KEY]
         if not isinstance(raw, dict):

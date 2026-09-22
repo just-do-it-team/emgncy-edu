@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,10 +20,26 @@ from s112.api.simulation_schemas import (
     TrainingScenarioUpdate,
 )
 from s112.api.simulation_service import SimulationApplicationService
-from s112.domain.models import CardTemplate, IncomingCallTemplate, TrainingScenario
+from s112.common.enums import UserRole
+from s112.domain.models import (
+    CardTemplate,
+    IncomingCallTemplate,
+    TrainingScenario,
+    UserAccount,
+)
 
 
 router = APIRouter(prefix="/api/v1", tags=["teacher/training_content"])
+
+
+async def _require_teacher_or_administrator(
+    session: AsyncSession, user_id: uuid.UUID
+) -> None:
+    user = await session.get(UserAccount, user_id)
+    if user is None or user.is_blocked:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+    if user.role not in {UserRole.TEACHER.value, UserRole.ADMINISTRATOR.value}:
+        raise HTTPException(status_code=403, detail="Teacher access required")
 
 
 @router.post(
@@ -175,11 +191,13 @@ async def create_training_scenario(
 
 @router.get("/training-scenarios", response_model=list[TrainingScenarioResponse])
 async def list_training_scenarios(
+    user_id: uuid.UUID = Header(alias="X-User-Id"),
     scenario_status: str | None = Query(default=None, alias="status"),
     difficulty: int | None = Query(default=None, ge=1, le=5),
     include_archived: bool = False,
     session: AsyncSession = Depends(get_read_session),
 ) -> list[TrainingScenario]:
+    await _require_teacher_or_administrator(session, user_id)
     statement = select(TrainingScenario)
     if scenario_status:
         statement = statement.where(TrainingScenario.status == scenario_status)
@@ -195,8 +213,10 @@ async def list_training_scenarios(
 )
 async def get_training_scenario(
     scenario_id: uuid.UUID,
+    user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_read_session),
 ) -> TrainingScenario:
+    await _require_teacher_or_administrator(session, user_id)
     scenario = await session.get(TrainingScenario, scenario_id)
     if scenario is None:
         raise HTTPException(status_code=404, detail="Training scenario not found")

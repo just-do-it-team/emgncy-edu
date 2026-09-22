@@ -3,9 +3,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from s112.common.enums import (
     CardStatus,
@@ -46,12 +46,77 @@ class FeatureOptionCreate(BaseModel):
     sort_order: int = 0
 
 
+class AdditionalFeatureProperty(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["string", "boolean", "number", "integer"]
+    title: str | None = None
+    description: str | None = None
+    enum: list[JsonValue] | None = None
+
+    @model_validator(mode="after")
+    def validate_enum(self) -> "AdditionalFeatureProperty":
+        if self.enum is not None:
+            if not self.enum:
+                raise ValueError("enum must not be empty")
+            if any(not self.accepts(value) for value in self.enum):
+                raise ValueError("enum values must match property type")
+        return self
+
+    def accepts(self, value: JsonValue) -> bool:
+        if self.type == "string":
+            return isinstance(value, str)
+        if self.type == "boolean":
+            return isinstance(value, bool)
+        if self.type == "integer":
+            return isinstance(value, int) and not isinstance(value, bool)
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+class AdditionalFeaturesSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    type: Literal["object"] = "object"
+    properties: dict[str, AdditionalFeatureProperty] = Field(default_factory=dict)
+    required: list[str] = Field(default_factory=list)
+    additional_properties: bool = Field(default=True, alias="additionalProperties")
+
+    @model_validator(mode="after")
+    def validate_required(self) -> "AdditionalFeaturesSchema":
+        if len(self.required) != len(set(self.required)) or set(self.required) - set(self.properties):
+            raise ValueError("required must contain unique property names")
+        if self.properties and self.additional_properties:
+            raise ValueError("Configured properties require additionalProperties=false")
+        return self
+
+    def validate_values(self, values: dict[str, JsonValue]) -> None:
+        unknown = set(values) - set(self.properties)
+        if unknown and not self.additional_properties:
+            raise ValueError(f"Unknown additional features: {', '.join(sorted(unknown))}")
+        missing = set(self.required) - set(values)
+        if missing:
+            raise ValueError(f"Missing additional features: {', '.join(sorted(missing))}")
+        for key, value in values.items():
+            if key not in self.properties:
+                continue
+            prop = self.properties[key]
+            if not prop.accepts(value) or (prop.enum is not None and value not in prop.enum):
+                raise ValueError(f"Invalid additional feature: {key}")
+
+
 class ClassificationResolutionResponse(BaseModel):
     feature_schema_id: uuid.UUID
     incident_type_id: uuid.UUID | None
     incident_type_name: str | None
     ekp_name: str | None
-    additional_features_schema: dict[str, Any]
+    additional_features_schema: AdditionalFeaturesSchema
+
+
+class CardQuestionnaire(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    questions: str
+    answers: str
 
 
 class CardFeatureInput(BaseModel):
@@ -60,7 +125,7 @@ class CardFeatureInput(BaseModel):
     second_order_feature_id: int | None = None
     third_order_feature_id: int | None = None
     feature_schema_id: uuid.UUID | None = None
-    additional_features: dict[str, Any] = Field(default_factory=dict)
+    additional_features: dict[str, JsonValue] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_hierarchy(self) -> "CardFeatureInput":
@@ -80,7 +145,7 @@ class CardCreate(BaseModel):
     parent_card_id: uuid.UUID | None = None
     event_type_id: int
     description: str = ""
-    questionnaire: dict[str, Any] | None = None
+    questionnaire: CardQuestionnaire | None = None
     reported_address: str | None = None
     incident_address: str | None = None
     latitude: Decimal | None = Field(default=None, ge=-90, le=90)
@@ -94,7 +159,7 @@ class CardCreate(BaseModel):
 class CardUpdate(BaseModel):
     expected_version: int = Field(ge=1)
     description: str | None = None
-    questionnaire: dict[str, Any] | None = None
+    questionnaire: CardQuestionnaire | None = None
     reported_address: str | None = None
     incident_address: str | None = None
     victims_count: int | None = Field(default=None, ge=0)
@@ -116,10 +181,27 @@ class CardFeatureResponse(OrmModel):
     third_order_feature_id: int | None
     incident_type_id: uuid.UUID | None
     feature_schema_id: uuid.UUID | None
-    additional_features: dict[str, Any]
+    additional_features: dict[str, JsonValue]
     revision: int
     updated_by: uuid.UUID | None
     updated_at: datetime
+
+
+class CardServiceSummary(BaseModel):
+    card_service_id: uuid.UUID
+    service_id: uuid.UUID
+    service_code: str
+    status: ServiceResponseStatus
+
+
+class CardFeaturesSummary(BaseModel):
+    event_kind_id: int | None = None
+    first_order_feature_id: int | None = None
+    second_order_feature_id: int | None = None
+    third_order_feature_id: int | None = None
+    incident_type_id: uuid.UUID | None = None
+    additional_features: dict[str, JsonValue] = Field(default_factory=dict)
+    revision: int | None = None
 
 
 class CardListItem(OrmModel):
@@ -131,11 +213,16 @@ class CardListItem(OrmModel):
     incident_address: str | None
     victims_count: int | None
     current_status: str
-    services_summary: list[dict[str, Any]]
-    features_summary: dict[str, Any]
+    services_summary: list[CardServiceSummary]
+    features_summary: CardFeaturesSummary
     registered_at: datetime
     last_updated_at: datetime
     version: int
+
+
+class CardListPage(BaseModel):
+    items: list[CardListItem]
+    next_cursor: str | None = None
 
 
 class CardStatusCreate(BaseModel):
@@ -167,7 +254,7 @@ class CardFeatureHistoryResponse(OrmModel):
     third_order_feature_id: int | None
     incident_type_id: uuid.UUID | None
     feature_schema_id: uuid.UUID | None
-    additional_features: dict[str, Any]
+    additional_features: dict[str, JsonValue]
     changed_by: uuid.UUID | None
     changed_at: datetime
 
@@ -245,7 +332,7 @@ class CardResponse(OrmModel):
     parent_card_id: uuid.UUID | None
     event_type_id: int
     description: str
-    questionnaire: dict[str, Any] | None
+    questionnaire: CardQuestionnaire | None
     reported_address: str | None
     incident_address: str | None
     latitude: Decimal | None

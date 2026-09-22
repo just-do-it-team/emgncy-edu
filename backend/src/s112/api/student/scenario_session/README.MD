@@ -25,10 +25,56 @@ GET /api/v1/workspaces/{workspaceId}/cards?limit=100
 X-User-Id: <student-uuid>
 ```
 
-Возвращает `CardListItem[]`, отсортированный от новых карточек к старым. Для
-участника с `position_code` backend оставляет только карточки его службы.
+Возвращает страницу, отсортированную от новых карточек к старым. Порядок
+стабилизирован по паре `(registered_at, card_id)`:
+
+```json
+{
+  "items": [
+    {
+      "card_id": "card-uuid",
+      "workspace_id": "workspace-uuid",
+      "card_number": "112-000001",
+      "event_type_id": 1,
+      "event_kind_id": null,
+      "incident_address": "г. Москва, ул. Учебная, д. 10",
+      "victims_count": 0,
+      "current_status": "REGISTERED",
+      "services_summary": [],
+      "features_summary": {
+        "event_kind_id": null,
+        "first_order_feature_id": null,
+        "second_order_feature_id": null,
+        "third_order_feature_id": null,
+        "incident_type_id": null,
+        "additional_features": {},
+        "revision": null
+      },
+      "registered_at": "2026-09-21T10:00:00Z",
+      "last_updated_at": "2026-09-21T10:00:00Z",
+      "version": 1
+    }
+  ],
+  "next_cursor": "opaque-server-cursor"
+}
+```
+
+Для участника с `position_code` backend оставляет только карточки его службы.
 Основные поля строки: `card_id`, `card_number`, `event_type_id`, адрес,
 `current_status`, `services_summary`, `features_summary`, `version`.
+
+Если `next_cursor` не равен `null`, следующая страница запрашивается без
+изменения `limit`:
+
+```http
+GET /api/v1/workspaces/{workspaceId}/cards?limit=100&cursor={nextCursor}
+X-User-Id: <student-uuid>
+```
+
+Frontend хранит и передаёт cursor как непрозрачную строку, не разбирает и не
+изменяет его. `next_cursor=null` означает конец списка. При обновлении экрана
+первую страницу следует снова запросить без cursor; новые realtime-карточки
+добавляются в начало локального списка с дедупликацией по `card_id`.
 
 ```http
 GET /api/v1/workspaces/{workspaceId}/cards/{cardId}
@@ -87,6 +133,24 @@ Content-Type: application/json
 - `GET /api/v1/event-types` и вложенные endpoints признаков — справочники;
 - `GET /api/v1/feature-schemas/resolve` — схема дополнительных признаков.
 
+`questionnaire` карточки — либо `null`, либо объект строго из двух строк:
+`{"questions":"...","answers":"..."}`. Дополнительные признаки карточки
+не обязательны в первой версии. Если для выбранной иерархии признаков настроена
+схема, `additional_features_schema` имеет вид объекта JSON Schema с
+`type="object"`, `properties`, `required` и `additionalProperties=false`.
+Каждое свойство поддерживает только `type` (`string`, `boolean`, `number` или
+`integer`), необязательные `title`, `description`, `enum`. Сервер отклоняет
+неизвестные ключи, пропущенные обязательные поля и неверные типы при сохранении.
+Если схема ещё не настроена, сервер возвращает пустой набор свойств с
+`additionalProperties=true`; это сохраняет совместимость старых карточек.
+
+`service_routing_rule` — серверная таблица автоматического назначения служб:
+правило относится к версии схемы признаков, проверяет условие на
+`additional_features` и добавляет службу с нужным способом оповещения и
+маршрутом отправки. При пустой таблице автоматической маршрутизации нет;
+назначенные вручную службы карточки продолжают работать. Это не схема полей
+карточки и фронтенду она напрямую не требуется.
+
 Изменяющие запросы принимают `expected_version` или `expected_card_version`.
 После каждого успеха нужно заменить локальную версию значением из ответа.
 `409` означает конфликт оптимистической блокировки: frontend должен перечитать
@@ -143,13 +207,20 @@ Content-Type: application/json
 ```
 
 Ответ — `TrainingSessionResponse` со статусом `COMPLETED`, полями `score`,
-`passed`, `completed_automatically` и `result.cards[].discrepancies`. Повтор
+`passed`, `completed_automatically` и `result`. В `result.cards[]` и
+`result.incoming_calls[]` есть `score`, `passed`, `discrepancies`. Каждое
+расхождение содержит строго `path`, `expected`, `actual`, `reason`; например,
+`reason=value_mismatch` означает несовпадение поля итоговой карточки. Повтор
 завершения идемпотентен. Ранняя попытка возвращает `409`; в
 `detail.completion_readiness` находится тот же снимок с blockers, поэтому
 frontend может сразу обновить состояние кнопки без дополнительного запроса.
 
 Поля `completion_policy`, `completion_state`, `completion_state_revision` и
 `ready_to_complete_at` также присутствуют в `TrainingSessionResponse`.
+`completion_state` до первого расчёта может быть `{}`, затем содержит структуру
+`completion-readiness`; после завершения его `status=COMPLETED` и
+`can_complete=false`. Для окончательного результата используйте `result`, а не
+`completion_state`.
 
 Полный контракт событий находится в
 [`../../../realtime_gateway/README.MD`](../../../realtime_gateway/README.MD).

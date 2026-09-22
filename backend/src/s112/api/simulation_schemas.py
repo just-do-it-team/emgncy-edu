@@ -3,21 +3,24 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
-from s112.api.schemas import CardCreate, OrmModel
+from s112.api.schemas import CardCreate, CardQuestionnaire, OrmModel
 from s112.common.enums import (
+    CardStatus,
     LaunchPolicy,
     ScenarioCardSourceType,
     ScenarioCompletionPolicy,
     ScenarioItemType,
+    ScenarioMode,
     ScenarioStatus,
     ScenarioTriggerType,
+    ServiceResponseStatus,
     WorkspaceMode,
 )
-from s112.semantic_evaluation.rules import validate_evaluation_rules
+from s112.semantic_evaluation.rules import OutboundCallRule, validate_evaluation_rules
 
 
 class RequiredAction(BaseModel):
@@ -26,13 +29,48 @@ class RequiredAction(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
 
 
-class ExpectedResult(BaseModel):
-    """Expected state and actions. Forbidden actions are intentionally unsupported."""
+class ExpectedCardFeatures(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_kind_id: int
+    first_order_feature_id: int | None
+    second_order_feature_id: int | None
+    third_order_feature_id: int | None
+    additional_features: dict[str, JsonValue]
+
+
+class ExpectedCardState(BaseModel):
+    """The complete, assessable state of the incident card after handling."""
 
     model_config = ConfigDict(extra="forbid")
 
-    final_state: dict[str, Any] = Field(default_factory=dict)
-    required_actions: list[RequiredAction] = Field(default_factory=list)
+    event_type_id: int
+    description: str
+    questionnaire: CardQuestionnaire | None
+    reported_address: str | None
+    incident_address: str | None
+    victims_count: int | None = Field(ge=0)
+    current_status: CardStatus
+    features: ExpectedCardFeatures | None
+    services: list[str]
+    service_statuses: dict[str, ServiceResponseStatus]
+
+
+class ExpectedResult(BaseModel):
+    """Versioned assessment contract; legacy fields remain readable for old scenarios."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    card: ExpectedCardState | None = None
+    outbound_call: OutboundCallRule | None = None
+    final_state: dict[str, Any] = Field(default_factory=dict, deprecated=True)
+    required_actions: list[RequiredAction] = Field(default_factory=list, deprecated=True)
+
+    @model_validator(mode="after")
+    def validate_result(self) -> "ExpectedResult":
+        if self.card is not None and (self.final_state or self.required_actions):
+            raise ValueError("card cannot be combined with legacy final_state/required_actions")
+        return self
 
 
 class InitialIncomingCall(BaseModel):
@@ -41,7 +79,6 @@ class InitialIncomingCall(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     initial_utterance: str = Field(min_length=1, max_length=10_000)
-    context: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("initial_utterance")
     @classmethod
@@ -52,11 +89,25 @@ class InitialIncomingCall(BaseModel):
         return normalized
 
 
+class TimeOffsetTriggerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    offset_seconds: int = Field(ge=0)
+
+
+class AfterActionTriggerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    card_key: str = Field(min_length=1, max_length=100)
+    action_type: str = Field(min_length=1, max_length=100)
+    delay_seconds: int = Field(default=0, ge=0)
+
+
 class ScenarioCardDefinition(BaseModel):
     key: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_.-]+$")
     item_type: ScenarioItemType = ScenarioItemType.INCIDENT_CARD
     trigger_type: ScenarioTriggerType
-    trigger_config: dict[str, Any] = Field(default_factory=dict)
+    trigger_config: TimeOffsetTriggerConfig | AfterActionTriggerConfig
     source_type: ScenarioCardSourceType
     template_id: uuid.UUID | None = None
     initial_card: CardCreate | None = None
@@ -107,30 +158,92 @@ class ScenarioCardDefinition(BaseModel):
                 )
 
         if self.trigger_type is ScenarioTriggerType.TIME_OFFSET:
-            offset = self.trigger_config.get("offset_seconds")
-            if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
-                raise ValueError("TIME_OFFSET requires non-negative integer offset_seconds")
+            if not isinstance(self.trigger_config, TimeOffsetTriggerConfig):
+                raise ValueError("TIME_OFFSET requires offset_seconds")
         elif self.trigger_type is ScenarioTriggerType.AFTER_ACTION:
-            card_key = self.trigger_config.get("card_key")
-            action_type = self.trigger_config.get("action_type")
-            delay = self.trigger_config.get("delay_seconds", 0)
-            if not isinstance(card_key, str) or not card_key:
-                raise ValueError("AFTER_ACTION requires card_key")
-            if not isinstance(action_type, str) or not action_type:
-                raise ValueError("AFTER_ACTION requires action_type")
-            if not isinstance(delay, int) or isinstance(delay, bool) or delay < 0:
-                raise ValueError("AFTER_ACTION delay_seconds must be a non-negative integer")
+            if not isinstance(self.trigger_config, AfterActionTriggerConfig):
+                raise ValueError("AFTER_ACTION requires card_key and action_type")
+        else:
+            raise ValueError("Only TIME_OFFSET and AFTER_ACTION triggers are supported")
         return self
+
+
+class ProceduralTemplatePool(BaseModel):
+    """Strict allow-list and event-type filters for procedural card selection."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    template_ids: list[uuid.UUID] | None = Field(
+        default=None, min_length=1, max_length=500
+    )
+    event_type_ids: list[int] | None = Field(
+        default=None, min_length=1, max_length=100
+    )
+
+    @field_validator("template_ids")
+    @classmethod
+    def validate_unique_template_ids(
+        cls, value: list[uuid.UUID] | None
+    ) -> list[uuid.UUID] | None:
+        if value is not None and len(value) != len(set(value)):
+            raise ValueError("template_ids must be unique")
+        return value
+
+    @field_validator("event_type_ids")
+    @classmethod
+    def validate_event_type_ids(
+        cls, value: list[int] | None
+    ) -> list[int] | None:
+        if value is not None:
+            if any(item <= 0 for item in value):
+                raise ValueError("event_type_ids must contain positive integers")
+            if len(value) != len(set(value)):
+                raise ValueError("event_type_ids must be unique")
+        return value
+
+
+class ProceduralCardGeneration(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(
+        default="procedural-cards",
+        min_length=1,
+        max_length=100,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    target_count: int = Field(ge=1, le=100)
+    template_pool: ProceduralTemplatePool = Field(
+        default_factory=ProceduralTemplatePool
+    )
 
 
 class ScenarioDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: int = Field(default=1, ge=1)
-    cards: list[ScenarioCardDefinition] = Field(min_length=1)
+    mode: ScenarioMode = ScenarioMode.STATIC
+    cards: list[ScenarioCardDefinition] = Field(default_factory=list)
+    procedural_generation: ProceduralCardGeneration | None = None
 
     @model_validator(mode="after")
     def validate_card_keys(self) -> "ScenarioDefinition":
+        if self.mode is ScenarioMode.STATIC:
+            if not self.cards:
+                raise ValueError("STATIC scenario requires at least one card")
+            if self.procedural_generation is not None:
+                raise ValueError("STATIC scenario must not define procedural_generation")
+        elif self.mode is ScenarioMode.PROCEDURAL:
+            if self.cards:
+                raise ValueError("PROCEDURAL scenario must not contain static cards")
+            if self.procedural_generation is None:
+                raise ValueError("PROCEDURAL scenario requires procedural_generation")
+        elif self.mode is ScenarioMode.HYBRID:
+            if not self.cards or self.procedural_generation is None:
+                raise ValueError(
+                    "HYBRID scenario requires static cards and procedural_generation"
+                )
+        if self.mode is not ScenarioMode.STATIC and self.schema_version < 3:
+            raise ValueError("Procedural scenarios require schema_version 3")
         if self.schema_version < 2 and any(
             item.item_type is ScenarioItemType.INCOMING_CALL for item in self.cards
         ):
@@ -139,14 +252,69 @@ class ScenarioDefinition(BaseModel):
         if len(keys) != len(set(keys)):
             raise ValueError("Scenario item keys must be unique")
         known = set(keys)
+        if self.procedural_generation is not None:
+            prefix = f"generated.{self.procedural_generation.key}."
+            if any(key.startswith(prefix) for key in keys):
+                raise ValueError(
+                    "Static scenario item key conflicts with generated item keys"
+                )
         for card in self.cards:
             if card.trigger_type is ScenarioTriggerType.AFTER_ACTION:
-                dependency = card.trigger_config["card_key"]
+                dependency = card.trigger_config.card_key
                 if dependency not in known:
                     raise ValueError(f"Unknown AFTER_ACTION card_key: {dependency}")
                 if dependency == card.key:
                     raise ValueError("A scenario item cannot depend on itself")
         return self
+
+
+class ResolvedScenarioItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    item_type: ScenarioItemType
+    trigger_type: ScenarioTriggerType
+    trigger_config: TimeOffsetTriggerConfig | AfterActionTriggerConfig
+    source_type: Literal[ScenarioCardSourceType.SNAPSHOT]
+    template_id: uuid.UUID | None = None
+    template_key: uuid.UUID | None = None
+    template_version: int | None = None
+    initial_card: CardCreate | None = None
+    initial_call: InitialIncomingCall | None = None
+    expected_result: ExpectedResult
+    evaluation_rules: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_payload(self) -> "ResolvedScenarioItem":
+        if self.item_type is ScenarioItemType.INCIDENT_CARD:
+            if self.initial_card is None or self.initial_call is not None:
+                raise ValueError("Resolved card item requires initial_card only")
+        elif self.initial_call is None or self.initial_card is not None:
+            raise ValueError("Resolved incoming call requires initial_call only")
+        return self
+
+
+class ResolvedScenarioDefinition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int = Field(ge=1)
+    cards: list[ResolvedScenarioItem] = Field(min_length=1)
+
+
+class ScenarioSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scenario_id: uuid.UUID
+    scenario_revision: int = Field(ge=1)
+    name: str
+    description: str | None
+    difficulty: int = Field(ge=1, le=5)
+    estimated_duration_seconds: int = Field(gt=0)
+    workspace_mode: WorkspaceMode
+    completion_policy: ScenarioCompletionPolicy
+    min_participants: int = Field(ge=1)
+    max_participants: int = Field(ge=1)
+    definition: ResolvedScenarioDefinition
 
 
 def strip_scenario_card_runtime_fields(definition: dict[str, Any]) -> dict[str, Any]:
@@ -218,6 +386,14 @@ class IncomingCallTemplateCreate(BaseModel):
     initial_call: InitialIncomingCall
     expected_result: ExpectedResult
     created_by: uuid.UUID
+
+    @model_validator(mode="after")
+    def require_final_card(self) -> "IncomingCallTemplateCreate":
+        if self.expected_result.card is None:
+            raise ValueError("Incoming call template requires expected_result.card")
+        if self.expected_result.outbound_call is not None:
+            raise ValueError("Incoming call template cannot require an outbound call")
+        return self
 
 
 class IncomingCallTemplateResponse(OrmModel):
@@ -378,6 +554,40 @@ class ScenarioAssignmentResponse(OrmModel):
     participants: list[AssignmentParticipantResponse] = Field(default_factory=list)
 
 
+class StudentAssignedScenarioMetadata(BaseModel):
+    id: uuid.UUID
+    revision: int
+    name: str
+    description: str | None = None
+    difficulty: int
+    estimated_duration_seconds: int
+    cards_count: int
+    workspace_mode: str
+    completion_policy: str
+
+
+class StudentActiveSessionContext(BaseModel):
+    session_id: uuid.UUID
+    workspace_id: uuid.UUID
+    attempt_number: int
+    status: str
+    started_at: datetime
+
+
+class StudentScenarioAssignmentResponse(BaseModel):
+    id: uuid.UUID
+    scenario: StudentAssignedScenarioMetadata
+    assigned_by: uuid.UUID
+    launch_policy: str
+    max_attempts: int
+    status: str
+    available_from: datetime | None
+    due_at: datetime | None
+    created_at: datetime
+    participant: AssignmentParticipantResponse
+    active_session: StudentActiveSessionContext | None = None
+
+
 class StartAssignmentRequest(BaseModel):
     user_id: uuid.UUID
 
@@ -396,13 +606,70 @@ class SessionCompleteRequest(BaseModel):
     user_id: uuid.UUID
 
 
+class TrainingDiscrepancy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+    expected: JsonValue
+    actual: JsonValue
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        known = {
+            "value_mismatch",
+            "required_action_missing",
+            "semantic_similarity_below_threshold",
+            "semantic_evaluation_failed",
+            "semantic_evaluation_missing",
+            "card_not_opened",
+            "card_open_deadline_missed",
+            "card_decision_missing",
+            "card_decision_deadline_missed",
+        }
+        if value not in known and not value.startswith("invalid_semantic_evaluation_rule: "):
+            raise ValueError("Unknown discrepancy reason")
+        return value
+
+
+class TrainingCardOutcome(BaseModel):
+    scenario_card_key: str
+    incident_card_id: uuid.UUID
+    score: Decimal
+    passed: bool
+    discrepancies: list[TrainingDiscrepancy]
+
+
+class TrainingCallOutcome(BaseModel):
+    scenario_item_key: str
+    training_call_id: uuid.UUID
+    incident_card_id: uuid.UUID
+    score: Decimal
+    passed: bool
+    discrepancies: list[TrainingDiscrepancy]
+
+
+class TrainingSessionResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cards: list[TrainingCardOutcome] = Field(default_factory=list)
+    incoming_calls: list[TrainingCallOutcome] = Field(default_factory=list)
+
+
+class EmptyCompletionState(BaseModel):
+    """A session not yet examined by the readiness calculator."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class TrainingSessionResponse(OrmModel):
     id: uuid.UUID
     assignment_id: uuid.UUID
     attempt_number: int
     status: str
     completion_policy: str
-    completion_state: dict[str, Any]
+    completion_state: SessionCompletionReadinessResponse | EmptyCompletionState
     completion_state_revision: int
     ready_to_complete_at: datetime | None
     completed_automatically: bool
@@ -410,7 +677,7 @@ class TrainingSessionResponse(OrmModel):
     completed_at: datetime | None
     score: Decimal | None
     passed: bool | None
-    result: dict[str, Any]
+    result: TrainingSessionResult
     expert_score: Decimal | None
     expert_passed: bool | None
     expert_comment: str | None
@@ -454,6 +721,9 @@ class SessionCompletionReadinessResponse(BaseModel):
     calls_completed: int = 0
     calls_failed: int = 0
     calls_cancelled: int = 0
+    generation_status: str | None = None
+    generated_cards: int = 0
+    generation_target: int = 0
     decisions_required: int
     decisions_completed: int
     audio_messages_total: int = 0
@@ -694,6 +964,9 @@ class ScheduledCardResponse(OrmModel):
     emitted_at: datetime | None
     attempts: int
     last_error: str | None
+    generator_key: str | None
+    generation_index: int | None
+    source_template_id: uuid.UUID | None
 
 
 class TrainingCallResponse(OrmModel):

@@ -1,7 +1,11 @@
+import base64
+import binascii
+import json
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -13,7 +17,7 @@ from s112.api.common.dependencies import (
 from s112.api.dependencies import get_read_session, get_write_session
 from s112.api.schemas import (
     CardDecisionRequest,
-    CardListItem,
+    CardListPage,
     CardResponse,
     CardServiceResponse,
 )
@@ -36,6 +40,39 @@ from s112.domain.models import (
 
 
 router = APIRouter(prefix="/api/v1", tags=["student/scenario_session"])
+
+
+def _encode_cards_cursor(card: CardListProjection) -> str:
+    payload = json.dumps(
+        {
+            "registered_at": card.registered_at.isoformat(),
+            "card_id": str(card.card_id),
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def _decode_cards_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        raw = base64.b64decode(
+            (cursor + padding).encode("ascii"), altchars=b"-_", validate=True
+        )
+        payload = json.loads(raw.decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError
+        registered_at = datetime.fromisoformat(payload["registered_at"])
+        card_id = uuid.UUID(payload["card_id"])
+    except (
+        binascii.Error,
+        KeyError,
+        TypeError,
+        ValueError,
+        UnicodeError,
+    ):
+        raise HTTPException(status_code=422, detail="Invalid cards cursor") from None
+    return registered_at, card_id
 
 
 @router.get(
@@ -73,14 +110,15 @@ async def complete_training_session(
 
 @router.get(
     "/workspaces/{workspace_id}/cards",
-    response_model=list[CardListItem],
+    response_model=CardListPage,
 )
 async def list_workspace_cards(
     workspace_id: uuid.UUID,
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     limit: int = Query(default=100, ge=1, le=500),
+    cursor: str | None = Query(default=None, max_length=1024),
     session: AsyncSession = Depends(get_read_session),
-) -> list[CardListProjection]:
+) -> CardListPage:
     member = await session.get(WorkspaceMember, (workspace_id, user_id))
     if member is None or member.left_at is not None:
         raise HTTPException(status_code=403, detail="Workspace access denied")
@@ -103,11 +141,28 @@ async def list_workspace_cards(
             )
             .distinct()
         )
-    return list(
+    if cursor is not None:
+        registered_at, card_id = _decode_cards_cursor(cursor)
+        statement = statement.where(
+            or_(
+                CardListProjection.registered_at < registered_at,
+                and_(
+                    CardListProjection.registered_at == registered_at,
+                    CardListProjection.card_id < card_id,
+                ),
+            )
+        )
+    rows = list(
         await session.scalars(
-            statement.order_by(CardListProjection.registered_at.desc()).limit(limit)
+            statement.order_by(
+                CardListProjection.registered_at.desc(),
+                CardListProjection.card_id.desc(),
+            ).limit(limit + 1)
         )
     )
+    items = rows[:limit]
+    next_cursor = _encode_cards_cursor(items[-1]) if len(rows) > limit else None
+    return CardListPage(items=items, next_cursor=next_cursor)
 
 
 @router.get(

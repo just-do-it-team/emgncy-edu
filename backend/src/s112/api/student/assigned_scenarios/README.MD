@@ -2,56 +2,90 @@
 
 Вкладка показывает назначения текущего обучаемого и запускает новую попытку.
 Все даты API — ISO 8601. Пока общая авторизация не подключена, frontend передаёт
-UUID текущего пользователя явно.
+UUID текущего пользователя в `X-User-Id`.
 
 ## Получить назначения
 
 ```http
-GET /api/v1/scenario-assignments?participant_user_id={studentId}&status=ASSIGNED
+GET /api/v1/student/scenario-assignments?status=ASSIGNED
+X-User-Id: <student-uuid>
 ```
 
 Параметры:
 
-- `participant_user_id` — UUID текущего обучаемого; для этой вкладки обязателен;
 - `status` — необязательный фильтр: `ASSIGNED`, `RUNNING`, `COMPLETED`,
-  `CANCELLED`, `EXPIRED`;
-- `group_id` и `assigned_by` поддерживаются общим методом, но обычно не нужны
-  в интерфейсе обучаемого.
+  `CANCELLED`, `EXPIRED`.
 
-Ответ — массив назначений, новые элементы идут первыми:
+Ответ — массив назначений текущего обучаемого, новые элементы идут первыми:
 
 ```json
 [
   {
     "id": "assignment-uuid",
-    "scenario_id": "scenario-uuid",
-    "scenario_revision": 3,
-    "assignment_batch_id": null,
+    "scenario": {
+      "id": "scenario-uuid",
+      "revision": 3,
+      "name": "Одиночная тренировка",
+      "description": "Учебный пожар",
+      "difficulty": 2,
+      "estimated_duration_seconds": 600,
+      "cards_count": 2,
+      "workspace_mode": "INDIVIDUAL",
+      "completion_policy": "STUDENT_CONFIRM"
+    },
     "assigned_by": "teacher-uuid",
-    "workspace_mode": "INDIVIDUAL",
     "launch_policy": "STUDENT_SELF_START",
     "max_attempts": 2,
     "status": "ASSIGNED",
     "available_from": "2026-09-21T09:00:00Z",
     "due_at": "2026-09-28T18:00:00Z",
     "created_at": "2026-09-20T12:00:00Z",
-    "participants": [
-      {
-        "user_id": "student-uuid",
-        "status": "ASSIGNED",
-        "position_code": "101",
-        "ready_at": null,
-        "completed_at": null
-      }
-    ]
+    "participant": {
+      "user_id": "student-uuid",
+      "status": "RUNNING",
+      "position_code": "101",
+      "ready_at": null,
+      "completed_at": null
+    },
+    "active_session": {
+      "session_id": "session-uuid",
+      "workspace_id": "workspace-uuid",
+      "attempt_number": 1,
+      "status": "RUNNING",
+      "started_at": "2026-09-21T10:00:00Z"
+    }
   }
 ]
 ```
 
-Ответ назначения пока не содержит название и описание сценария. Их нужно
-получить через `GET /api/v1/training-scenarios/{scenario_id}` и кэшировать по
-`scenario_id`. `scenario_revision` показывает, какая версия была зафиксирована
-в назначении.
+`scenario` содержит только безопасные метаданные зафиксированной в назначении
+версии. В ответе принципиально отсутствуют `definition`, `expected_result`,
+`evaluation_rules`, эталонные тексты и ожидаемые действия. Студентский frontend
+не должен обращаться к преподавательскому `GET /api/v1/training-scenarios/{id}`.
+
+Для одного назначения доступен такой же контракт:
+
+```http
+GET /api/v1/student/scenario-assignments/{assignmentId}
+X-User-Id: <student-uuid>
+```
+
+### Восстановление запущенной попытки
+
+`active_session` равен `null`, пока активной попытки нет. После запуска он
+содержит идентификаторы сессии и workspace. Поэтому после перезагрузки страницы,
+потери ответа `POST /start`, входа с другого устройства или запуска сессии
+преподавателем frontend повторяет student GET и:
+
+1. находит нужное назначение;
+2. если `active_session != null`, открывает экран прохождения по
+   `active_session.session_id` и `active_session.workspace_id`;
+3. если `active_session == null`, оставляет доступным обычный запуск согласно
+   `launch_policy` и статусу назначения.
+
+Запрос читается с read replica, поэтому сразу после старта допустима короткая
+задержка репликации: при восстановлении frontend может повторить GET с небольшим
+интервалом. Новая попытка при этом не создаётся.
 
 ## Запустить попытку
 
@@ -80,7 +114,9 @@ frontend до получения успешного ответа. Повтор �
 ```
 
 После успеха frontend переходит во вкладку прохождения и сохраняет
-`session_id` и `workspace_id` в состоянии маршрута.
+`session_id` и `workspace_id` в состоянии маршрута. Эти значения не являются
+единственной точкой восстановления: канонический источник после перезагрузки —
+`active_session` student endpoint выше.
 
 Кнопка самостоятельного запуска уместна только при
 `launch_policy=STUDENT_SELF_START`, статусе `ASSIGNED`, наступившем
@@ -90,6 +126,7 @@ frontend до получения успешного ответа. Повтор �
 ## Ошибки
 
 - `404` — назначение не найдено;
+- `403` — `X-User-Id` не принадлежит обучаемому;
 - `409` — назначение ещё недоступно, просрочено, завершено, уже имеет активную
   сессию либо исчерпан лимит попыток;
 - `422` — пользователь не является участником или назначение нельзя запускать

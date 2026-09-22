@@ -589,6 +589,12 @@ class CardListProjection(Base):
             "event_type_id",
             "registered_at",
         ),
+        Index(
+            "ix_card_projection_workspace_registered_card",
+            "workspace_id",
+            "registered_at",
+            "card_id",
+        ),
     )
 
     card_id: Mapped[uuid.UUID] = mapped_column(
@@ -1006,6 +1012,9 @@ class TrainingSession(Base):
     score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     passed: Mapped[bool | None] = mapped_column(Boolean)
     result: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
+    generation_state: Mapped[dict[str, Any]] = mapped_column(
+        JsonType, nullable=False, default=dict
+    )
     expert_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     expert_passed: Mapped[bool | None] = mapped_column(Boolean)
     expert_comment: Mapped[str | None] = mapped_column(Text)
@@ -1066,6 +1075,17 @@ class SessionScheduledCard(Base):
         ),
         Index("ix_session_scheduled_card_due", "status", "scheduled_at"),
         Index("ix_session_scheduled_card_workspace", "workspace_id", "status"),
+        UniqueConstraint(
+            "training_session_id",
+            "generator_key",
+            "generation_index",
+            name="uq_session_scheduled_card_generation",
+        ),
+        CheckConstraint(
+            "(generator_key IS NULL AND generation_index IS NULL) OR "
+            "(generator_key IS NOT NULL AND generation_index > 0)",
+            name="generation_fields_valid",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -1100,6 +1120,11 @@ class SessionScheduledCard(Base):
     emitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_error: Mapped[str | None] = mapped_column(Text)
+    generator_key: Mapped[str | None] = mapped_column(String(100))
+    generation_index: Mapped[int | None] = mapped_column(Integer)
+    source_template_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("card_template.id", ondelete="RESTRICT")
+    )
 
 
 class TrainingCall(Base):

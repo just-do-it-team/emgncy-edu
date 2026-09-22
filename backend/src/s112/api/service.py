@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from s112.api.schemas import (
+    AdditionalFeaturesSchema,
     CardCreate,
     CardFeatureInput,
     CardFeatureUpdate,
@@ -101,7 +102,10 @@ class CardApplicationService:
             request.workspace_id,
             request.operator_id,
             allow_system_actor=allow_system_actor,
-            allowed_roles={WorkspaceMemberRole.INSTRUCTOR.value},
+            allowed_roles={
+                WorkspaceMemberRole.INSTRUCTOR.value,
+                WorkspaceMemberRole.PARTICIPANT.value,
+            },
         )
         event_type = await session.get(EventType, request.event_type_id)
         if event_type is None or not event_type.is_active:
@@ -127,7 +131,11 @@ class CardApplicationService:
             parent_card_id=request.parent_card_id,
             event_type_id=request.event_type_id,
             description=request.description,
-            questionnaire=request.questionnaire,
+            questionnaire=(
+                request.questionnaire.model_dump()
+                if request.questionnaire is not None
+                else None
+            ),
             reported_address=request.reported_address,
             incident_address=request.incident_address,
             latitude=request.latitude,
@@ -1132,6 +1140,13 @@ class CardApplicationService:
                 .order_by(FeatureSchema.version.desc())
                 .limit(1)
             )
+        if schema is not None and schema.json_schema:
+            try:
+                AdditionalFeaturesSchema.model_validate(schema.json_schema).validate_values(
+                    features.additional_features
+                )
+            except ValueError as exc:
+                raise ValidationError(str(exc)) from exc
         return schema
 
     def _make_feature(
