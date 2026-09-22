@@ -12,7 +12,7 @@ interface EmergencyService {
 
 // Отдельное opt-in подключение только для справочника АРМ. Моковые карточки
 // не отправляются на сервер; UUID служб не подменяются кодами классификатора.
-export function useServiceDirectory() {
+export function useServiceDirectory(enabled = true) {
   const baseURL = import.meta.env.VITE_ARM_API_URL?.replace(/\/$/, "");
   return useQuery({
     queryKey: ["arm-service-directory", baseURL ?? "local"],
@@ -31,6 +31,7 @@ export function useServiceDirectory() {
         ),
       ];
     },
+    enabled,
     staleTime: 300000,
     retry: 1,
   });
