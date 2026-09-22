@@ -30,6 +30,7 @@ const shortDate = new Intl.DateTimeFormat("ru-RU", {
 
 interface IncidentListProps {
   incidents: Incident[];
+  operatorMode?: boolean;
   onOpenIncident: (incident: Incident) => void;
 }
 
@@ -107,7 +108,8 @@ function IncidentRow({
         <Table.Td>
           <ActionIcon
             className={classes.rowIcon}
-            aria-label="Карточка происшествия"
+            aria-label={`Карточка происшествия ${incident.id}`}
+            onClick={() => onOpenIncident(incident)}
           >
             <ClipboardList size={18} />
           </ActionIcon>
@@ -138,7 +140,11 @@ function IncidentRow({
   );
 }
 
-export function IncidentList({ incidents, onOpenIncident }: IncidentListProps) {
+export function IncidentList({
+  incidents,
+  onOpenIncident,
+  operatorMode = false,
+}: IncidentListProps) {
   const count = incidents.length;
 
   return (
@@ -173,7 +179,7 @@ export function IncidentList({ incidents, onOpenIncident }: IncidentListProps) {
         </Group>
       </Group>
 
-      <Table.ScrollContainer minWidth={1100}>
+      <Table.ScrollContainer minWidth={1550}>
         <Table
           className={classes.table}
           withRowBorders={false}
@@ -218,7 +224,7 @@ export function IncidentList({ incidents, onOpenIncident }: IncidentListProps) {
                 Адрес
               </Table.Th>
               <Table.Th scope="col" className={classes.leftAligned}>
-                Статус службы
+                {operatorMode ? "Статус карточки" : "Статус службы"}
               </Table.Th>
               <Table.Th scope="col">
                 <VisuallyHidden>Действия</VisuallyHidden>

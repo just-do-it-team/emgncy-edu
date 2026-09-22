@@ -1,20 +1,15 @@
 import { Box, Group, Modal, Text, Title } from "@mantine/core";
-import {
-  ChevronUp,
-  ChevronsUpDown,
-  Pencil,
-  PhoneOff,
-  X,
-  Zap,
-} from "lucide-react";
+import { Pencil, PhoneOff, X, Zap } from "lucide-react";
 import { MdCall, MdCallEnd, MdMessage, MdWarning } from "react-icons/md";
 import { ActionIcon, Button } from "@/shared/ui";
-import type { Incident } from "@/entities/incident";
+import type { Incident, IncidentService } from "@/entities/incident";
 import classes from "./incident-viewer.module.scss";
+import { ServiceResponse } from "./service-response";
 
 interface IncidentViewerProps {
   incident: Incident | null;
   onClose: () => void;
+  onServiceChange: (service: IncidentService) => void;
 }
 
 function PhoneField({ label, value }: { label: string; value?: string }) {
@@ -42,7 +37,11 @@ function PhoneField({ label, value }: { label: string; value?: string }) {
   );
 }
 
-export function IncidentViewer({ incident, onClose }: IncidentViewerProps) {
+export function IncidentViewer({
+  incident,
+  onClose,
+  onServiceChange,
+}: IncidentViewerProps) {
   return (
     <Modal.Root
       opened={incident !== null}
@@ -52,7 +51,12 @@ export function IncidentViewer({ incident, onClose }: IncidentViewerProps) {
       transitionProps={{ duration: 0 }}
     >
       {incident && (
-        <IncidentViewerContent incident={incident} onClose={onClose} />
+        <IncidentViewerContent
+          key={incident.id}
+          incident={incident}
+          onClose={onClose}
+          onServiceChange={onServiceChange}
+        />
       )}
     </Modal.Root>
   );
@@ -61,9 +65,11 @@ export function IncidentViewer({ incident, onClose }: IncidentViewerProps) {
 function IncidentViewerContent({
   incident,
   onClose,
+  onServiceChange,
 }: {
   incident: Incident;
   onClose: () => void;
+  onServiceChange: (service: IncidentService) => void;
 }) {
   const details = incident.details;
   const createdAt = new Date(incident.createdAt);
@@ -217,26 +223,12 @@ function IncidentViewerContent({
             <div className={classes.services}>
               <strong className={classes.servicesLabel}>Службы:</strong>
               {details?.services.map((service) => (
-                <Button
+                <ServiceResponse
                   key={service.name}
-                  className={classes.service}
-                  data-highlighted={service.highlighted || undefined}
-                >
-                  <span className={classes.serviceContent}>
-                    <ChevronUp size={11} />
-                    <span className={classes.serviceName}>{service.name}</span>
-                    <span className={classes.serviceStatus}>
-                      {service.time} {service.status}
-                    </span>
-                  </span>
-                </Button>
+                  service={service}
+                  onChange={onServiceChange}
+                />
               ))}
-              <ActionIcon
-                className={classes.footerIcon}
-                aria-label="Развернуть службы"
-              >
-                <ChevronsUpDown size={22} />
-              </ActionIcon>
             </div>
             <Group gap={5} wrap="nowrap" className={classes.footerActions}>
               <ActionIcon

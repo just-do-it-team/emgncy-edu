@@ -3,6 +3,7 @@ export interface IncidentService {
   time: string;
   status: string;
   highlighted?: boolean;
+  history?: { status: string; time: string; comment: string }[];
 }
 
 export interface Incident {
@@ -34,4 +35,3 @@ export interface Incident {
     services: IncidentService[];
   };
 }
-
