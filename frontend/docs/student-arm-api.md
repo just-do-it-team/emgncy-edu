@@ -115,11 +115,9 @@
 node node_modules/typescript/bin/tsc --noEmit --project tsconfig.app.json
 node node_modules/typescript/bin/tsc --noEmit --project tsconfig.node.json
 npm run lint
-node --test tests/incident-classifier.test.mjs tests/student-api.test.mjs
 ```
 
 Для полной приёмки нужен UUID student с назначением. Проверить запуск, возврат
 по URL с session после reload, получение карточки, сохранение 112, реагирование
 ДДС, конфликт версии и завершение. Живые изменения не проверялись без выбранного
-пользователем тестового обучающегося; контрактные тесты используют изолированный
-Axios adapter и не изменяют данные сервера.
+пользователем тестового обучающегося.
