@@ -24,7 +24,7 @@ from s112.domain.models import (
 )
 
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", tags=["common/reference_data"])
 
 
 @router.get("/event-types", response_model=list[EventTypeResponse])

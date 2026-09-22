@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import base64
-import hashlib
 import re
-import secrets
 import uuid
 from datetime import datetime, timezone
 
@@ -15,13 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from s112.admin_api.audit import actor_id_from_request, add_audit_event
 from s112.admin_api.dependencies import get_admin_write_session
+from s112.auth.passwords import hash_password
 from s112.common.enums import UserRole
 from s112.domain.models import SecurityPolicy, UserAccount
 
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-PBKDF2_ITERATIONS = 600_000
 USERNAME_PATTERN = r"^[A-Za-z0-9._-]+$"
 
 
@@ -90,21 +87,6 @@ def _user_response(user: UserAccount) -> UserResponse:
         last_login_at=user.last_login_at,
         created_at=user.created_at,
         updated_at=user.updated_at,
-    )
-
-
-def _hash_password(password: str) -> str:
-    salt = secrets.token_bytes(16)
-    digest = hashlib.pbkdf2_hmac(
-        "sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS
-    )
-    return "$".join(
-        (
-            "pbkdf2_sha256",
-            str(PBKDF2_ITERATIONS),
-            base64.urlsafe_b64encode(salt).decode("ascii"),
-            base64.urlsafe_b64encode(digest).decode("ascii"),
-        )
     )
 
 
@@ -238,7 +220,7 @@ async def create_user(
                     display_name=payload.display_name,
                     email=payload.email,
                     normalized_email=normalized_email,
-                    password_hash=_hash_password(payload.password),
+                    password_hash=hash_password(payload.password),
                     role=payload.role.value,
                     created_by=actor_id,
                     updated_by=actor_id,

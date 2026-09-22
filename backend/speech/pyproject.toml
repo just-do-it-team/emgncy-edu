@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "s112-speech"
+version = "0.1.0"
+description = "Speech model service for the System-112 training simulator"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi==0.141.1",
+    "gigaam @ git+https://github.com/salute-developers/GigaAM.git@main",
+    "numba>=0.62",
+    "numpy>=2,<3",
+    "pyannote.audio==4.0.*",
+    "pyarrow>=23",
+    "pydantic-settings==2.15.0",
+    "python-multipart==0.0.20",
+    "soundfile>=0.13,<1",
+    "torch==2.10.*",
+    "torchaudio==2.10.*",
+    "torchcodec==0.10",
+    "transformers==5.*",
+    "uvicorn[standard]==0.53.0",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/s112"]

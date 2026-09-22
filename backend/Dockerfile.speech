@@ -7,7 +7,9 @@ FROM nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu24.04 AS tts-builder
 ARG DEBIAN_FRONTEND=noninteractive
 ARG LLAMA_CPP_REPOSITORY=https://github.com/ggml-org/llama.cpp.git
 ARG LLAMA_CPP_REF=master
-ARG CUDA_ARCHITECTURES=120a-real
+ARG CUDA_ARCHITECTURES=75-real
+
+ENV CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES}
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -25,20 +27,9 @@ RUN git init /opt/llama.cpp \
     && git -C /opt/llama.cpp checkout --detach FETCH_HEAD
 
 COPY tts-worker /build/tts-worker
+COPY infra/speech/build-tts-worker.sh /usr/local/bin/build-tts-worker.sh
 
-RUN --mount=type=cache,id=s112-speech-tts-build,target=/build/voice-build \
-    cmake -S /build/tts-worker -B /build/voice-build -G Ninja \
-        -DLLAMA_CPP_DIR=/opt/llama.cpp \
-        -DGGML_CUDA=ON \
-        -DGGML_NATIVE=OFF \
-        "-DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES}" \
-        "-DCMAKE_EXE_LINKER_FLAGS=-Wl,--allow-shlib-undefined" \
-        -DCMAKE_BUILD_TYPE=Release \
-    && cmake --build /build/voice-build \
-        --target qwen-tts-worker \
-        --parallel \
-    && mkdir -p /opt/speech-runtime \
-    && cp -a /build/voice-build/bin/. /opt/speech-runtime/
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/build-tts-worker.sh"]
 
 
 FROM nvidia/cuda:${CUDA_VERSION}-cudnn-runtime-ubuntu24.04 AS runtime
@@ -68,17 +59,16 @@ ENV PATH=/opt/venv/bin:${PATH} \
     PYTHONUNBUFFERED=1
 
 WORKDIR /app
-COPY backend/pyproject.toml backend/README.md ./
-COPY backend/src ./src
+COPY speech/pyproject.toml ./pyproject.toml
+COPY README.md ./
+COPY src ./src
 
 RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel \
     && python -m pip install --no-cache-dir \
         --index-url "${PYTORCH_INDEX_URL}" \
         "torch==2.10.*" "torchaudio==2.10.*" "torchcodec==0.10" \
-    && python -m pip install --no-cache-dir ".[speech]" \
+    && python -m pip install --no-cache-dir . \
     && python -m pip check
-
-COPY --from=tts-builder /opt/speech-runtime/ /opt/speech/bin/
 
 EXPOSE 8083
 CMD ["uvicorn", "s112.speech_api.main:app", "--host", "0.0.0.0", "--port", "8083"]

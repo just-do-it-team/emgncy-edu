@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
@@ -18,13 +18,19 @@ from s112.admin_api.services.api import router as services_router
 from s112.admin_api.settings import AdminSettings, get_admin_settings
 from s112.admin_api.updates.api import router as updates_router
 from s112.admin_api.users.api import router as users_router
+from s112.auth.dependencies import require_auth_if_enabled
+from s112.auth.settings import AuthSettings, get_auth_settings
 from s112.common.database import Database
 
 
 def create_app(
-    *, settings: AdminSettings | None = None, database: Database | None = None
+    *,
+    settings: AdminSettings | None = None,
+    auth_settings: AuthSettings | None = None,
+    database: Database | None = None,
 ) -> FastAPI:
     app_settings = settings or get_admin_settings()
+    app_auth_settings = auth_settings or get_auth_settings()
     app_database = database or Database(
         app_settings.database_url, app_settings.read_database_url
     )
@@ -45,10 +51,11 @@ def create_app(
         title="System-112 Admin API",
         description=(
             "API for administration, reports and observability. "
-            "Authentication is expected to be enforced by the administrative gateway."
+            "Shared JWT authentication can be enabled with S112_AUTH_ENABLED."
         ),
         version="0.2.0",
         lifespan=lifespan,
+        dependencies=[Depends(require_auth_if_enabled)],
     )
     app.add_middleware(
         CORSMiddleware,
@@ -59,6 +66,7 @@ def create_app(
     )
     app.state.observability = client
     app.state.settings = app_settings
+    app.state.auth_settings = app_auth_settings
     app.state.database = app_database
     admin_router = APIRouter(prefix="/api/v1/admin")
     admin_router.include_router(overview_router)

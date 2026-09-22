@@ -10,12 +10,21 @@ x-app-environment: &app-environment
   S112_AUDIO_FAILED_TOPIC: ${S112_AUDIO_FAILED_TOPIC:-audio.processing.failed.v1}
   S112_SPEECH_REQUEST_CONSUMER_GROUP: ${S112_SPEECH_REQUEST_CONSUMER_GROUP:-speech-request-worker-v1}
   S112_SPEECH_RESULT_CONSUMER_GROUP: ${S112_SPEECH_RESULT_CONSUMER_GROUP:-speech-result-worker-v1}
+  S112_SEMANTIC_EVALUATION_REQUEST_TOPIC: ${S112_SEMANTIC_EVALUATION_REQUEST_TOPIC:-training.semantic-evaluation.requested.v1}
+  S112_SEMANTIC_EVALUATION_RESULT_TOPIC: ${S112_SEMANTIC_EVALUATION_RESULT_TOPIC:-training.semantic-evaluation.completed.v1}
+  S112_SEMANTIC_REQUEST_CONSUMER_GROUP: ${S112_SEMANTIC_REQUEST_CONSUMER_GROUP:-semantic-evaluation-request-worker-v1}
+  S112_SEMANTIC_RESULT_CONSUMER_GROUP: ${S112_SEMANTIC_RESULT_CONSUMER_GROUP:-semantic-evaluation-result-worker-v1}
   S112_SEAWEED_FILER_URLS: ${S112_SEAWEED_FILER_URLS:-http://seaweed-filer-1:8888,http://seaweed-filer-2:8888}
   S112_SEAWEED_AUDIO_PREFIX: ${S112_SEAWEED_AUDIO_PREFIX:-/audio}
   S112_SEAWEED_TIMEOUT_SECONDS: ${S112_SEAWEED_TIMEOUT_SECONDS:-60}
   S112_AUDIO_MAX_UPLOAD_BYTES: ${S112_AUDIO_MAX_UPLOAD_BYTES:-26214400}
   S112_TTS_MAX_TEXT_CHARS: ${S112_TTS_MAX_TEXT_CHARS:-8000}
   S112_SPEECH_API_URL: ${S112_SPEECH_API_URL:-http://speech-api:8083}
+  S112_AUTH_ENABLED: ${AUTH_ENABLED:-false}
+  S112_AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-}
+  S112_AUTH_JWT_ISSUER: ${AUTH_JWT_ISSUER:-s112-auth}
+  S112_AUTH_JWT_AUDIENCE: ${AUTH_JWT_AUDIENCE:-s112-api}
+  S112_AUTH_ACCESS_TOKEN_TTL_SECONDS: ${AUTH_ACCESS_TOKEN_TTL_SECONDS:-3600}
 
 x-kafka-environment: &kafka-environment
   KAFKA_CFG_PROCESS_ROLES: broker,controller
@@ -335,25 +344,28 @@ services:
         condition: service_healthy
     entrypoint: ["/bin/bash", "-ec"]
     command:
-      - >-
-        for topic in
-        ${S112_KAFKA_TOPIC:-card.events}
-        ${S112_AUDIO_STT_REQUEST_TOPIC:-audio.stt.requested.v1}
-        ${S112_AUDIO_STT_RESULT_TOPIC:-audio.stt.completed.v1}
-        ${S112_AUDIO_TTS_REQUEST_TOPIC:-audio.tts.requested.v1}
-        ${S112_AUDIO_TTS_RESULT_TOPIC:-audio.tts.completed.v1}
-        ${S112_AUDIO_FAILED_TOPIC:-audio.processing.failed.v1};
+      - |-
+        for topic in \
+        ${S112_KAFKA_TOPIC:-card.events} \
+        ${S112_AUDIO_STT_REQUEST_TOPIC:-audio.stt.requested.v1} \
+        ${S112_AUDIO_STT_RESULT_TOPIC:-audio.stt.completed.v1} \
+        ${S112_AUDIO_TTS_REQUEST_TOPIC:-audio.tts.requested.v1} \
+        ${S112_AUDIO_TTS_RESULT_TOPIC:-audio.tts.completed.v1} \
+        ${S112_AUDIO_FAILED_TOPIC:-audio.processing.failed.v1} \
+        ${S112_SEMANTIC_EVALUATION_REQUEST_TOPIC:-training.semantic-evaluation.requested.v1} \
+        ${S112_SEMANTIC_EVALUATION_RESULT_TOPIC:-training.semantic-evaluation.completed.v1};
         do
-          /opt/bitnami/kafka/bin/kafka-topics.sh
-          --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092
-          --create --if-not-exists
-          --topic "$${topic}"
-          --partitions 6
-          --replication-factor 3
+          /opt/bitnami/kafka/bin/kafka-topics.sh \
+          --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092 \
+          --create --if-not-exists \
+          --topic "$${topic}" \
+          --partitions 6 \
+          --replication-factor 3 \
           --config min.insync.replicas=2;
         done
-        && /opt/bitnami/kafka/bin/kafka-topics.sh
-        --bootstrap-server kafka-1:19092 --list
+        /opt/bitnami/kafka/bin/kafka-topics.sh \
+        --bootstrap-server kafka-1:19092 \
+        --list
     restart: "no"
 
   migrate:
@@ -391,14 +403,56 @@ services:
       timeout: 5s
       retries: 10
 
-  speech-api:
+  auth-api:
     build:
-      context: ..
-      dockerfile: backend/Dockerfile.speech
+      context: .
+    restart: unless-stopped
+    environment:
+      S112_DATABASE_URL: ${S112_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-primary:5432/${POSTGRES_DB:-s112}}
+      S112_READ_DATABASE_URL: ${S112_READ_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-replica:5432/${POSTGRES_DB:-s112}}
+      S112_AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-}
+      S112_AUTH_JWT_ISSUER: ${AUTH_JWT_ISSUER:-s112-auth}
+      S112_AUTH_JWT_AUDIENCE: ${AUTH_JWT_AUDIENCE:-s112-api}
+      S112_AUTH_ACCESS_TOKEN_TTL_SECONDS: ${AUTH_ACCESS_TOKEN_TTL_SECONDS:-3600}
+    command: ["uvicorn", "s112.auth.main:app", "--host", "0.0.0.0", "--port", "8084"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres-primary:
+        condition: service_healthy
+    ports:
+      - "${APP_BIND_ADDRESS:?APP_BIND_ADDRESS_is_required}:${AUTH_API_PORT:-8084}:8084"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8084/health', timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  speech-tts-build:
+    build:
+      context: .
+      dockerfile: Dockerfile.speech
+      target: tts-builder
       args:
         CUDA_VERSION: ${CUDA_VERSION:-13.0.2}
-        CUDA_ARCHITECTURES: ${CUDA_ARCHITECTURES:-120a-real}
+        CUDA_ARCHITECTURES: ${CUDA_ARCHITECTURES:-75-real}
         LLAMA_CPP_REF: ${LLAMA_CPP_REF:-master}
+    restart: "no"
+    volumes:
+      - type: volume
+        source: speech-tts-runtime
+        target: /opt/speech/bin
+      - type: volume
+        source: speech-tts-build-cache
+        target: /build/voice-build
+
+  speech-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.speech
+      target: runtime
+      args:
+        CUDA_VERSION: ${CUDA_VERSION:-13.0.2}
         PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cu130}
     restart: unless-stopped
     init: true
@@ -433,15 +487,26 @@ services:
               count: all
               capabilities: [gpu]
     shm_size: "2gb"
+    depends_on:
+      speech-tts-build:
+        condition: service_completed_successfully
     volumes:
+      - type: volume
+        source: speech-tts-runtime
+        target: /opt/speech/bin
+        read_only: true
       - type: bind
-        source: ${SPEECH_MODELS_DIR:-../models}
+        source: ${SPEECH_MODELS_DIR:-./models}
         target: /models
         read_only: true
+        bind:
+          create_host_path: false
       - type: bind
-        source: ${TTS_REFERENCE_AUDIO_FILE:-../reference.wav}
+        source: ${TTS_REFERENCE_AUDIO_FILE:-./reference.wav}
         target: /models/reference.wav
         read_only: true
+        bind:
+          create_host_path: false
     ports:
       - "${APP_BIND_ADDRESS:?APP_BIND_ADDRESS_is_required}:${SPEECH_API_PORT:-8083}:8083"
     healthcheck:
@@ -494,6 +559,40 @@ services:
     environment:
       <<: *app-environment
     command: ["python", "-m", "s112.speech_worker.result_main"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+
+  semantic-evaluation-request-worker:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      S112_SEMANTIC_EVALUATION_API_URL: ${S112_SEMANTIC_EVALUATION_API_URL:-http://host.docker.internal:4555}
+      S112_SEMANTIC_EVALUATION_MODEL: ${S112_SEMANTIC_EVALUATION_MODEL:-gpt-oss-20b}
+      S112_SEMANTIC_EVALUATION_TIMEOUT_SECONDS: ${S112_SEMANTIC_EVALUATION_TIMEOUT_SECONDS:-120}
+      S112_SEMANTIC_EVALUATION_RETRY_LIMIT: ${S112_SEMANTIC_EVALUATION_RETRY_LIMIT:-5}
+      S112_SEMANTIC_EVALUATION_RETRY_BASE_SECONDS: ${S112_SEMANTIC_EVALUATION_RETRY_BASE_SECONDS:-1}
+      S112_SEMANTIC_EVALUATION_MAX_POLL_INTERVAL_SECONDS: ${S112_SEMANTIC_EVALUATION_MAX_POLL_INTERVAL_SECONDS:-1800}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["python", "-m", "s112.semantic_evaluation.request_main"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+
+  semantic-evaluation-result-worker:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+    command: ["python", "-m", "s112.semantic_evaluation.result_main"]
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -562,6 +661,11 @@ services:
       S112_ADMIN_GRAFANA_PUBLIC_URL: ${GRAFANA_PUBLIC_URL:-http://localhost:3000}
       S112_ADMIN_REQUEST_TIMEOUT_SECONDS: ${ADMIN_REQUEST_TIMEOUT_SECONDS:-5}
       S112_ADMIN_MAX_LOG_EXPORT_ROWS: ${ADMIN_MAX_LOG_EXPORT_ROWS:-5000}
+      S112_AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      S112_AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-}
+      S112_AUTH_JWT_ISSUER: ${AUTH_JWT_ISSUER:-s112-auth}
+      S112_AUTH_JWT_AUDIENCE: ${AUTH_JWT_AUDIENCE:-s112-api}
+      S112_AUTH_ACCESS_TOKEN_TTL_SECONDS: ${AUTH_ACCESS_TOKEN_TTL_SECONDS:-3600}
     command: ["uvicorn", "s112.admin_api.main:app", "--host", "0.0.0.0", "--port", "8082"]
     depends_on:
       migrate:
@@ -730,3 +834,5 @@ volumes:
   grafana-data:
   loki-data:
   alloy-data:
+  speech-tts-runtime:
+  speech-tts-build-cache:

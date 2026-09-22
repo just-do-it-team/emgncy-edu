@@ -13,14 +13,25 @@ from sqlalchemy import select
 from s112.api.scenario_completion import ScenarioCompletionService
 from s112.common.config import Settings
 from s112.common.database import Database
-from s112.common.enums import AudioMessageKind, TrainingActionResult, WorkspaceMemberRole
+from s112.common.enums import (
+    AudioMessageDirection,
+    AudioMessageKind,
+    TrainingActionResult,
+    WorkspaceMemberRole,
+)
 from s112.domain.models import (
     AudioMessage,
     EventInbox,
     OutboxEvent,
+    SessionScheduledCard,
     TrainingAction,
     TrainingSession,
     WorkspaceMember,
+)
+from s112.semantic_evaluation.rules import (
+    EVALUATION_REQUESTED_ACTION,
+    EVALUATION_RESULT_ACTION,
+    outbound_call_rule,
 )
 
 
@@ -112,6 +123,11 @@ class SpeechResultWorker:
 
                 if event_type == "audio.stt.completed":
                     await self._record_transcript_action(session, message)
+                    await self._request_semantic_evaluation(
+                        session,
+                        message,
+                        source_event_id=event_id,
+                    )
                     realtime_event_type = "training.audio_transcribed"
                 elif event_type == "audio.tts.completed":
                     realtime_event_type = "training.tts_completed"
@@ -179,6 +195,143 @@ class SpeechResultWorker:
                 )
             )
         message.action_recorded_at = utcnow()
+
+    async def _request_semantic_evaluation(
+        self,
+        session: Any,
+        message: AudioMessage,
+        *,
+        source_event_id: uuid.UUID,
+    ) -> None:
+        if (
+            message.kind != AudioMessageKind.STT.value
+            or message.direction != AudioMessageDirection.OUTBOUND.value
+            or not message.transcript
+            or message.incident_card_id is None
+        ):
+            return
+
+        scheduled_card = await session.scalar(
+            select(SessionScheduledCard).where(
+                SessionScheduledCard.training_session_id
+                == message.training_session_id,
+                SessionScheduledCard.incident_card_id == message.incident_card_id,
+            )
+        )
+        if scheduled_card is None:
+            return
+        try:
+            rule = outbound_call_rule(scheduled_card.evaluation_rules)
+        except ValueError as exc:
+            self._record_semantic_configuration_error(session, message, exc)
+            return
+        if rule is None:
+            return
+
+        request_id = f"semantic-evaluation-request:{message.id}"
+        existing_action = await session.scalar(
+            select(TrainingAction.id).where(
+                TrainingAction.training_session_id == message.training_session_id,
+                TrainingAction.request_id == request_id,
+            )
+        )
+        if existing_action is None:
+            session.add(
+                TrainingAction(
+                    id=uuid.uuid4(),
+                    training_session_id=message.training_session_id,
+                    workspace_id=message.workspace_id,
+                    actor_user_id=message.actor_user_id,
+                    incident_card_id=message.incident_card_id,
+                    action_type=EVALUATION_REQUESTED_ACTION,
+                    entity_type="audio_message",
+                    entity_id=str(message.id),
+                    occurred_at=utcnow(),
+                    request_id=request_id,
+                    result=TrainingActionResult.SUCCESS.value,
+                    details={
+                        "audio_message_id": str(message.id),
+                        "sequence_no": message.sequence_no,
+                        "expected_text": rule.expected_text,
+                        "actual_text": message.transcript,
+                        "minimum_similarity": rule.minimum_similarity,
+                    },
+                )
+            )
+
+        existing_event = await session.scalar(
+            select(OutboxEvent.id).where(
+                OutboxEvent.aggregate_type == "semantic_evaluation",
+                OutboxEvent.aggregate_id == str(message.id),
+                OutboxEvent.aggregate_version == 1,
+            )
+        )
+        if existing_event is not None:
+            return
+        event_id = uuid.uuid4()
+        session.add(
+            OutboxEvent(
+                id=event_id,
+                aggregate_type="semantic_evaluation",
+                aggregate_id=str(message.id),
+                aggregate_version=1,
+                event_type="training.semantic-evaluation.requested",
+                topic=self.settings.semantic_evaluation_request_topic,
+                message_key=str(message.training_session_id),
+                payload={
+                    "schema_version": 1,
+                    "event_id": str(event_id),
+                    "event_type": "training.semantic-evaluation.requested",
+                    "aggregate_type": "semantic_evaluation",
+                    "aggregate_id": str(message.id),
+                    "aggregate_version": 1,
+                    "occurred_at": utcnow().isoformat(),
+                    "correlation_id": str(message.id),
+                    "causation_id": str(source_event_id),
+                    "data": {
+                        "audio_message_id": str(message.id),
+                        "training_session_id": str(message.training_session_id),
+                        "workspace_id": str(message.workspace_id),
+                        "incident_card_id": str(message.incident_card_id),
+                        "actor_user_id": (
+                            str(message.actor_user_id)
+                            if message.actor_user_id
+                            else None
+                        ),
+                        "sequence_no": message.sequence_no,
+                        "expected_text": rule.expected_text,
+                        "actual_text": message.transcript,
+                        "minimum_similarity": rule.minimum_similarity,
+                    },
+                },
+            )
+        )
+
+    @staticmethod
+    def _record_semantic_configuration_error(
+        session: Any,
+        message: AudioMessage,
+        error: ValueError,
+    ) -> None:
+        session.add(
+            TrainingAction(
+                id=uuid.uuid4(),
+                training_session_id=message.training_session_id,
+                workspace_id=message.workspace_id,
+                actor_user_id=message.actor_user_id,
+                incident_card_id=message.incident_card_id,
+                action_type=EVALUATION_RESULT_ACTION,
+                entity_type="audio_message",
+                entity_id=str(message.id),
+                occurred_at=utcnow(),
+                request_id=f"semantic-evaluation-result:{message.id}",
+                result=TrainingActionResult.ERROR.value,
+                details={
+                    "audio_message_id": str(message.id),
+                    "error": f"Invalid outbound_call rule: {error}",
+                },
+            )
+        )
 
     async def _add_realtime_outbox(
         self,

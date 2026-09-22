@@ -35,7 +35,7 @@ from s112.domain.models import (
 )
 
 
-router = APIRouter(prefix="/api/v1", tags=["training-simulation"])
+router = APIRouter(prefix="/api/v1", tags=["student/scenario_session"])
 
 
 @router.get(

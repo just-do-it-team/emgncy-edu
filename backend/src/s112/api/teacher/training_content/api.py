@@ -20,7 +20,7 @@ from s112.api.simulation_service import SimulationApplicationService
 from s112.domain.models import CardTemplate, TrainingScenario
 
 
-router = APIRouter(prefix="/api/v1", tags=["training-simulation"])
+router = APIRouter(prefix="/api/v1", tags=["teacher/training_content"])
 
 
 @router.post(

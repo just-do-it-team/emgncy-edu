@@ -302,6 +302,16 @@ X-User-Id: <user-uuid>
 `sequence_no`, `kind`, `direction`, `status`, а также `transcript` для STT или
 `content_url` для готового аудио. При окончательной ошибке заполнено `error`.
 
+### Результаты проверки исходящего звонка
+
+`training.outbound_call_evaluated` сообщает результат семантического сравнения
+распознанного исходящего сообщения с ожидаемым текстом. `data` содержит
+`audio_message_id`, `session_id`, `incident_card_id`, `expected_text`,
+`actual_text`, `minimum_similarity`, `similarity`, `passed`, `missing_facts`,
+`contradictions`, `explanation` и модель. Если llama-server недоступен после
+всех попыток, приходит `training.outbound_call_evaluation_failed` с полем
+`error`.
+
 ### `training.session.completion-readiness-changed`
 
 Изменилось каноническое состояние готовности к завершению. Событие возникает,
@@ -325,6 +335,9 @@ X-User-Id: <user-uuid>
   "audio_messages_total": 2,
   "audio_messages_pending": 0,
   "audio_messages_failed": 0,
+  "semantic_evaluations_total": 1,
+  "semantic_evaluations_pending": 0,
+  "semantic_evaluations_failed": 0,
   "pending_card_keys": [],
   "failed_card_keys": [],
   "cancelled_card_keys": [],
@@ -342,6 +355,7 @@ X-User-Id: <user-uuid>
 - у всех активных служб, соответствующих `position_code` участников, есть
   решение (`decided_at`);
 - все принятые STT-реплики обработаны и внесены в `training_action`;
+- все запрошенные семантические проверки исходящих звонков завершены;
 - сессия находится в `RUNNING`.
 
 Карточка, не направленная ни одной службе участников, не требует от них
@@ -358,6 +372,7 @@ X-User-Id: <user-uuid>
 | `EMITTED_CARD_MISSING_INCIDENT` | Неконсистентность: выпуск отмечен, но UUID карточки отсутствует. |
 | `SERVICE_DECISION_PENDING` | Служба участника ещё не приняла и не отклонила карточку. |
 | `AUDIO_PROCESSING_PENDING` | Аудиореплика ещё распознаётся или ожидает записи результата в журнал действий. |
+| `SEMANTIC_EVALUATION_PENDING` | Исходящий звонок ожидает результата семантической проверки. |
 | `SESSION_NOT_RUNNING` | Сессия уже завершена либо находится в другом состоянии. |
 
 Для первоначальной загрузки и восстановления после разрыва используйте:

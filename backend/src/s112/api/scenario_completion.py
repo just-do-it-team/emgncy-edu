@@ -12,6 +12,7 @@ from s112.common.enums import (
     AudioMessageKind,
     AudioMessageStatus,
     ScheduledCardStatus,
+    TrainingActionResult,
     TrainingSessionStatus,
     WorkspaceMemberRole,
 )
@@ -23,8 +24,13 @@ from s112.domain.models import (
     ScenarioAssignment,
     SessionScheduledCard,
     SimulationWorkspace,
+    TrainingAction,
     TrainingSession,
     WorkspaceMember,
+)
+from s112.semantic_evaluation.rules import (
+    EVALUATION_REQUESTED_ACTION,
+    EVALUATION_RESULT_ACTION,
 )
 
 
@@ -136,6 +142,41 @@ class ScenarioCompletionService:
             if message.status == AudioMessageStatus.FAILED.value
         ]
 
+        semantic_actions = list(
+            await session.scalars(
+                select(TrainingAction)
+                .where(
+                    TrainingAction.training_session_id == training_session.id,
+                    TrainingAction.action_type.in_(
+                        [EVALUATION_REQUESTED_ACTION, EVALUATION_RESULT_ACTION]
+                    ),
+                )
+                .order_by(TrainingAction.occurred_at)
+            )
+        )
+        evaluation_requests = {
+            action.entity_id: action
+            for action in semantic_actions
+            if action.action_type == EVALUATION_REQUESTED_ACTION
+            and action.entity_id is not None
+        }
+        evaluation_results = {
+            action.entity_id: action
+            for action in semantic_actions
+            if action.action_type == EVALUATION_RESULT_ACTION
+            and action.entity_id is not None
+        }
+        pending_evaluations = [
+            action
+            for message_id, action in evaluation_requests.items()
+            if message_id not in evaluation_results
+        ]
+        failed_evaluations = [
+            action
+            for action in evaluation_results.values()
+            if action.result == TrainingActionResult.ERROR.value
+        ]
+
         blockers: list[dict[str, Any]] = []
         for item in pending:
             blockers.append(
@@ -183,6 +224,20 @@ class ScenarioCompletionService:
                     ),
                     "audio_message_id": str(message.id),
                     "sequence_no": message.sequence_no,
+                }
+            )
+        for action in pending_evaluations:
+            blockers.append(
+                {
+                    "code": "SEMANTIC_EVALUATION_PENDING",
+                    "message": "An outbound call is waiting for semantic evaluation",
+                    "incident_card_id": (
+                        str(action.incident_card_id)
+                        if action.incident_card_id
+                        else None
+                    ),
+                    "audio_message_id": action.entity_id,
+                    "sequence_no": action.details.get("sequence_no"),
                 }
             )
 
@@ -272,6 +327,11 @@ class ScenarioCompletionService:
             "audio_messages_total": len(audio_messages),
             "audio_messages_pending": len(pending_audio),
             "audio_messages_failed": len(failed_audio),
+            "semantic_evaluations_total": len(
+                set(evaluation_requests) | set(evaluation_results)
+            ),
+            "semantic_evaluations_pending": len(pending_evaluations),
+            "semantic_evaluations_failed": len(failed_evaluations),
             "pending_card_keys": [item.scenario_card_key for item in pending],
             "failed_card_keys": [item.scenario_card_key for item in failed],
             "cancelled_card_keys": [item.scenario_card_key for item in cancelled],

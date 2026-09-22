@@ -39,7 +39,7 @@ from s112.domain.models import (
 )
 
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", tags=["common/cards"])
 
 
 @router.post("/cards", response_model=CardResponse, status_code=status.HTTP_201_CREATED)

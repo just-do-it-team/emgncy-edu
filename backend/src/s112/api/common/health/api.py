@@ -6,7 +6,7 @@ from s112.api.dependencies import get_write_session
 from s112.api.schemas import HealthResponse
 
 
-router = APIRouter()
+router = APIRouter(tags=["common/health"])
 
 
 @router.get("/health", response_model=HealthResponse)

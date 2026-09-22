@@ -15,6 +15,7 @@ Content-Type: multipart/form-data
 
 audio=<file>
 client_sent_at=<optional ISO-8601 timestamp>
+direction=INBOUND|OUTBOUND
 ```
 
 Допустимы WAV, WebM, OGG, MP3 и M4A. API сначала сохраняет файл в SeaweedFS,
@@ -23,6 +24,9 @@ client_sent_at=<optional ISO-8601 timestamp>
 SeaweedFS-объект получает `Seaweed-*` attributes с идентификаторами сообщения,
 сессии, workspace, карточки и отправителя, направлением, временем приёма и
 SHA-256; те же данные в типизированном виде хранятся в `audio_message`.
+По умолчанию `direction=INBOUND`. Для записи исходящего оповещения оператора
+передаётся `OUTBOUND`; после STT такая реплика может быть направлена на
+семантическую проверку.
 
 После распознавания в `audio_message.transcript` сохраняется текст, а
 result-outbox публикует `audio.stt.completed`. Отдельный consumer записывает
@@ -62,6 +66,28 @@ X-User-Id: <user-uuid>
 Пока STT находится в `QUEUED`/`PROCESSING` или готовая расшифровка ещё не
 записана в `training_action`, завершение сценария блокируется причиной
 `AUDIO_PROCESSING_PENDING`.
+
+## Семантическая проверка исходящего звонка
+
+Для карточки правило задаётся в `evaluation_rules`:
+
+```json
+{
+  "outbound_call": {
+    "expected_text": "Ожидаемый текст оповещения руководителя бригады",
+    "minimum_similarity": 0.8
+  }
+}
+```
+
+После распознавания `STT + OUTBOUND` consumer фиксирует действие
+`OUTBOUND_CALL_EVALUATION_REQUESTED` и request-outbox в одной транзакции.
+LLM-worker получает ожидаемый и распознанный текст через Kafka, вызывает
+OpenAI-совместимый `/v1/chat/completions`, а результат возвращает через второй
+outbox/topic. До записи `OUTBOUND_CALL_EVALUATED` завершение блокируется кодом
+`SEMANTIC_EVALUATION_PENDING`. Оценка ниже `minimum_similarity` записывается как
+`REJECTED`, ошибка LLM — как `ERROR`; оба результата позволяют завершить
+сессию, но карточка итоговую проверку не проходит.
 
 ## Доставка и идемпотентность
 

@@ -30,7 +30,7 @@ from s112.domain.models import (
 from s112.scenario_worker.worker import ScenarioCardEmitter
 
 
-router = APIRouter(prefix="/api/v1", tags=["training-simulation"])
+router = APIRouter(prefix="/api/v1", tags=["teacher/active_sessions"])
 
 
 @router.get(

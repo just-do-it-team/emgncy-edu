@@ -10,7 +10,7 @@ from s112.api.simulation_schemas import StartAssignmentRequest, StartAssignmentR
 from s112.api.simulation_service import SimulationApplicationService
 
 
-router = APIRouter(prefix="/api/v1", tags=["training-simulation"])
+router = APIRouter(prefix="/api/v1", tags=["student/assigned_scenarios"])
 
 
 @router.post(

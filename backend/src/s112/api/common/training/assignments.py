@@ -10,7 +10,7 @@ from s112.api.simulation_schemas import ScenarioAssignmentResponse
 from s112.domain.models import AssignmentBatch, AssignmentParticipant, ScenarioAssignment
 
 
-router = APIRouter(prefix="/api/v1", tags=["training-simulation"])
+router = APIRouter(prefix="/api/v1", tags=["common/training"])
 
 
 @router.get("/scenario-assignments", response_model=list[ScenarioAssignmentResponse])

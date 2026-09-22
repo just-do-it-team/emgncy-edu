@@ -67,6 +67,10 @@ from s112.domain.models import (
     UserAccount,
     WorkspaceMember,
 )
+from s112.semantic_evaluation.rules import (
+    EVALUATION_RESULT_ACTION,
+    outbound_call_rule,
+)
 
 
 def utcnow() -> datetime:
@@ -1314,6 +1318,52 @@ class SimulationApplicationService:
                         "reason": "required_action_missing",
                     }
                 )
+
+        try:
+            call_rule = outbound_call_rule(item.evaluation_rules)
+        except ValueError as exc:
+            checks += 1
+            discrepancies.append(
+                {
+                    "path": "evaluation_rules.outbound_call",
+                    "expected": "VALID_RULE",
+                    "actual": item.evaluation_rules.get("outbound_call"),
+                    "reason": f"invalid_semantic_evaluation_rule: {exc}",
+                }
+            )
+        else:
+            if call_rule is not None:
+                checks += 1
+                evaluations = [
+                    action
+                    for action in actions
+                    if action.action_type == EVALUATION_RESULT_ACTION
+                ]
+                successful = [
+                    action
+                    for action in evaluations
+                    if action.result == TrainingActionResult.SUCCESS.value
+                ]
+                if not successful:
+                    latest = evaluations[-1] if evaluations else None
+                    discrepancies.append(
+                        {
+                            "path": "evaluation_rules.outbound_call",
+                            "expected": {
+                                "minimum_similarity": call_rule.minimum_similarity,
+                            },
+                            "actual": latest.details if latest is not None else None,
+                            "reason": (
+                                "semantic_similarity_below_threshold"
+                                if latest is not None
+                                and latest.result
+                                == TrainingActionResult.REJECTED.value
+                                else "semantic_evaluation_failed"
+                                if latest is not None
+                                else "semantic_evaluation_missing"
+                            ),
+                        }
+                    )
 
         position_codes = set(
             await session.scalars(

@@ -28,10 +28,11 @@ from s112.audio.storage import (
     InvalidAudioError,
     SeaweedStorage,
 )
+from s112.common.enums import AudioMessageDirection
 from s112.domain.models import AudioMessage
 
 
-router = APIRouter(prefix="/api/v1", tags=["student-audio"])
+router = APIRouter(prefix="/api/v1", tags=["student/audio_messages"])
 
 SUPPORTED_AUDIO_TYPES = {
     "audio/wav": ".wav",
@@ -73,6 +74,9 @@ async def upload_audio_message(
     request: Request,
     audio: UploadFile = File(...),
     client_sent_at: datetime | None = Form(default=None),
+    direction: AudioMessageDirection = Form(
+        default=AudioMessageDirection.INBOUND
+    ),
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     idempotency_key: str = Header(
         alias="Idempotency-Key", min_length=1, max_length=128
@@ -109,6 +113,7 @@ async def upload_audio_message(
                     kind="STT",
                     card_id=card_id,
                     user_id=user_id,
+                    direction=direction.value,
                 )
                 return _response(replay, idempotent_replay=True)
             service.assert_context_active(
@@ -136,7 +141,7 @@ async def upload_audio_message(
                 "Incident-Card-Id": str(card_id),
                 "Actor-User-Id": str(user_id),
                 "Kind": "STT",
-                "Direction": "INBOUND",
+                "Direction": direction.value,
                 "Received-At": received_at.isoformat(),
                 **(
                     {"Client-Sent-At": client_sent_at.isoformat()}
@@ -163,6 +168,7 @@ async def upload_audio_message(
                 idempotency_key=normalized_key,
                 stored=stored,
                 client_sent_at=client_sent_at,
+                direction=direction.value,
             )
     except DomainError as exc:
         await storage.delete(object_key)

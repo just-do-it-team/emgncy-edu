@@ -134,6 +134,7 @@ class AudioMessageService:
         idempotency_key: str,
         stored: StoredAudioObject,
         client_sent_at: datetime | None,
+        direction: str = AudioMessageDirection.INBOUND.value,
     ) -> tuple[AudioMessage, bool]:
         workspace, training_session, _ = await self.validate_context(
             session,
@@ -154,6 +155,7 @@ class AudioMessageService:
                 kind=AudioMessageKind.STT.value,
                 card_id=card_id,
                 user_id=user_id,
+                direction=direction,
             )
             return replay, True
         self.assert_context_active(workspace, training_session)
@@ -165,7 +167,7 @@ class AudioMessageService:
             incident_card_id=card_id,
             actor_user_id=user_id,
             kind=AudioMessageKind.STT.value,
-            direction=AudioMessageDirection.INBOUND.value,
+            direction=direction,
             status=AudioMessageStatus.QUEUED.value,
             sequence_no=await self._next_sequence(session, training_session.id),
             revision=1,
@@ -340,12 +342,14 @@ class AudioMessageService:
         card_id: uuid.UUID,
         user_id: uuid.UUID,
         source_text: str | None = None,
+        direction: str | None = None,
     ) -> None:
         if (
             message.kind != kind
             or message.incident_card_id != card_id
             or message.actor_user_id != user_id
             or (source_text is not None and message.source_text != source_text)
+            or (direction is not None and message.direction != direction)
         ):
             raise ConflictError(
                 "Idempotency-Key was already used for a different audio request"

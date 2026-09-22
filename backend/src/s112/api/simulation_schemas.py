@@ -16,6 +16,7 @@ from s112.common.enums import (
     ScenarioTriggerType,
     WorkspaceMode,
 )
+from s112.semantic_evaluation.rules import validate_evaluation_rules
 
 
 class RequiredAction(BaseModel):
@@ -42,6 +43,13 @@ class ScenarioCardDefinition(BaseModel):
     initial_card: CardCreate | None = None
     expected_result: ExpectedResult | None = None
     evaluation_rules: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("evaluation_rules")
+    @classmethod
+    def validate_known_evaluation_rules(
+        cls, value: dict[str, Any]
+    ) -> dict[str, Any]:
+        return validate_evaluation_rules(value)
 
     @model_validator(mode="after")
     def validate_source_and_trigger(self) -> "ScenarioCardDefinition":
@@ -129,6 +137,13 @@ class CardTemplateCreate(BaseModel):
     expected_result: ExpectedResult
     evaluation_rules: dict[str, Any] = Field(default_factory=dict)
     created_by: uuid.UUID
+
+    @field_validator("evaluation_rules")
+    @classmethod
+    def validate_known_evaluation_rules(
+        cls, value: dict[str, Any]
+    ) -> dict[str, Any]:
+        return validate_evaluation_rules(value)
 
 
 class CardTemplateResponse(OrmModel):
@@ -362,6 +377,9 @@ class SessionCompletionReadinessResponse(BaseModel):
     audio_messages_total: int = 0
     audio_messages_pending: int = 0
     audio_messages_failed: int = 0
+    semantic_evaluations_total: int = 0
+    semantic_evaluations_pending: int = 0
+    semantic_evaluations_failed: int = 0
     pending_card_keys: list[str]
     failed_card_keys: list[str]
     cancelled_card_keys: list[str]

@@ -15,6 +15,11 @@
   сохраняет аудио через SeaweedFS и фиксирует результат вместе с result-outbox.
 - `speech-result-worker` — идемпотентно переносит STT-текст в
   `training_action` и выпускает realtime-события.
+- `semantic-evaluation-request-worker` — получает через Kafka ожидаемый и
+  распознанный текст исходящего звонка и вызывает OpenAI-совместимый
+  llama-server.
+- `semantic-evaluation-result-worker` — идемпотентно записывает результат
+  сравнения в `training_action`, realtime и состояние готовности сессии.
 - `audio-reconciler` — удаляет оставшиеся после аварий объекты SeaweedFS, для
   которых не существует `audio_message`.
 - `scenario-worker` — выпускает карточки сценария по временным и событийным
@@ -24,12 +29,14 @@
 - `realtime-gateway` — читает Kafka и передаёт события браузерам через SSE.
 - `admin-api` — FastAPI для административных вкладок; управляет локальными
   учётными записями, ведёт аудит и агрегирует PostgreSQL, Prometheus и Loki.
+- `auth-api` — локальный вход по учётным записям `user_account` и выпуск общих
+  JWT access token для `card-api` и `admin-api`.
 - `postgres-primary` — основной узел PostgreSQL.
 - `postgres-replica` — физическая streaming-replica; REST GET-запросы читают с неё.
 - `kafka-1..3` — трёхузловой KRaft-кластер Kafka 3.4 на образе
   `bitnamilegacy/kafka:3.4`.
-- `kafka-init` — создаёт `card.events` с шестью партициями,
-  `replication.factor=3` и `min.insync.replicas=2`.
+- `kafka-init` — создаёт realtime, audio и semantic-evaluation topics с шестью
+  партициями, `replication.factor=3` и `min.insync.replicas=2`.
 - `seaweed-master-1..3`, `seaweed-volume-1..2` и `seaweed-filer-1..2` —
   отказоустойчивое хранение аудио с копией данных в другом rack; filer metadata
   хранится в PostgreSQL.
@@ -76,7 +83,26 @@
    Для `speech-api` каталог `SPEECH_MODELS_DIR` должен содержать
    `GigaAM-v3-e2e-rnnt/`, `Qwen3-TTS-12Hz-0.6B-Base-Q8_0.gguf` и
    `mmproj-Qwen3-TTS-12Hz-0.6B-Base-F16.gguf`; файл голоса задаётся через
-   `TTS_REFERENCE_AUDIO_FILE`. Эти файлы не входят в репозиторий.
+   `TTS_REFERENCE_AUDIO_FILE`. По умолчанию это `backend/models/` и
+   `backend/reference.wav`: пути `./models` и `./reference.wav` в `.env`
+   разрешаются относительно каталога `compose.yaml`. Эти файлы не входят в
+   репозиторий; модели необходимо разместить самостоятельно. Если путь
+   отсутствует, Compose не создаёт вместо него пустой каталог.
+   Контекст сборки — `backend/`; исходники C++-воркера находятся в
+   `backend/tts-worker/`. Модели, файл голоса и `.env` исключены из контекста
+   через `.dockerignore` и не копируются в образ; модели и голос подключаются
+   при запуске контейнера как read-only bind mounts.
+   C++-воркер собирает одноразовый сервис `speech-tts-build`. Готовые библиотеки
+   хранятся в volume `speech-tts-runtime`, а промежуточный CMake-кэш — в
+   `speech-tts-build-cache`. При повторном запуске сборка пропускается, если
+   отпечаток исходников, версии CUDA и `CUDA_ARCHITECTURES` не изменился.
+   Значение по умолчанию `CUDA_ARCHITECTURES=75-real` соответствует RTX 2060;
+   для другой видеокарты его нужно изменить в `.env`.
+   Внешний llama-server должен слушать не только loopback, а адрес, доступный
+   Docker-контейнерам (например, запускаться с `--host 0.0.0.0 --port 4555`).
+   Worker обращается к нему через
+   `S112_SEMANTIC_EVALUATION_API_URL=http://host.docker.internal:4555`; hostname
+   сопоставляется host gateway в `compose.yaml`.
 2. Из папки `backend` проверить, какие значения Compose прочитал из `.env`:
 
    ```shell
@@ -103,6 +129,7 @@
 - PostgreSQL replica: `localhost:5433`;
 - Kafka: `localhost:29092`, `localhost:39092`, `localhost:49092`.
 - Admin API и OpenAPI: `http://localhost:8082/docs`;
+- Auth API и OpenAPI: `http://localhost:8084/docs`;
 - Speech API и OpenAPI: `http://localhost:8083/docs`;
 - SeaweedFS filer: `http://localhost:8888` и резервный `http://localhost:8889`;
 - Prometheus: `http://localhost:9090`;
@@ -127,7 +154,7 @@ docker compose --profile gpu up --build
 Все порты, публикуемые через Compose, задаются централизованно в `.env`:
 `POSTGRES_PRIMARY_PORT`, `POSTGRES_REPLICA_PORT`, `KAFKA_1_PORT`,
 `KAFKA_2_PORT`, `KAFKA_3_PORT`, `CARD_API_PORT`, `REALTIME_GATEWAY_PORT`,
-`ADMIN_API_PORT`, `PROMETHEUS_PORT` и `GRAFANA_PORT`. Привязка управляется
+`ADMIN_API_PORT`, `AUTH_API_PORT`, `PROMETHEUS_PORT` и `GRAFANA_PORT`. Привязка управляется
 `INFRA_BIND_ADDRESS`, `APP_BIND_ADDRESS` и `ADMIN_BIND_ADDRESS`; внутренние
 порты контейнеров менять не требуется.
 
@@ -284,6 +311,9 @@ consumer group и позволяет доставлять событие на в
 - API, STT/TTS consumers и consumer результата имеют отдельные уровни
   идемпотентности; завершение сессии ждёт переноса готовой STT-расшифровки в
   журнал действий.
+- семантическая проверка использует отдельные request/result topics, общий
+  transactional outbox и отдельные consumer inbox; Kafka offset подтверждается
+  только после сохранения результата в PostgreSQL.
 
 ## Тесты
 

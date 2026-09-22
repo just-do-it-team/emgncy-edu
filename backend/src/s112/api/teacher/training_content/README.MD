@@ -55,6 +55,22 @@ Content-Type: application/json
 `expected_result` допускает только `final_state` и `required_actions`; неизвестные
 поля, включая `forbidden_actions`, дают `422`.
 
+Для карточки с обязательным исходящим звонком семантическое правило задаётся
+отдельно от точных действий:
+
+```json
+"evaluation_rules": {
+  "outbound_call": {
+    "expected_text": "Текст, смысл которого должен передать оператор",
+    "minimum_similarity": 0.8
+  }
+}
+```
+
+`minimum_similarity` находится в диапазоне `0..1`. Неизвестные ключи внутри
+`outbound_call` запрещены. Правило применяется только к распознанным
+аудиосообщениям с направлением `OUTBOUND`.
+
 ```http
 DELETE /api/v1/card-templates/{templateId}
 Content-Type: application/json

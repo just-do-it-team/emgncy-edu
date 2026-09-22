@@ -26,6 +26,20 @@ class Settings(BaseSettings):
     speech_worker_max_poll_interval_seconds: int = Field(
         default=1800, ge=300, le=86_400
     )
+    semantic_evaluation_request_topic: str = "training.semantic-evaluation.requested.v1"
+    semantic_evaluation_result_topic: str = "training.semantic-evaluation.completed.v1"
+    semantic_request_consumer_group: str = "semantic-evaluation-request-worker-v1"
+    semantic_result_consumer_group: str = "semantic-evaluation-result-worker-v1"
+    semantic_evaluation_api_url: str = "http://host.docker.internal:4555"
+    semantic_evaluation_model: str = "gpt-oss-20b"
+    semantic_evaluation_timeout_seconds: float = Field(default=120.0, ge=1.0)
+    semantic_evaluation_retry_limit: int = Field(default=5, ge=1, le=100)
+    semantic_evaluation_retry_base_seconds: float = Field(
+        default=1.0, ge=0.05, le=60.0
+    )
+    semantic_evaluation_max_poll_interval_seconds: int = Field(
+        default=1800, ge=300, le=86_400
+    )
     seaweed_filer_urls: str = "http://localhost:8888,http://localhost:8889"
     seaweed_audio_prefix: str = "/audio"
     seaweed_timeout_seconds: float = Field(default=60.0, ge=1.0)
