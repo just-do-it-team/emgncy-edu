@@ -1,3 +1,5 @@
+import { STUDENT_API_ENABLED } from "@/entities/training";
+import { ConnectedOverview } from "./connected-overview";
 import {
   Anchor,
   Badge,
@@ -12,7 +14,7 @@ import { Link } from "react-router-dom";
 import { studentLessons, trainingModeLabels } from "@/entities/lesson";
 import { Button } from "@/shared/ui";
 
-const StudentOverviewPage = () => (
+const DemoOverview = () => (
   <Stack gap="md">
     <Group justify="space-between">
       <div>
@@ -94,4 +96,6 @@ const StudentOverviewPage = () => (
   </Stack>
 );
 
+const StudentOverviewPage = () =>
+  STUDENT_API_ENABLED ? <ConnectedOverview /> : <DemoOverview />;
 export default StudentOverviewPage;

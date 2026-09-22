@@ -1,8 +1,10 @@
+import { STUDENT_API_ENABLED } from "@/entities/training";
+import { ConnectedResults } from "./connected-results";
 import { Stack, Title } from "@mantine/core";
 import { useMyAttempts } from "@/entities/attempt";
 import { AttemptsTable } from "@/widgets/attempts-table";
 
-const StudentResultsPage = () => {
+const DemoResults = () => {
   const attempts = useMyAttempts();
 
   return (
@@ -21,4 +23,6 @@ const StudentResultsPage = () => {
   );
 };
 
+const StudentResultsPage = () =>
+  STUDENT_API_ENABLED ? <ConnectedResults /> : <DemoResults />;
 export default StudentResultsPage;

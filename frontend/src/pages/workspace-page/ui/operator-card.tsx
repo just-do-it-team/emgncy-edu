@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Alert,
   Button,
@@ -75,13 +75,22 @@ export function OperatorCard({
   isNew,
   onSave,
   onClose,
+  remote,
 }: {
   entry: OperatorCardEntry;
   isNew: boolean;
-  onSave: (draft: OperatorCardDraft) => void;
+  onSave: (draft: OperatorCardDraft) => void | Promise<void>;
+  remote?: {
+    classification: ReactNode;
+    services: ReactNode;
+    readOnly: boolean;
+    canSave: boolean;
+  };
   onClose: () => void;
 }) {
   const [editing, setEditing] = useState(isNew);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const form = useForm<OperatorCardDraft>({
     initialValues: structuredClone(entry.draft),
     validate: {
@@ -99,14 +108,19 @@ export function OperatorCard({
       description: (value) =>
         value.trim() ? null : "Опишите происшествие со слов заявителя",
       group: (_, values) =>
+        remote ||
         resolveClassification(values.group, values.features, values.recordId)
           ? null
           : "Выберите тип и все определяющие признаки",
     },
   });
+  const setFormValues = form.setValues;
+  useEffect(() => {
+    if (!editing) setFormValues(structuredClone(entry.draft));
+  }, [entry.draft, editing, setFormValues]);
   const [addingService, setAddingService] = useState(false);
   const [manualService, setManualService] = useState<string | null>(null);
-  const directory = useServiceDirectory();
+  const directory = useServiceDirectory(!remote);
   const values = form.values;
   const record = resolveClassification(
     values.group,
@@ -153,16 +167,29 @@ export function OperatorCard({
     setSearch("");
   }
 
-  function save() {
-    if (form.validate().hasErrors) return;
-    onSave(structuredClone(values));
-    setEditing(false);
-    notifications.show({
-      title: "Учебная карточка сохранена",
-      message:
-        "Данные доступны при повторном открытии занятия до перезагрузки страницы. Службы не оповещаются.",
-      color: "povBlue",
-    });
+  async function save() {
+    if (saving || form.validate().hasErrors) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await onSave(structuredClone(values));
+      setEditing(false);
+      notifications.show({
+        title: "Учебная карточка сохранена",
+        message: remote
+          ? "Изменения сохранены на сервере."
+          : "Данные сохранены в памяти до перезагрузки страницы. Службы не оповещаются.",
+        color: "povBlue",
+      });
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : "Не удалось сохранить карточку.",
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -172,7 +199,7 @@ export function OperatorCard({
           Карточка {entry.incident.id} · {editing ? "Заполнение" : "Просмотр"}
         </Text>
         <Group gap="xs">
-          {!editing && (
+          {!editing && !remote?.readOnly && (
             <Button
               size="xs"
               variant="default"
@@ -185,13 +212,22 @@ export function OperatorCard({
             size="xs"
             variant="default"
             onClick={onClose}
+            disabled={saving}
             leftSection={<X size={16} />}
           >
             К списку карточек
           </Button>
         </Group>
       </Group>
-      <fieldset disabled={!editing} className={classes.cardFields}>
+      {saveError && (
+        <Alert color="red" m="sm">
+          {saveError}
+        </Alert>
+      )}
+      <fieldset
+        disabled={!editing || saving || remote?.readOnly}
+        className={classes.cardFields}
+      >
         <header className={classes.topbar}>
           <div className={classes.callState}>
             <Phone size={25} />
@@ -320,228 +356,246 @@ export function OperatorCard({
             </section>
           </div>
           <div className={classes.rightColumn}>
-            <section className={classes.panel} aria-label="Основные признаки">
-              <Group gap="xs">
-                {routingFlags.slice(0, 3).map(([key, label]) => (
-                  <Button
-                    color="povBlue"
-                    key={key}
-                    variant={values.flags[key] ? "filled" : "default"}
-                    aria-pressed={!!values.flags[key]}
-                    onClick={() =>
-                      form.setFieldValue(`flags.${key}`, !values.flags[key])
-                    }
+            {remote ? (
+              remote.classification
+            ) : (
+              <>
+                <section
+                  className={classes.panel}
+                  aria-label="Основные признаки"
+                >
+                  <Group gap="xs">
+                    {routingFlags.slice(0, 3).map(([key, label]) => (
+                      <Button
+                        color="povBlue"
+                        key={key}
+                        variant={values.flags[key] ? "filled" : "default"}
+                        aria-pressed={!!values.flags[key]}
+                        onClick={() =>
+                          form.setFieldValue(`flags.${key}`, !values.flags[key])
+                        }
+                      >
+                        {label}
+                      </Button>
+                    ))}
+                  </Group>
+                </section>
+                <section className={classes.panel}>
+                  <Select
+                    label="Введите тип происшествия"
+                    placeholder="ЧТО СЛУЧИЛОСЬ?"
+                    searchable
+                    clearable
+                    data={groups}
+                    value={values.group || null}
+                    searchValue={search}
+                    onSearchChange={setSearch}
+                    filter={({ options }) => options}
+                    onChange={changeGroup}
+                    maxDropdownHeight={320}
+                    nothingFoundMessage="Тип не найден. Попробуйте другое слово."
+                    error={form.errors.group}
+                  />
+                  {!values.group && (
+                    <Group gap="xs" mt="md">
+                      {[
+                        "пожар в жилом доме",
+                        "Дорожно-транспортные происшествия с пострадавшими",
+                        "Запах газа в помещении (в доме, в квартире)",
+                        "Человек в опасности",
+                      ].map((group) => (
+                        <Button
+                          key={group}
+                          size="xs"
+                          variant="default"
+                          onClick={() => changeGroup(group)}
+                        >
+                          {group.startsWith("Дорожно") ? "ДТП" : group}
+                        </Button>
+                      ))}
+                    </Group>
+                  )}
+                </section>
+                {values.group && (
+                  <section
+                    className={classes.criteria}
+                    aria-label="Критерии происшествия"
                   >
-                    {label}
-                  </Button>
-                ))}
-              </Group>
-            </section>
-            <section className={classes.panel}>
-              <Select
-                label="Введите тип происшествия"
-                placeholder="ЧТО СЛУЧИЛОСЬ?"
-                searchable
-                clearable
-                data={groups}
-                value={values.group || null}
-                searchValue={search}
-                onSearchChange={setSearch}
-                filter={({ options }) => options}
-                onChange={changeGroup}
-                maxDropdownHeight={320}
-                nothingFoundMessage="Тип не найден. Попробуйте другое слово."
-                error={form.errors.group}
-              />
-              {!values.group && (
-                <Group gap="xs" mt="md">
-                  {[
-                    "пожар в жилом доме",
-                    "Дорожно-транспортные происшествия с пострадавшими",
-                    "Запах газа в помещении (в доме, в квартире)",
-                    "Человек в опасности",
-                  ].map((group) => (
-                    <Button
-                      key={group}
-                      size="xs"
-                      variant="default"
-                      onClick={() => changeGroup(group)}
-                    >
-                      {group.startsWith("Дорожно") ? "ДТП" : group}
-                    </Button>
-                  ))}
-                </Group>
-              )}
-            </section>
-            {values.group && (
-              <section
-                className={classes.criteria}
-                aria-label="Критерии происшествия"
-              >
-                <h2>{values.group}</h2>
-                {[0, 1, 2].map((level) => {
-                  const options = getFeatureOptions(
-                    values.group,
-                    values.features,
-                    level,
-                  );
-                  if (!options.some((option) => option !== null)) return null;
-                  return (
-                    <div key={level} className={classes.criterionRow}>
-                      <span>Определяющий признак {level + 1}</span>
-                      <div className={classes.options}>
-                        {options.map((option) => (
-                          <Button
-                            color="povBlue"
-                            key={option ?? "none"}
-                            variant={
-                              values.features[level] === option
-                                ? "filled"
-                                : "default"
-                            }
-                            aria-pressed={values.features[level] === option}
-                            onClick={() =>
+                    <h2>{values.group}</h2>
+                    {[0, 1, 2].map((level) => {
+                      const options = getFeatureOptions(
+                        values.group,
+                        values.features,
+                        level,
+                      );
+                      if (!options.some((option) => option !== null))
+                        return null;
+                      return (
+                        <div key={level} className={classes.criterionRow}>
+                          <span>Определяющий признак {level + 1}</span>
+                          <div className={classes.options}>
+                            {options.map((option) => (
+                              <Button
+                                color="povBlue"
+                                key={option ?? "none"}
+                                variant={
+                                  values.features[level] === option
+                                    ? "filled"
+                                    : "default"
+                                }
+                                aria-pressed={values.features[level] === option}
+                                onClick={() =>
+                                  form.setFieldValue(
+                                    "features",
+                                    values.features.map((value, i) =>
+                                      i < level
+                                        ? value
+                                        : i === level
+                                          ? option
+                                          : null,
+                                    ),
+                                  )
+                                }
+                              >
+                                {option ?? "Не требуется"}
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {matches.length > 1 && (
+                      <Select
+                        m="sm"
+                        label="Уточните итоговый тип"
+                        placeholder="Выберите тип"
+                        data={matches.map((item) => ({
+                          value: String(item.id),
+                          label: item.name,
+                        }))}
+                        value={values.recordId ? String(values.recordId) : null}
+                        onChange={(id) =>
+                          form.setFieldValue("recordId", id ? Number(id) : null)
+                        }
+                      />
+                    )}
+                    {!record && (
+                      <Text p="sm" size="sm" c="dimmed">
+                        Выберите признаки, чтобы определить итоговый тип и
+                        службы.
+                      </Text>
+                    )}
+                    {record?.additional && (
+                      <Text size="sm" p="sm">
+                        Дополнительные сведения: {record.additional}
+                      </Text>
+                    )}
+                    <div className={classes.flags}>
+                      <Text size="sm" fw={600} mb="sm">
+                        Дополнительные признаки для оповещения служб
+                      </Text>
+                      <div className={classes.flagGrid}>
+                        {routingFlags.slice(3).map(([key, label]) => (
+                          <Checkbox
+                            key={key}
+                            label={label}
+                            checked={!!values.flags[key]}
+                            onChange={(event) =>
                               form.setFieldValue(
-                                "features",
-                                values.features.map((value, i) =>
-                                  i < level
-                                    ? value
-                                    : i === level
-                                      ? option
-                                      : null,
-                                ),
+                                `flags.${key}`,
+                                event.currentTarget.checked,
                               )
                             }
-                          >
-                            {option ?? "Не требуется"}
-                          </Button>
+                          />
                         ))}
                       </div>
                     </div>
-                  );
-                })}
-                {matches.length > 1 && (
-                  <Select
-                    m="sm"
-                    label="Уточните итоговый тип"
-                    placeholder="Выберите тип"
-                    data={matches.map((item) => ({
-                      value: String(item.id),
-                      label: item.name,
-                    }))}
-                    value={values.recordId ? String(values.recordId) : null}
-                    onChange={(id) =>
-                      form.setFieldValue("recordId", id ? Number(id) : null)
-                    }
-                  />
+                  </section>
                 )}
-                {!record && (
-                  <Text p="sm" size="sm" c="dimmed">
-                    Выберите признаки, чтобы определить итоговый тип и службы.
-                  </Text>
+                {record && (
+                  <section className={classes.panel} aria-live="polite">
+                    <Text size="sm">
+                      Класс.: <strong>{record.name}</strong>
+                    </Text>
+                    <Text size="xs" c="dimmed" mt={5}>
+                      [ВИС] Класс.: {record.externalName || "—"} · № {record.id}
+                    </Text>
+                  </section>
                 )}
-                {record?.additional && (
-                  <Text size="sm" p="sm">
-                    Дополнительные сведения: {record.additional}
-                  </Text>
-                )}
-                <div className={classes.flags}>
-                  <Text size="sm" fw={600} mb="sm">
-                    Дополнительные признаки для оповещения служб
-                  </Text>
-                  <div className={classes.flagGrid}>
-                    {routingFlags.slice(3).map(([key, label]) => (
-                      <Checkbox
-                        key={key}
-                        label={label}
-                        checked={!!values.flags[key]}
-                        onChange={(event) =>
-                          form.setFieldValue(
-                            `flags.${key}`,
-                            event.currentTarget.checked,
-                          )
-                        }
-                      />
-                    ))}
-                  </div>
-                </div>
-              </section>
-            )}
-            {record && (
-              <section className={classes.panel} aria-live="polite">
-                <Text size="sm">
-                  Класс.: <strong>{record.name}</strong>
-                </Text>
-                <Text size="xs" c="dimmed" mt={5}>
-                  [ВИС] Класс.: {record.externalName || "—"} · № {record.id}
-                </Text>
-              </section>
+              </>
             )}
           </div>
         </div>
       </fieldset>
       <footer className={classes.footer}>
         <strong>Службы:</strong>
-        <div className={classes.services} aria-live="polite">
-          {allServices.map((service) => (
-            <Tooltip
-              key={service.name}
-              label={service.reasons.join("; ")}
-              multiline
-              maw={320}
+        {remote ? (
+          remote.services
+        ) : (
+          <>
+            <div className={classes.services} aria-live="polite">
+              {allServices.map((service) => (
+                <Tooltip
+                  key={service.name}
+                  label={service.reasons.join("; ")}
+                  multiline
+                  maw={320}
+                >
+                  <div className={classes.service}>
+                    <strong>{service.name}</strong>
+                    <small>
+                      {service.manual
+                        ? "Добавлена вручную"
+                        : editing
+                          ? "Будет оповещена"
+                          : "Добавлена"}
+                    </small>
+                    {service.manual && editing && (
+                      <button
+                        type="button"
+                        aria-label={`Убрать службу ${service.name}`}
+                        onClick={() =>
+                          form.setFieldValue(
+                            "manualServices",
+                            values.manualServices.filter(
+                              (name) => name !== service.name,
+                            ),
+                          )
+                        }
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                </Tooltip>
+              ))}
+              {!allServices.length && (
+                <Text size="sm">
+                  {record
+                    ? "Для выбранных признаков автоматическое оповещение не предусмотрено"
+                    : "Появятся после выбора критериев"}
+                </Text>
+              )}
+            </div>
+            <Button
+              variant="outline"
+              color="white"
+              px={10}
+              aria-label="Добавить службу"
+              disabled={!editing}
+              onClick={() => setAddingService(true)}
             >
-              <div className={classes.service}>
-                <strong>{service.name}</strong>
-                <small>
-                  {service.manual
-                    ? "Добавлена вручную"
-                    : editing
-                      ? "Будет оповещена"
-                      : "Добавлена"}
-                </small>
-                {service.manual && editing && (
-                  <button
-                    type="button"
-                    aria-label={`Убрать службу ${service.name}`}
-                    onClick={() =>
-                      form.setFieldValue(
-                        "manualServices",
-                        values.manualServices.filter(
-                          (name) => name !== service.name,
-                        ),
-                      )
-                    }
-                  >
-                    <X size={12} />
-                  </button>
-                )}
-              </div>
-            </Tooltip>
-          ))}
-          {!allServices.length && (
-            <Text size="sm">
-              {record
-                ? "Для выбранных признаков автоматическое оповещение не предусмотрено"
-                : "Появятся после выбора критериев"}
-            </Text>
-          )}
-        </div>
-        <Button
-          variant="outline"
-          color="white"
-          px={10}
-          aria-label="Добавить службу"
-          disabled={!editing}
-          onClick={() => setAddingService(true)}
-        >
-          <Plus size={20} />
-        </Button>
+              <Plus size={20} />
+            </Button>
+          </>
+        )}
         <Button
           variant="outline"
           color="white"
           leftSection={<Save size={18} />}
-          onClick={save}
-          disabled={!editing}
+          onClick={() => void save()}
+          loading={saving}
+          disabled={!editing || remote?.readOnly || (remote && !remote.canSave)}
         >
           Сохранить
         </Button>

@@ -1,3 +1,5 @@
+import { STUDENT_API_ENABLED } from "@/entities/training";
+import { ConnectedWorkspace } from "./connected-workspace";
 import { useState } from "react";
 import { Alert, Badge, Button, Group, Modal, Text } from "@mantine/core";
 import { Link, useSearchParams } from "react-router-dom";
@@ -30,6 +32,7 @@ interface WorkspacePageProps {
 const WorkspacePage = ({ role }: WorkspacePageProps) => {
   const [params] = useSearchParams();
   const lessonId = params.get("lesson");
+  if (role === "student" && STUDENT_API_ENABLED) return <ConnectedWorkspace />;
   return (
     <WorkspaceSession
       key={lessonId ?? "practice"}

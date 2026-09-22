@@ -174,7 +174,16 @@ export function WorkspaceHeader({
       </div>
       {operatorMode && (
         <div className={classes.createPanel}>
-          <Button className={classes.createCard} onClick={onCreateCard}>
+          <Button
+            className={classes.createCard}
+            onClick={onCreateCard}
+            disabled={!onCreateCard}
+            title={
+              !onCreateCard
+                ? "Бэкенд пока разрешает создание карточек только преподавателю"
+                : undefined
+            }
+          >
             Создание карточки
           </Button>
         </div>

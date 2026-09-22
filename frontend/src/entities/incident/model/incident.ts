@@ -8,11 +8,12 @@ export interface IncidentService {
 
 export interface Incident {
   id: string;
-  operator: number;
-  workstation: number;
+  serverId?: string;
+  operator: number | null;
+  workstation: number | null;
   createdAt: string;
   type: string;
-  hasCasualties: boolean;
+  hasCasualties: boolean | null;
   address: string;
   serviceStatus: string;
   description: string;

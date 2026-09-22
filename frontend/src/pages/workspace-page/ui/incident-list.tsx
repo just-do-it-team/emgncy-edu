@@ -82,8 +82,10 @@ function IncidentRow({
             <Timer size={18} />
           </ActionIcon>
         </Table.Td>
-        <Table.Td className={classes.operator}>{incident.operator}</Table.Td>
-        <Table.Td>{incident.workstation}</Table.Td>
+        <Table.Td className={classes.operator}>
+          {incident.operator ?? "—"}
+        </Table.Td>
+        <Table.Td>{incident.workstation ?? "—"}</Table.Td>
         <Table.Td>{incident.id}</Table.Td>
         <Table.Td>{shortDate.format(createdAt)}</Table.Td>
         <Table.Td className={classes.incidentTime}>
@@ -93,7 +95,13 @@ function IncidentRow({
         <Table.Td className={`${classes.darkCell} ${classes.typeCell}`}>
           {incident.type}
         </Table.Td>
-        <Table.Td>{incident.hasCasualties ? "Да" : "Нет"}</Table.Td>
+        <Table.Td>
+          {incident.hasCasualties === null
+            ? "—"
+            : incident.hasCasualties
+              ? "Да"
+              : "Нет"}
+        </Table.Td>
         <Table.Td className={classes.darkCell}>
           <Group justify="space-between" wrap="nowrap" gap={6}>
             <span className={classes.addressText}>{incident.address}</span>
@@ -234,7 +242,7 @@ export function IncidentList({
           <Table.Tbody>
             {incidents.map((incident) => (
               <IncidentRow
-                key={incident.id}
+                key={incident.serverId ?? incident.id}
                 incident={incident}
                 onOpenIncident={onOpenIncident}
               />
@@ -256,7 +264,7 @@ export function IncidentList({
           className={classes.paginationButton}
           rightSection={<ChevronDown size={10} />}
         >
-          Записей на странице: 10
+          Записей на странице: {count}
         </Button>
         <span className={classes.count}>
           {count ? `1-${count} из ${count}` : "0 из 0"}

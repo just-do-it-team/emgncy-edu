@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Box, Group, Modal, Text, Title } from "@mantine/core";
 import { Pencil, PhoneOff, X, Zap } from "lucide-react";
 import { MdCall, MdCallEnd, MdMessage, MdWarning } from "react-icons/md";
@@ -10,6 +11,8 @@ interface IncidentViewerProps {
   incident: Incident | null;
   onClose: () => void;
   onServiceChange: (service: IncidentService) => void;
+  serverServices?: ReactNode;
+  extraContent?: ReactNode;
 }
 
 function PhoneField({ label, value }: { label: string; value?: string }) {
@@ -41,6 +44,8 @@ export function IncidentViewer({
   incident,
   onClose,
   onServiceChange,
+  serverServices,
+  extraContent,
 }: IncidentViewerProps) {
   return (
     <Modal.Root
@@ -56,6 +61,8 @@ export function IncidentViewer({
           incident={incident}
           onClose={onClose}
           onServiceChange={onServiceChange}
+          serverServices={serverServices}
+          extraContent={extraContent}
         />
       )}
     </Modal.Root>
@@ -66,16 +73,20 @@ function IncidentViewerContent({
   incident,
   onClose,
   onServiceChange,
+  serverServices,
+  extraContent,
 }: {
   incident: Incident;
   onClose: () => void;
   onServiceChange: (service: IncidentService) => void;
+  serverServices?: ReactNode;
+  extraContent?: ReactNode;
 }) {
   const details = incident.details;
   const createdAt = new Date(incident.createdAt);
   const descriptionCreatedAt = new Date(incident.descriptionCreatedAt);
-  const yesNo = (value?: boolean) =>
-    value === undefined ? "—" : value ? "да" : "нет";
+  const yesNo = (value?: boolean | null) =>
+    value == null ? "—" : value ? "да" : "нет";
 
   return (
     <Modal.Content
@@ -219,16 +230,18 @@ function IncidentViewerContent({
             </div>
           </div>
 
+          {extraContent}
           <Box component="footer" className={classes.footer}>
             <div className={classes.services}>
               <strong className={classes.servicesLabel}>Службы:</strong>
-              {details?.services.map((service) => (
-                <ServiceResponse
-                  key={service.name}
-                  service={service}
-                  onChange={onServiceChange}
-                />
-              ))}
+              {serverServices ??
+                details?.services.map((service) => (
+                  <ServiceResponse
+                    key={service.name}
+                    service={service}
+                    onChange={onServiceChange}
+                  />
+                ))}
             </div>
             <Group gap={5} wrap="nowrap" className={classes.footerActions}>
               <ActionIcon
