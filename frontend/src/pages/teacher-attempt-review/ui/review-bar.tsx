@@ -38,7 +38,7 @@ export function ReviewBar({
   selectedErrorId,
   onSelectError,
 }: ReviewBarProps) {
-  const role = useSessionStore((state) => state.role);
+  const role = useSessionStore((state) => state.profile?.role ?? null);
   const back = backTargets[role ?? "teacher"];
 
   return (

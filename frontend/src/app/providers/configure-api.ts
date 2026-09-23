@@ -1,23 +1,47 @@
 import type { AxiosError } from "axios";
-import { useSessionStore } from "@/entities/session";
+import { notifications } from "@mantine/notifications";
+import { getToken, useSessionStore } from "@/entities/session";
 import { authEndpoints } from "@/features/auth";
-import { api } from "@/shared/api";
+import { api, RequestError } from "@/shared/api";
 
-const interceptor = api.interceptors.response.use(
+const SESSION_EXPIRED = "Сессия истекла";
+
+const request = api.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+
+  const { profile } = useSessionStore.getState();
+  if (profile) config.headers["X-User-Id"] = profile.userId;
+
+  return config;
+});
+
+const response = api.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
     if (
-      error.response?.status === 401 &&
-      useSessionStore.getState().role &&
-      error.config?.url !== authEndpoints.AUTH.LOGOUT
+      error.response?.status !== 401 ||
+      error.config?.url === authEndpoints.AUTH.LOGIN ||
+      !useSessionStore.getState().profile
     ) {
-      useSessionStore.getState().logout();
+      throw error;
     }
 
-    throw error;
+    useSessionStore.getState().logout();
+    notifications.show({
+      id: "session-expired",
+      title: "Ошибка",
+      message: SESSION_EXPIRED,
+      color: "red",
+    });
+
+    throw new RequestError(401, SESSION_EXPIRED);
   },
 );
 
 if (import.meta.hot) {
-  import.meta.hot.dispose(() => api.interceptors.response.eject(interceptor));
+  import.meta.hot.dispose(() => {
+    api.interceptors.request.eject(request);
+    api.interceptors.response.eject(response);
+  });
 }
