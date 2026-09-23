@@ -1,44 +1,37 @@
 import { create } from "zustand";
+import { clearToken, setToken } from "./token";
 
 export type UserRole = "admin" | "teacher" | "student";
 
-const sessionKey = "emgncy-edu-demo-role";
+export interface SessionProfile {
+  userId: string;
+  username: string;
+  displayName: string;
+  role: UserRole;
+}
 
-function getSessionRole(): UserRole | null {
-  try {
-    const role = sessionStorage.getItem(sessionKey);
-    return role === "admin" || role === "teacher" || role === "student"
-      ? role
-      : null;
-  } catch {
-    return null;
-  }
+export interface SignInParams {
+  profile: SessionProfile;
+  token: string;
+  expiresAt: number;
 }
 
 interface SessionState {
-  role: UserRole | null;
-  setRole: (role: UserRole) => void;
+  profile: SessionProfile | null;
+  expiresAt: number | null;
+  signIn: (params: SignInParams) => void;
   logout: () => void;
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
-  role: getSessionRole(),
-  logout: () => {
-    try {
-      sessionStorage.removeItem(sessionKey);
-    } catch {
-      // Выход доступен и при отключенном хранилище браузера.
-    }
-
-    set({ role: null });
+  profile: null,
+  expiresAt: null,
+  signIn: ({ profile, token, expiresAt }) => {
+    setToken(token);
+    set({ profile, expiresAt });
   },
-  setRole: (role) => {
-    try {
-      sessionStorage.setItem(sessionKey, role);
-    } catch {
-      // При недоступном хранилище вход действует до обновления страницы.
-    }
-
-    set({ role });
+  logout: () => {
+    clearToken();
+    set({ profile: null, expiresAt: null });
   },
 }));

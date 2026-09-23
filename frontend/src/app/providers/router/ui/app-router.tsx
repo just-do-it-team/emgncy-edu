@@ -18,12 +18,14 @@ import { TeacherMaterialsPage } from "@/pages/teacher-materials";
 import { TeacherAttemptReviewPage } from "@/pages/teacher-attempt-review";
 import { StudentOverviewPage } from "@/pages/student-overview";
 import { StudentResultsPage } from "@/pages/student-results";
-import { useSessionStore, type UserRole } from "@/entities/session";
+import { useSessionExpiry, useSessionStore, type UserRole } from "@/entities/session";
 
 const roleNavigation: Record<UserRole, NavItem[]> = navigation;
 
 const AppRouter: FC = () => {
-  const role = useSessionStore((state) => state.role);
+  const role = useSessionStore((state) => state.profile?.role ?? null);
+
+  useSessionExpiry();
   const homePath = routes.find((route) => route.role === role)?.path ?? RouteNames.LOGIN;
 
   const guarded = (allowed: string, element: React.ReactNode) =>

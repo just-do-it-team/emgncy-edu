@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useForm } from "@mantine/form";
 import { useNavigate } from "react-router-dom";
 import { useSessionStore } from "@/entities/session";
-import { getDemoAccountRole } from "../api/demo-login";
+import { login } from "../api/login";
 import { Button, Form, PasswordInput, TextInput } from "@/shared/ui";
 import classes from "./login-form.module.scss";
 
@@ -21,8 +21,9 @@ const inputClassNames = {
 
 export const LoginForm = () => {
   const navigate = useNavigate();
-  const setRole = useSessionStore((state) => state.setRole);
+  const signIn = useSessionStore((state) => state.signIn);
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const form = useForm<LoginValues>({
     initialValues: { username: "", password: "" },
     validate: {
@@ -32,15 +33,19 @@ export const LoginForm = () => {
     onValuesChange: () => setError(""),
   });
 
-  const handleSubmit = ({ username, password }: LoginValues) => {
-    const role = getDemoAccountRole(username, password);
-    if (!role) {
-      setError("Неверный логин или пароль");
-      return;
-    }
+  const handleSubmit = async ({ username, password }: LoginValues) => {
+    if (submitting) return;
 
-    setRole(role);
-    navigate("/", { replace: true });
+    setSubmitting(true);
+    try {
+      signIn(await login({ username: username.trim(), password }));
+      navigate("/", { replace: true });
+    } catch (e) {
+      form.setFieldValue("password", "");
+      setError(e instanceof Error ? e.message : "Не удалось войти. Повторите попытку.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -80,7 +85,12 @@ export const LoginForm = () => {
         rightSection={false}
         required
       />
-      <Button className={classes.submit} type="submit" fullWidth>
+      <Button
+        className={classes.submit}
+        type="submit"
+        fullWidth
+        disabled={submitting}
+      >
         ВОЙТИ
       </Button>
     </Form>

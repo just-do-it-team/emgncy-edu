@@ -1,10 +1,9 @@
+import { AUTH_API_URL } from "@/shared/config";
+
 const Endpoints = {
-    AUTH: {
-        LOGIN: "/v1/auth/login",
-        LOGOUT: "/v1/auth/logout",
-        PROFILE: "/v1/auth/profile",
-        VERIFY: "/v1/auth/verify",
-    },
+  AUTH: {
+    LOGIN: `${AUTH_API_URL}/api/v1/auth/login`,
+  },
 };
 
 export default Endpoints;
