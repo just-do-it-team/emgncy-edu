@@ -8,78 +8,34 @@ import {
 } from "@/entities/training";
 import { emptyOperatorDraft, type OperatorCardDraft } from "./operator-cards";
 
-function object(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 function string(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 export function draftFromCard(card: ApiCard): OperatorCardDraft {
-  const saved = object(card.questionnaire?.operator112);
-  const address = object(saved.address);
   const draft = structuredClone(emptyOperatorDraft);
-  for (const key of [
-    "applicant",
-    "victim",
-    "applicantStatus",
-    "aon",
-    "providedPhone",
-    "locationPhone",
-  ] as const)
-    draft[key] = string(saved[key]);
-  for (const key of Object.keys(
-    draft.address,
-  ) as (keyof typeof draft.address)[]) {
-    if (typeof address[key] === "string")
-      draft.address[key] = string(address[key]);
-  }
-  if (!Object.keys(address).length)
-    draft.address.descriptive =
-      card.incident_address ?? card.reported_address ?? "";
+  // API addresses are complete strings, without the demo form's default prefix.
+  draft.address.country = "";
+  draft.address.subject = "";
+  draft.address.descriptive =
+    card.incident_address ?? card.reported_address ?? "";
   draft.description = card.description;
+  draft.questions = card.questionnaire?.questions ?? "";
+  draft.answers = card.questionnaire?.answers ?? "";
   return draft;
 }
 export function patchFromDraft(
   card: ApiCard,
   draft: OperatorCardDraft,
 ): CardPatch {
-  const a = draft.address;
-  const incident_address = [
-    a.country,
-    a.subject,
-    a.settlement,
-    a.object,
-    a.okrug,
-    a.district,
-    a.street,
-    a.house && `д. ${a.house}`,
-    a.building && `корп. ${a.building}`,
-    a.structure && `стр. ${a.structure}`,
-    a.apartment && `кв. ${a.apartment}`,
-    a.entrance && `подъезд ${a.entrance}`,
-    a.floor && `этаж ${a.floor}`,
-    a.descriptive,
-  ]
-    .filter(Boolean)
-    .join(", ");
   return {
     description: draft.description,
-    incident_address,
-    questionnaire: {
-      ...card.questionnaire,
-      operator112: {
-        ...object(card.questionnaire?.operator112),
-        applicant: draft.applicant,
-        victim: draft.victim,
-        applicantStatus: draft.applicantStatus,
-        aon: draft.aon,
-        providedPhone: draft.providedPhone,
-        locationPhone: draft.locationPhone,
-        address: { ...a },
-      },
-    },
+    incident_address: draft.address.descriptive,
+    questionnaire:
+      card.questionnaire === null &&
+      draft.questions === "" &&
+      draft.answers === ""
+        ? null
+        : { questions: draft.questions, answers: draft.answers },
   };
 }
 export function listIncident(

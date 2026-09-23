@@ -18,7 +18,6 @@ import "@mantine/charts/styles.css";
 import "@mantine/notifications/styles.css";
 import "../styles/index.scss";
 import "./configure-api";
-import "./configure-session";
 
 dayjs.extend(customParseFormat);
 

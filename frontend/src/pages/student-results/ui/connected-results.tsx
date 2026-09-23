@@ -11,19 +11,18 @@ import {
   Title,
 } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
-import { StudentConnection } from "@/features/student-connection";
+import { Link, Navigate } from "react-router-dom";
+import { useSessionStore } from "@/entities/session";
 import {
   apiError,
   formatApiDate,
-  isUuid,
   statusLabels,
   trainingApi,
-  useTrainingIdentity,
 } from "@/entities/training";
 
 export function ConnectedResults() {
-  const userId = useTrainingIdentity((s) => s.userId);
+  const userId = useSessionStore((state) => state.profile?.userId);
+  if (!userId) return <Navigate to="/login" replace />;
   return (
     <Stack>
       <Title order={2} size="h4">
@@ -32,11 +31,7 @@ export function ConnectedResults() {
       <Anchor component={Link} to="/student">
         К занятиям
       </Anchor>
-      {!isUuid(userId) ? (
-        <StudentConnection />
-      ) : (
-        <Results key={userId} userId={userId} />
-      )}
+      <Results key={userId} userId={userId} />
     </Stack>
   );
 }

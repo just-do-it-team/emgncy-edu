@@ -1,12 +1,15 @@
 import axios from "axios";
+import { api } from "@/shared/api";
 import { STUDENT_API_URL, isUuid } from "../model/connection";
 import type {
   CardStatusHistory,
+  CardCreate,
+  IncomingCall,
   ApiCard,
   Assignment,
   AudioMessage,
   CardFeatures,
-  CardListItem,
+  CardListPage,
   CardPatch,
   CompletionReadiness,
   EmergencyService,
@@ -15,27 +18,28 @@ import type {
   HistoryPage,
   LaunchContext,
   ReferenceOption,
-  ScenarioInfo,
   ServiceHistory,
   StartedSession,
   TrainingSession,
 } from "../model/types";
 
-const client = axios.create({
-  baseURL: `${STUDENT_API_URL}/api/v1`,
-  timeout: 20000,
-});
-function identity(userId: string) {
-  if (!isUuid(userId))
-    throw new Error("Укажите UUID обучающегося для подключения к API.");
-  return { "X-User-Id": userId };
+function requestConfig(userId?: string) {
+  if (userId !== undefined && !isUuid(userId))
+    throw new Error(
+      "Не удалось определить обучающегося. Войдите в систему повторно.",
+    );
+  return {
+    baseURL: `${STUDENT_API_URL}/api/v1`,
+    timeout: 20000,
+    headers: userId ? { "X-User-Id": userId } : undefined,
+  };
 }
 export function apiError(error: unknown): string {
   if (axios.isAxiosError(error)) {
     const detail = error.response?.data?.detail;
     const messages: Record<string, string> = {
       "Assignment already has an active session":
-        "Занятие уже запущено. Откройте его в браузере, где начинали обучение: API пока не возвращает рабочее место в списке сессий.",
+        "Занятие уже запущено. Обновите список занятий и нажмите «Продолжить».",
       "Assignment is completed": "Назначение уже завершено.",
       "Maximum number of attempts has been reached":
         "Все доступные попытки использованы.",
@@ -43,17 +47,37 @@ export function apiError(error: unknown): string {
         "Время начала занятия ещё не наступило.",
       "Assignment deadline has passed": "Срок прохождения занятия истёк.",
       "User is not assigned to this scenario":
-        "Это занятие не назначено выбранному обучающемуся.",
+        "Это занятие не назначено текущему обучающемуся.",
       "Training workspace is not active":
         "Занятие завершено или рабочее место неактивно. Обновите состояние занятия.",
+      "Training session is not running":
+        "Занятие уже не активно. Обновите его состояние.",
+      "Only an active incoming call can be linked to a card":
+        "Привязать карточку можно только к принятому звонку.",
+      "Only a card created by the answering student can be linked":
+        "Выберите карточку, созданную вами в этом занятии.",
+      "A pre-created scenario card cannot be linked to an incoming call":
+        "Карточку из сценария нельзя привязать к звонку. Создайте свою карточку.",
+      "Incoming call is already linked to another card":
+        "К звонку уже привязана другая карточка. Обновите список звонков.",
+      "Incident card is already linked to another incoming call":
+        "Эта карточка уже привязана к другому звонку.",
+      "Create and link an incident card before completing the call":
+        "Перед завершением звонка создайте и привяжите карточку.",
       "Actor role is not allowed for this workspace operation":
         "Эта операция недоступна обучающемуся на бэкенде.",
     };
     if (typeof detail === "string" && messages[detail]) return messages[detail];
+    if (
+      typeof detail === "string" &&
+      (detail.startsWith("Incoming call cannot be answered from status") ||
+        detail.startsWith("Incoming call cannot complete from status"))
+    )
+      return "Состояние звонка изменилось. Обновите список звонков перед следующим действием.";
     if (error.response?.status === 409)
       return "Данные изменились или действие уже выполнено. Обновите карточку перед повторной записью. Введённые данные сохранены в форме.";
     if (error.response?.status === 403)
-      return "Бэкенд не разрешает это действие для выбранного обучающегося.";
+      return "Бэкенд не разрешает это действие для текущего обучающегося.";
     if (error.response?.status === 404)
       return "Объект не найден или больше недоступен.";
     if (error.response?.status === 422)
@@ -67,87 +91,125 @@ export function apiError(error: unknown): string {
     : "Не удалось выполнить действие.";
 }
 export const trainingApi = {
+  incomingCalls: async (ctx: LaunchContext, signal?: AbortSignal) =>
+    (
+      await api.get<IncomingCall[]>(
+        `/training-sessions/${ctx.sessionId}/incoming-calls`,
+        {
+          ...requestConfig(ctx.userId),
+          signal,
+        },
+      )
+    ).data,
+  callAction: async (
+    ctx: LaunchContext,
+    callId: string,
+    action: "answer" | "complete" | "incident-card",
+    cardId?: string,
+  ) =>
+    (
+      await api.post<IncomingCall>(
+        `/incoming-calls/${callId}/${action}`,
+        {
+          user_id: ctx.userId,
+          ...(cardId ? { incident_card_id: cardId } : {}),
+        },
+        requestConfig(ctx.userId),
+      )
+    ).data,
+  createCard: async (ctx: LaunchContext, card: CardCreate) =>
+    (
+      await api.post<ApiCard>(
+        "/cards",
+        {
+          ...card,
+          workspace_id: ctx.workspaceId,
+          operator_id: ctx.userId,
+          source_type: "MANUAL",
+          request_id: crypto.randomUUID(),
+        },
+        requestConfig(ctx.userId),
+      )
+    ).data,
   assignments: async (userId: string, signal?: AbortSignal) =>
     (
-      await client.get<Assignment[]>("/scenario-assignments", {
-        params: { participant_user_id: userId },
-        headers: identity(userId),
+      await api.get<Assignment[]>("/student/scenario-assignments", {
+        ...requestConfig(userId),
         signal,
       })
     ).data,
-  scenario: async (
+  assignment: async (
     id: string,
     userId: string,
     signal?: AbortSignal,
-  ): Promise<ScenarioInfo> => {
-    const { data } = await client.get<ScenarioInfo>(
-      `/training-scenarios/${id}`,
-      { headers: identity(userId), signal },
-    );
-    // Do not put the scenario definition / expected answers into the student query cache.
-    return {
-      id: data.id,
-      name: data.name,
-      description: data.description,
-      difficulty: data.difficulty,
-      estimated_duration_seconds: data.estimated_duration_seconds,
-      cards_count: data.cards_count,
-    };
-  },
+  ): Promise<Assignment> =>
+    (
+      await api.get<Assignment>(`/student/scenario-assignments/${id}`, {
+        ...requestConfig(userId),
+        signal,
+      })
+    ).data,
   sessions: async (userId: string, signal?: AbortSignal) =>
     (
-      await client.get<TrainingSession[]>("/training-sessions", {
+      await api.get<TrainingSession[]>("/training-sessions", {
         params: { participant_user_id: userId },
-        headers: identity(userId),
+        ...requestConfig(userId),
         signal,
       })
     ).data,
   start: async (userId: string, assignmentId: string, key: string) =>
     (
-      await client.post<StartedSession>(
+      await api.post<StartedSession>(
         `/scenario-assignments/${assignmentId}/start`,
         { user_id: userId },
-        { headers: { ...identity(userId), "Idempotency-Key": key } },
+        {
+          ...requestConfig(userId),
+          headers: { "X-User-Id": userId, "Idempotency-Key": key },
+        },
       )
     ).data,
   readiness: async (ctx: LaunchContext, signal?: AbortSignal) =>
     (
-      await client.get<CompletionReadiness>(
+      await api.get<CompletionReadiness>(
         `/training-sessions/${ctx.sessionId}/completion-readiness`,
-        { headers: identity(ctx.userId), signal },
+        { ...requestConfig(ctx.userId), signal },
       )
     ).data,
   complete: async (ctx: LaunchContext) =>
     (
-      await client.post<TrainingSession>(
+      await api.post<TrainingSession>(
         `/training-sessions/${ctx.sessionId}/complete`,
         { user_id: ctx.userId },
-        { headers: identity(ctx.userId) },
+        { ...requestConfig(ctx.userId) },
       )
     ).data,
-  cards: async (ctx: LaunchContext, signal?: AbortSignal) =>
+  cards: async (
+    ctx: LaunchContext,
+    cursor: string | null,
+    signal?: AbortSignal,
+  ) =>
     (
-      await client.get<CardListItem[]>(`/workspaces/${ctx.workspaceId}/cards`, {
-        params: { limit: 500 },
-        headers: identity(ctx.userId),
+      await api.get<CardListPage>(`/workspaces/${ctx.workspaceId}/cards`, {
+        params: { limit: 100, cursor: cursor ?? undefined },
+        ...requestConfig(ctx.userId),
         signal,
       })
     ).data,
   card: async (ctx: LaunchContext, id: string, signal?: AbortSignal) =>
     (
-      await client.get<ApiCard>(`/workspaces/${ctx.workspaceId}/cards/${id}`, {
-        headers: identity(ctx.userId),
+      await api.get<ApiCard>(`/workspaces/${ctx.workspaceId}/cards/${id}`, {
+        ...requestConfig(ctx.userId),
         signal,
       })
     ).data,
   open: async (ctx: LaunchContext, id: string) => {
-    await client.post(`/workspaces/${ctx.workspaceId}/cards/${id}/open`, null, {
-      headers: identity(ctx.userId),
+    await api.post(`/workspaces/${ctx.workspaceId}/cards/${id}/open`, null, {
+      ...requestConfig(ctx.userId),
     });
   },
   patch: async (ctx: LaunchContext, card: ApiCard, patch: CardPatch) =>
     (
-      await client.patch<ApiCard>(
+      await api.patch<ApiCard>(
         `/cards/${card.id}`,
         {
           ...patch,
@@ -155,7 +217,7 @@ export const trainingApi = {
           actor_id: ctx.userId,
           request_id: crypto.randomUUID(),
         },
-        { headers: identity(ctx.userId) },
+        { ...requestConfig(ctx.userId) },
       )
     ).data,
   features: async (
@@ -163,7 +225,7 @@ export const trainingApi = {
     card: ApiCard,
     features: CardFeatures,
   ) => {
-    await client.put(
+    await api.put(
       `/cards/${card.id}/features`,
       {
         ...features,
@@ -171,7 +233,7 @@ export const trainingApi = {
         actor_id: ctx.userId,
         request_id: crypto.randomUUID(),
       },
-      { headers: identity(ctx.userId) },
+      { ...requestConfig(ctx.userId) },
     );
   },
   cardStatus: async (
@@ -181,7 +243,7 @@ export const trainingApi = {
     reason: string,
   ) =>
     (
-      await client.post<ApiCard>(
+      await api.post<ApiCard>(
         `/cards/${card.id}/statuses`,
         {
           status,
@@ -190,7 +252,7 @@ export const trainingApi = {
           actor_id: ctx.userId,
           request_id: crypto.randomUUID(),
         },
-        { headers: identity(ctx.userId) },
+        { ...requestConfig(ctx.userId) },
       )
     ).data,
   cardStatusHistory: async (
@@ -199,13 +261,13 @@ export const trainingApi = {
     signal?: AbortSignal,
   ) =>
     (
-      await client.get<CardStatusHistory[]>(`/cards/${cardId}/status-history`, {
-        headers: identity(ctx.userId),
+      await api.get<CardStatusHistory[]>(`/cards/${cardId}/status-history`, {
+        ...requestConfig(ctx.userId),
         signal,
       })
     ).data,
   addService: async (ctx: LaunchContext, card: ApiCard, serviceId: string) => {
-    await client.post(
+    await api.post(
       `/cards/${card.id}/services`,
       {
         service_id: serviceId,
@@ -213,7 +275,7 @@ export const trainingApi = {
         actor_id: ctx.userId,
         request_id: crypto.randomUUID(),
       },
-      { headers: identity(ctx.userId) },
+      { ...requestConfig(ctx.userId) },
     );
   },
   serviceStatus: async (
@@ -225,17 +287,17 @@ export const trainingApi = {
   ) => {
     if (status === "RECEIVED") return trainingApi.open(ctx, card.id);
     if (status === "ACCEPTED" || status === "REJECTED") {
-      await client.post(
+      await api.post(
         `/workspaces/${ctx.workspaceId}/cards/${card.id}/decision`,
         {
           decision: status,
           comment: comment || null,
           request_id: crypto.randomUUID(),
         },
-        { headers: identity(ctx.userId) },
+        { ...requestConfig(ctx.userId) },
       );
     } else {
-      await client.post(
+      await api.post(
         `/card-services/${serviceId}/statuses`,
         {
           status,
@@ -245,7 +307,7 @@ export const trainingApi = {
           author_id: ctx.userId,
           request_id: crypto.randomUUID(),
         },
-        { headers: identity(ctx.userId) },
+        { ...requestConfig(ctx.userId) },
       );
     }
   },
@@ -255,26 +317,37 @@ export const trainingApi = {
     signal?: AbortSignal,
   ) =>
     (
-      await client.get<ServiceHistory[]>(
+      await api.get<ServiceHistory[]>(
         `/card-services/${serviceId}/status-history`,
-        { headers: identity(ctx.userId), signal },
+        { ...requestConfig(ctx.userId), signal },
       )
     ).data,
   history: async (userId: string, offset: number, signal?: AbortSignal) =>
     (
-      await client.get<HistoryPage>("/student/training-history", {
+      await api.get<HistoryPage>("/student/training-history", {
         params: { limit: 20, offset },
-        headers: identity(userId),
+        ...requestConfig(userId),
         signal,
       })
     ).data,
   services: async (signal?: AbortSignal) =>
-    (await client.get<EmergencyService[]>("/services", { signal })).data,
+    (
+      await api.get<EmergencyService[]>("/services", {
+        ...requestConfig(),
+        signal,
+      })
+    ).data,
   eventTypes: async (signal?: AbortSignal) =>
-    (await client.get<ReferenceOption[]>("/event-types", { signal })).data,
+    (
+      await api.get<ReferenceOption[]>("/event-types", {
+        ...requestConfig(),
+        signal,
+      })
+    ).data,
   eventKinds: async (typeId: number, signal?: AbortSignal) =>
     (
-      await client.get<EventKind[]>(`/event-types/${typeId}/event-kinds`, {
+      await api.get<EventKind[]>(`/event-types/${typeId}/event-kinds`, {
+        ...requestConfig(),
         signal,
       })
     ).data,
@@ -288,13 +361,18 @@ export const trainingApi = {
       `first-order-features/${parentId}/second-order-features`,
       `second-order-features/${parentId}/third-order-features`,
     ];
-    return (await client.get<ReferenceOption[]>(`/${paths[level]}`, { signal }))
-      .data;
+    return (
+      await api.get<ReferenceOption[]>(`/${paths[level]}`, {
+        ...requestConfig(),
+        signal,
+      })
+    ).data;
   },
   schema: async (features: CardFeatures, signal?: AbortSignal) => {
     try {
       return (
-        await client.get<FeatureSchema>("/feature-schemas/resolve", {
+        await api.get<FeatureSchema>("/feature-schemas/resolve", {
+          ...requestConfig(),
           params: {
             event_kind_id: features.event_kind_id,
             first_order_feature_id: features.first_order_feature_id,
@@ -316,15 +394,15 @@ export const trainingApi = {
     signal?: AbortSignal,
   ) =>
     (
-      await client.get<AudioMessage[]>(
+      await api.get<AudioMessage[]>(
         `/workspaces/${ctx.workspaceId}/cards/${cardId}/audio-messages`,
-        { headers: identity(ctx.userId), signal },
+        { ...requestConfig(ctx.userId), signal },
       )
     ).data,
   audioContent: async (userId: string, id: string, signal?: AbortSignal) =>
     (
-      await client.get<Blob>(`/audio-messages/${id}/content`, {
-        headers: identity(userId),
+      await api.get<Blob>(`/audio-messages/${id}/content`, {
+        ...requestConfig(userId),
         responseType: "blob",
         signal,
       })

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   Group,
   Table,
@@ -32,6 +33,7 @@ interface IncidentListProps {
   incidents: Incident[];
   operatorMode?: boolean;
   onOpenIncident: (incident: Incident) => void;
+  pagination?: ReactNode;
 }
 
 function IncidentRow({
@@ -152,6 +154,7 @@ export function IncidentList({
   incidents,
   onOpenIncident,
   operatorMode = false,
+  pagination,
 }: IncidentListProps) {
   const count = incidents.length;
 
@@ -251,37 +254,39 @@ export function IncidentList({
         </Table>
       </Table.ScrollContainer>
 
-      <Group justify="flex-end" gap={12} className={classes.pagination}>
-        <Button
-          variant="subtle"
-          className={classes.paginationButton}
-          rightSection={<ChevronDown size={10} />}
-        >
-          Страница: {count ? "1" : ""}
-        </Button>
-        <Button
-          variant="subtle"
-          className={classes.paginationButton}
-          rightSection={<ChevronDown size={10} />}
-        >
-          Записей на странице: {count}
-        </Button>
-        <span className={classes.count}>
-          {count ? `1-${count} из ${count}` : "0 из 0"}
-        </span>
-        <ActionIcon
-          className={classes.toolbarIcon}
-          aria-label="Предыдущая страница"
-        >
-          <ChevronLeft size={20} />
-        </ActionIcon>
-        <ActionIcon
-          className={classes.toolbarIcon}
-          aria-label="Следующая страница"
-        >
-          <ChevronRight size={20} />
-        </ActionIcon>
-      </Group>
+      {pagination ?? (
+        <Group justify="flex-end" gap={12} className={classes.pagination}>
+          <Button
+            variant="subtle"
+            className={classes.paginationButton}
+            rightSection={<ChevronDown size={10} />}
+          >
+            Страница: {count ? "1" : ""}
+          </Button>
+          <Button
+            variant="subtle"
+            className={classes.paginationButton}
+            rightSection={<ChevronDown size={10} />}
+          >
+            Записей на странице: {count}
+          </Button>
+          <span className={classes.count}>
+            {count ? `1-${count} из ${count}` : "0 из 0"}
+          </span>
+          <ActionIcon
+            className={classes.toolbarIcon}
+            aria-label="Предыдущая страница"
+          >
+            <ChevronLeft size={20} />
+          </ActionIcon>
+          <ActionIcon
+            className={classes.toolbarIcon}
+            aria-label="Следующая страница"
+          >
+            <ChevronRight size={20} />
+          </ActionIcon>
+        </Group>
+      )}
     </section>
   );
 }

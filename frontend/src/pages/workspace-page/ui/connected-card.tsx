@@ -31,6 +31,7 @@ import { ServerClassification } from "./server-classification";
 import { ServerServices } from "./server-services";
 import { ServerCardStatus } from "./server-card-status";
 import { CardAudio } from "./card-audio";
+import { validateAdditionalFeatures } from "../model/additional-features";
 
 type Props = {
   ctx: LaunchContext;
@@ -128,18 +129,13 @@ function CardEditor({
   async function save(draft: OperatorCardDraft) {
     if (disabled) throw new Error("Сначала обновите карточку.");
     if (!features.event_kind_id) throw new Error("Выберите тип происшествия.");
-    const required = schema.data?.additional_features_schema.required;
-    if (
-      Array.isArray(required) &&
-      required.some(
-        (key) =>
-          typeof key === "string" &&
-          [undefined, null, ""].includes(
-            features.additional_features[key] as undefined | null | string,
-          ),
-      )
-    )
-      throw new Error("Заполните обязательные дополнительные признаки.");
+    if (schema.isFetching || schema.isError)
+      throw new Error("Дождитесь загрузки схемы признаков.");
+    const validationError = validateAdditionalFeatures(
+      schema.data?.additional_features_schema,
+      features.additional_features,
+    );
+    if (validationError) throw new Error(validationError);
     setBusy(true);
     setError(null);
     let coreSaved = false;
@@ -262,6 +258,29 @@ function CardEditor({
         onChange={cardStatus}
       />
       <CardAudio ctx={ctx} cardId={card.id} />
+      {ctx.mode === "DDS" && (
+        <Stack gap="xs" aria-label="Анкета">
+          <Text fw={600}>Анкета</Text>
+          {card.questionnaire === null ? (
+            <Text size="sm">Анкета не заполнена</Text>
+          ) : (
+            <>
+              <Text size="sm" fw={500}>
+                Вопросы
+              </Text>
+              <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+                {card.questionnaire.questions || "—"}
+              </Text>
+              <Text size="sm" fw={500}>
+                Ответы
+              </Text>
+              <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+                {card.questionnaire.answers || "—"}
+              </Text>
+            </>
+          )}
+        </Stack>
+      )}
     </Stack>
   );
   const incident = cardIncident(card, kinds, ctx.positionCode);

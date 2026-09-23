@@ -1,6 +1,6 @@
 import {
   Alert,
-  Checkbox,
+  Button,
   NumberInput,
   Select,
   Stack,
@@ -14,6 +14,7 @@ import {
   type CardFeatures,
   type EventKind,
   type FeatureSchema,
+  type AdditionalFeaturesSchema,
 } from "@/entities/training";
 
 export function ServerClassification({
@@ -106,8 +107,8 @@ export function ServerClassification({
       ) : null}
       <Text size="xs" c="dimmed">
         Службы рассчитывает сервер после сохранения признаков. Внизу показаны
-        службы сохранённой карточки. Категория карточки задана сценарием и не
-        изменяется через API.
+        службы сохранённой карточки. После создания категорию карточки нельзя
+        изменить.
       </Text>
     </Stack>
   );
@@ -165,48 +166,47 @@ function AdditionalFeatures({
   values,
   onChange,
 }: {
-  schema: Record<string, unknown>;
+  schema: AdditionalFeaturesSchema;
   values: Record<string, unknown>;
   onChange: (values: Record<string, unknown>) => void;
 }) {
-  const properties =
-    schema.properties && typeof schema.properties === "object"
-      ? (schema.properties as Record<string, Record<string, unknown>>)
-      : {};
-  const required = Array.isArray(schema.required) ? schema.required : [];
+  const properties = schema.properties ?? {};
+  const required = schema.required ?? [];
+  const remove = (key: string) => {
+    const next = { ...values };
+    delete next[key];
+    onChange(next);
+  };
   return (
     <>
       {Object.entries(properties).map(([key, rule]) => {
         const label = typeof rule.title === "string" ? rule.title : key;
-        const change = (value: unknown) =>
-          onChange({ ...values, [key]: value });
-        if (rule.type === "boolean")
-          return (
-            <Checkbox
-              key={key}
-              label={label}
-              checked={values[key] === true}
-              onChange={(e) => change(e.currentTarget.checked)}
-            />
-          );
-        if (Array.isArray(rule.enum))
+        const change = (value: unknown) => {
+          if (value === undefined) remove(key);
+          else onChange({ ...values, [key]: value });
+        };
+        const options =
+          rule.enum ?? (rule.type === "boolean" ? [true, false] : null);
+        if (options)
           return (
             <Select
               key={key}
               label={label}
               required={required.includes(key)}
               clearable
-              data={rule.enum.map((v) => ({
-                value: String(v),
-                label: String(v),
+              data={options.map((v, index) => ({
+                value: String(index),
+                label: typeof v === "boolean" ? (v ? "Да" : "Нет") : String(v),
               }))}
-              value={values[key] === undefined ? null : String(values[key])}
+              value={
+                options.includes(values[key] as string | number | boolean)
+                  ? String(
+                      options.indexOf(values[key] as string | number | boolean),
+                    )
+                  : null
+              }
               onChange={(v) =>
-                change(
-                  rule.enum instanceof Array
-                    ? (rule.enum.find((item) => String(item) === v) ?? null)
-                    : v,
-                )
+                change(v === null ? undefined : options[Number(v)])
               }
             />
           );
@@ -217,12 +217,13 @@ function AdditionalFeatures({
               label={label}
               required={required.includes(key)}
               allowDecimal={rule.type !== "integer"}
-              min={typeof rule.minimum === "number" ? rule.minimum : undefined}
-              max={typeof rule.maximum === "number" ? rule.maximum : undefined}
               value={
-                typeof values[key] === "number" ? (values[key] as number) : ""
+                typeof values[key] === "number" ||
+                typeof values[key] === "string"
+                  ? (values[key] as number | string)
+                  : ""
               }
-              onChange={change}
+              onChange={(value) => change(value === "" ? undefined : value)}
             />
           );
         if (rule.type === "string")
@@ -234,7 +235,13 @@ function AdditionalFeatures({
               value={
                 typeof values[key] === "string" ? (values[key] as string) : ""
               }
-              onChange={(e) => change(e.currentTarget.value)}
+              onChange={(e) =>
+                change(
+                  e.currentTarget.value === "" && !required.includes(key)
+                    ? undefined
+                    : e.currentTarget.value,
+                )
+              }
             />
           );
         return (
@@ -243,6 +250,16 @@ function AdditionalFeatures({
           </Text>
         );
       })}
+      {Object.keys(values)
+        .filter((key) => !Object.prototype.hasOwnProperty.call(properties, key))
+        .map((key) => (
+          <Alert key={key} color="yellow">
+            Признак «{key}» отсутствует в текущей схеме.
+            <Button size="xs" variant="subtle" onClick={() => remove(key)}>
+              Удалить признак
+            </Button>
+          </Alert>
+        ))}
     </>
   );
 }

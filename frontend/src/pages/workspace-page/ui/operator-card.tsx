@@ -94,16 +94,19 @@ export function OperatorCard({
   const form = useForm<OperatorCardDraft>({
     initialValues: structuredClone(entry.draft),
     validate: {
-      applicant: (value) => (value.trim() ? null : "Укажите ФИО заявителя"),
+      applicant: (value) =>
+        remote || value.trim() ? null : "Укажите ФИО заявителя",
       address: {
         street: (value, values) =>
-          value.trim() || values.address.descriptive.trim()
+          remote || value.trim() || values.address.descriptive.trim()
             ? null
             : "Укажите улицу или описательный адрес",
         house: (value, values) =>
-          value.trim() || values.address.descriptive.trim()
+          remote || value.trim() || values.address.descriptive.trim()
             ? null
             : "Укажите дом или описательный адрес",
+        descriptive: (value) =>
+          remote && !value.trim() ? "Укажите адрес происшествия" : null,
       },
       description: (value) =>
         value.trim() ? null : "Опишите происшествие со слов заявителя",
@@ -228,7 +231,10 @@ export function OperatorCard({
         disabled={!editing || saving || remote?.readOnly}
         className={classes.cardFields}
       >
-        <header className={classes.topbar}>
+        <header
+          className={classes.topbar}
+          data-remote={remote ? true : undefined}
+        >
           <div className={classes.callState}>
             <Phone size={25} />
             <div>
@@ -238,21 +244,25 @@ export function OperatorCard({
               </Text>
             </div>
           </div>
-          <TextInput
-            label="АОН"
-            placeholder="+7 (___) ___-__-__"
-            {...form.getInputProps("aon")}
-          />
-          <TextInput
-            label="Предоставленный телефон"
-            placeholder="+7 (___) ___-__-__"
-            {...form.getInputProps("providedPhone")}
-          />
-          <TextInput
-            label="Телефон на место"
-            placeholder="+7 (___) ___-__-__"
-            {...form.getInputProps("locationPhone")}
-          />
+          {!remote && (
+            <>
+              <TextInput
+                label="АОН"
+                placeholder="+7 (___) ___-__-__"
+                {...form.getInputProps("aon")}
+              />
+              <TextInput
+                label="Предоставленный телефон"
+                placeholder="+7 (___) ___-__-__"
+                {...form.getInputProps("providedPhone")}
+              />
+              <TextInput
+                label="Телефон на место"
+                placeholder="+7 (___) ___-__-__"
+                {...form.getInputProps("locationPhone")}
+              />
+            </>
+          )}
           <div className={classes.cardNumber}>
             <strong>Карточка 112</strong>
             <span>Происшествие {entry.incident.id}</span>
@@ -266,81 +276,101 @@ export function OperatorCard({
         </header>
         <div className={classes.columns}>
           <div className={classes.leftColumn}>
-            <section
-              className={classes.panel}
-              aria-label="Заявитель и пострадавший"
-            >
-              <div className={classes.applicantRow}>
-                <TextInput
-                  label="ФИО заявителя"
-                  placeholder="Фамилия, имя, отчество"
-                  {...form.getInputProps("applicant")}
-                />
-                <Select
-                  label="Статус заявителя"
-                  placeholder="Выберите статус"
-                  data={[
-                    "Пострадавший",
-                    "Очевидец",
-                    "Родственник",
-                    "Участник",
-                    "Ребёнок",
-                  ]}
-                  {...form.getInputProps("applicantStatus")}
-                />
-              </div>
-              <TextInput
-                mt="xs"
-                label="ФИО пострадавшего"
-                placeholder="Если отличается от заявителя"
-                {...form.getInputProps("victim")}
-              />
-            </section>
-            <section className={classes.panel} aria-label="Адрес происшествия">
-              <div className={classes.sectionTitle}>Адрес происшествия</div>
-              <div className={classes.addressSummary}>
-                {[
-                  values.address.subject,
-                  values.address.settlement,
-                  values.address.street,
-                  values.address.house && `д. ${values.address.house}`,
-                ]
-                  .filter(Boolean)
-                  .join(", ") || "Адрес не указан"}
-              </div>
-              <div className={classes.addressGrid}>
-                {Object.entries(addressLabels).map(([key, label]) => (
+            {!remote && (
+              <section
+                className={classes.panel}
+                aria-label="Заявитель и пострадавший"
+              >
+                <div className={classes.applicantRow}>
                   <TextInput
-                    key={key}
-                    label={label}
-                    className={
-                      key === "street" || key === "object"
-                        ? classes.wideField
-                        : undefined
-                    }
-                    {...form.getInputProps(`address.${key}`)}
+                    label="ФИО заявителя"
+                    placeholder="Фамилия, имя, отчество"
+                    {...form.getInputProps("applicant")}
                   />
-                ))}
-              </div>
-              <Textarea
-                label="Описательный адрес / ориентиры"
-                mt="sm"
-                minRows={2}
-                autosize
-                {...form.getInputProps("address.descriptive")}
-              />
-              <Group justify="flex-end" mt="xs">
-                <Button
-                  size="compact-xs"
-                  variant="default"
-                  onClick={() =>
-                    form.setFieldValue("address", { ...emptyAddress })
-                  }
-                >
-                  Очистить адрес
-                </Button>
-              </Group>
-            </section>
+                  <Select
+                    label="Статус заявителя"
+                    placeholder="Выберите статус"
+                    data={[
+                      "Пострадавший",
+                      "Очевидец",
+                      "Родственник",
+                      "Участник",
+                      "Ребёнок",
+                    ]}
+                    {...form.getInputProps("applicantStatus")}
+                  />
+                </div>
+                <TextInput
+                  mt="xs"
+                  label="ФИО пострадавшего"
+                  placeholder="Если отличается от заявителя"
+                  {...form.getInputProps("victim")}
+                />
+              </section>
+            )}
+            {remote ? (
+              <section
+                className={classes.panel}
+                aria-label="Адрес происшествия"
+              >
+                <Textarea
+                  label="Адрес происшествия"
+                  placeholder="Населённый пункт, улица, дом, ориентиры"
+                  minRows={2}
+                  autosize
+                  {...form.getInputProps("address.descriptive")}
+                />
+              </section>
+            ) : (
+              <section
+                className={classes.panel}
+                aria-label="Адрес происшествия"
+              >
+                <div className={classes.sectionTitle}>Адрес происшествия</div>
+                <div className={classes.addressSummary}>
+                  {[
+                    values.address.subject,
+                    values.address.settlement,
+                    values.address.street,
+                    values.address.house && `д. ${values.address.house}`,
+                  ]
+                    .filter(Boolean)
+                    .join(", ") || "Адрес не указан"}
+                </div>
+                <div className={classes.addressGrid}>
+                  {Object.entries(addressLabels).map(([key, label]) => (
+                    <TextInput
+                      key={key}
+                      label={label}
+                      className={
+                        key === "street" || key === "object"
+                          ? classes.wideField
+                          : undefined
+                      }
+                      {...form.getInputProps(`address.${key}`)}
+                    />
+                  ))}
+                </div>
+                <Textarea
+                  label="Описательный адрес / ориентиры"
+                  mt="sm"
+                  minRows={2}
+                  autosize
+                  {...form.getInputProps("address.descriptive")}
+                />
+                <Group justify="flex-end" mt="xs">
+                  <Button
+                    size="compact-xs"
+                    variant="default"
+                    onClick={() =>
+                      form.setFieldValue("address", { ...emptyAddress })
+                    }
+                  >
+                    Очистить адрес
+                  </Button>
+                </Group>
+              </section>
+            )}
             <section className={`${classes.panel} ${classes.description}`}>
               <Textarea
                 label="Описание со слов заявителя"
@@ -354,6 +384,24 @@ export function OperatorCard({
                 {values.description.length} / 1999
               </Text>
             </section>
+            {remote && (
+              <section className={classes.panel} aria-label="Анкета">
+                <div className={classes.sectionTitle}>Анкета</div>
+                <Textarea
+                  label="Вопросы"
+                  minRows={3}
+                  autosize
+                  {...form.getInputProps("questions")}
+                />
+                <Textarea
+                  label="Ответы"
+                  mt="sm"
+                  minRows={3}
+                  autosize
+                  {...form.getInputProps("answers")}
+                />
+              </section>
+            )}
           </div>
           <div className={classes.rightColumn}>
             {remote ? (
