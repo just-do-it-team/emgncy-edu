@@ -1,5 +1,5 @@
 import { FC, Suspense } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { routes, RouteNames } from "../config/route-config";
 import { navigation, roleLabels, type NavItem } from "@/shared/config";
 import { SectionPlaceholder, Spinner } from "@/shared/ui";
@@ -23,13 +23,24 @@ import { useSessionExpiry, useSessionStore, type UserRole } from "@/entities/ses
 const roleNavigation: Record<UserRole, NavItem[]> = navigation;
 
 const AppRouter: FC = () => {
+  const location = useLocation();
   const role = useSessionStore((state) => state.profile?.role ?? null);
 
   useSessionExpiry();
   const homePath = routes.find((route) => route.role === role)?.path ?? RouteNames.LOGIN;
 
   const guarded = (allowed: string, element: React.ReactNode) =>
-    role === allowed ? element : <Navigate replace to={homePath} />;
+    role === allowed ? element : (
+      <Navigate
+        replace
+        to={homePath}
+        state={
+          role === null && location.pathname === "/student/arm"
+            ? { returnTo: location.pathname + location.search }
+            : undefined
+        }
+      />
+    );
 
   return (
     <Suspense fallback={<Spinner size={"large"} fullScreen />}>

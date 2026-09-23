@@ -5,6 +5,7 @@ import {
   QueryClientProvider,
 } from "@tanstack/react-query";
 import { handleApiError } from "@/shared/api";
+import { useSessionStore } from "@/entities/session";
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({
@@ -21,6 +22,17 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+const unsubscribe = useSessionStore.subscribe((state, previous) => {
+  if (state.profile === previous.profile) return;
+
+  void queryClient.cancelQueries();
+  queryClient.clear();
+});
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(unsubscribe);
+}
 
 export const QueryProvider = ({ children }: { children: React.ReactNode }) => {
   return (

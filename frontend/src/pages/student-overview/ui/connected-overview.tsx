@@ -13,36 +13,35 @@ import {
   Title,
 } from "@mantine/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
-import { StudentConnection } from "@/features/student-connection";
+import { Link, Navigate, useNavigate } from "react-router-dom";
+import { useSessionStore } from "@/entities/session";
 import {
   apiError,
   assignmentBlocker,
+  assignmentLaunchContext,
+  clearStartKey,
   formatApiDate,
-  isUuid,
-  loadLaunchContext,
-  saveLaunchContext,
+  pendingStartKey,
   startKey,
   statusLabels,
   trainingApi,
-  useTrainingIdentity,
   type ArmMode,
   type Assignment,
   type TrainingSession,
 } from "@/entities/training";
 
 export function ConnectedOverview() {
-  const userId = useTrainingIdentity((state) => state.userId);
+  const userId = useSessionStore((state) => state.profile?.userId);
+  if (!userId) return <Navigate to="/login" replace />;
   return (
     <Stack>
       <Title order={2} size="h4">
         Доступные занятия
       </Title>
-      <StudentConnection />
       <Anchor component={Link} to="/student/results">
         Мои результаты
       </Anchor>
-      {isUuid(userId) && <Assignments key={userId} userId={userId} />}
+      <Assignments key={userId} userId={userId} />
     </Stack>
   );
 }
@@ -123,84 +122,91 @@ function AssignmentRow({
   userId: string;
   stale: boolean;
 }) {
-  const participant = assignment.participants.find((p) => p.user_id === userId);
+  const { participant, scenario } = assignment;
   const [mode, setMode] = useState<ArmMode>(
-    participant?.position_code ? "DDS" : "ARM112",
+    participant.position_code ? "DDS" : "ARM112",
   );
-  const scenario = useQuery({
-    queryKey: ["student-api", userId, "scenario", assignment.scenario_id],
-    queryFn: ({ signal }) =>
-      trainingApi.scenario(assignment.scenario_id, userId, signal),
-    staleTime: 60000,
-    meta: { showGlobalError: false },
-  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingStart, setPendingStart] = useState(
+    () => !!pendingStartKey(userId, assignment.id),
+  );
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const running = sessions.find((s) => s.status === "RUNNING");
-  const context = running ? loadLaunchContext(userId, running.id) : null;
+  const context = assignmentLaunchContext(assignment, userId, mode);
+  const running = sessions.some((s) => ["CREATED", "RUNNING"].includes(s.status));
   const blocker = assignmentBlocker(assignment, sessions.length);
+  function openSession(sessionId: string) {
+    const params = new URLSearchParams({
+      assignment: assignment.id,
+      session: sessionId,
+      mode,
+    });
+    navigate(`/student/arm?${params}`);
+  }
   async function start() {
     if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      if (context) {
-        saveLaunchContext({ ...context, mode });
-        navigate(`/student/arm?session=${context.sessionId}`);
+      const current = await trainingApi.assignment(assignment.id, userId);
+      const active = assignmentLaunchContext(current, userId, mode);
+      if (useSessionStore.getState().profile?.userId !== userId) return;
+      if (active) {
+        clearStartKey(userId, assignment.id);
+        setPendingStart(false);
+        openSession(active.sessionId);
         return;
       }
+      // Only a previously persisted key may replay an uncertain start.
+      if (!pendingStartKey(userId, assignment.id)) {
+        if (context || running || current.status === "RUNNING") {
+          throw new Error(
+            "Активная попытка пока недоступна или уже завершилась. Обновите занятия и повторите открытие.",
+          );
+        }
+        const reason = assignmentBlocker(current, sessions.length);
+        if (reason) throw new Error(reason);
+      }
       const request = startKey(userId, assignment.id);
+      setPendingStart(true);
       const started = await trainingApi.start(
         userId,
         assignment.id,
         request.key,
       );
-      saveLaunchContext({
-        userId,
-        sessionId: started.session_id,
-        workspaceId: started.workspace_id,
-        assignmentId: assignment.id,
-        mode,
-        positionCode: participant?.position_code ?? null,
-        title: scenario.data?.name ?? "Учебное занятие",
-      });
+      if (useSessionStore.getState().profile?.userId !== userId) return;
       request.clear();
-      void queryClient.invalidateQueries({
-        queryKey: ["student-api", userId, "assignments"],
-      });
-      navigate(`/student/arm?session=${started.session_id}`);
+      setPendingStart(false);
+      if (["CREATED", "RUNNING"].includes(started.status)) {
+        openSession(started.session_id);
+      } else {
+        navigate("/student/results");
+      }
     } catch (err) {
       setError(apiError(err));
     } finally {
       setBusy(false);
+      if (useSessionStore.getState().profile?.userId === userId) {
+        void queryClient.invalidateQueries({
+          queryKey: ["student-api", userId, "assignments"],
+        });
+      }
     }
   }
   // A persisted start key also allows recovery when the first POST succeeded but its response was lost.
   return (
     <Table.Tr>
       <Table.Td>
-        <Text fw={600}>{scenario.data?.name ?? "Учебное занятие"}</Text>
+        <Text fw={600}>{scenario.name}</Text>
         <Text size="xs" c="dimmed">
-          {scenario.data?.description}
+          {scenario.description}
         </Text>
-        {scenario.data && (
-          <Text size="xs">
-            Сложность: {scenario.data.difficulty} ·{" "}
-            {Math.ceil(scenario.data.estimated_duration_seconds / 60)} мин ·
-            карточек: {scenario.data.cards_count}
-          </Text>
-        )}
-        {scenario.isError && (
-          <Button
-            size="compact-xs"
-            variant="subtle"
-            onClick={() => void scenario.refetch()}
-          >
-            Повторить загрузку названия
-          </Button>
-        )}
+        <Text size="xs">
+          Сложность: {scenario.difficulty} ·{" "}
+          {Math.ceil(scenario.estimated_duration_seconds / 60)} мин ·
+          карточек: {scenario.cards_count}
+        </Text>
         <Text size="xs" c="dimmed">
           Попытки: {sessions.length} / {assignment.max_attempts}
         </Text>
@@ -218,7 +224,7 @@ function AssignmentRow({
           ]}
         />
         <Text size="xs">
-          Служба: {participant?.position_code ?? "не назначена"}
+          Служба: {participant.position_code ?? "не назначена"}
         </Text>
       </Table.Td>
       <Table.Td>
@@ -231,19 +237,19 @@ function AssignmentRow({
         <Button
           size="xs"
           loading={busy}
-          disabled={stale || (!context && !running && !!blocker)}
+          disabled={stale || (!context && !running && !pendingStart && !!blocker)}
           onClick={() => void start()}
         >
           {context
             ? "Продолжить"
-            : running
+            : running || pendingStart
               ? "Восстановить сессию"
               : "Начать обучение"}
         </Button>
-        {!context && blocker && (
+        {!context && !pendingStart && blocker && (
           <Text size="xs" maw={260} mt={4}>
             {running
-              ? "Если сессия запущена в другом браузере, API может не вернуть рабочее место. Вернитесь в браузер, где запускалось занятие."
+              ? "Данные активной попытки обновляются. Повторите открытие через несколько секунд."
               : blocker}
           </Text>
         )}

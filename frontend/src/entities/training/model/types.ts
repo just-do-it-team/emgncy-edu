@@ -1,25 +1,39 @@
 export type ArmMode = "ARM112" | "DDS";
 export interface Assignment {
   id: string;
-  scenario_id: string;
+  scenario: ScenarioInfo;
+  assigned_by: string;
   status: string;
   launch_policy: string;
   available_from: string | null;
   due_at: string | null;
   max_attempts: number;
-  participants: {
+  created_at: string;
+  participant: {
     user_id: string;
     position_code: string | null;
     status: string;
-  }[];
+    ready_at: string | null;
+    completed_at: string | null;
+  };
+  active_session: {
+    session_id: string;
+    workspace_id: string;
+    attempt_number: number;
+    status: string;
+    started_at: string;
+  } | null;
 }
 export interface ScenarioInfo {
   id: string;
+  revision: number;
   name: string;
   description: string | null;
   difficulty: number;
   estimated_duration_seconds: number;
   cards_count: number;
+  workspace_mode: string;
+  completion_policy: string;
 }
 export interface LaunchContext {
   userId: string;
@@ -50,6 +64,8 @@ export interface CompletionReadiness {
   completion_policy: string;
   cards_total: number;
   cards_pending: number;
+  calls_total: number;
+  calls_completed: number;
   decisions_required: number;
   decisions_completed: number;
   blockers: { code: string; message: string }[];
@@ -96,7 +112,33 @@ export interface CardFeatures {
 export interface FeatureSchema {
   feature_schema_id: string;
   incident_type_name: string | null;
-  additional_features_schema: Record<string, unknown>;
+  additional_features_schema: AdditionalFeaturesSchema;
+}
+export interface AdditionalFeaturesSchema {
+  properties: Record<
+    string,
+    {
+      type: "string" | "boolean" | "number" | "integer";
+      title?: string | null;
+      description?: string | null;
+      enum?: (string | number | boolean)[] | null;
+    }
+  >;
+  required: string[];
+  additionalProperties: boolean;
+}
+export interface IncomingCall {
+  id: string;
+  status: string;
+  incident_card_id: string | null;
+  scheduled_at: string | null;
+  ringing_at: string | null;
+  answered_at: string | null;
+}
+export interface CardCreate extends CardPatch {
+  event_type_id: number;
+  victims_count: number | null;
+  features: CardFeatures;
 }
 export interface CardService {
   id: string;
@@ -113,13 +155,18 @@ export interface ServiceHistory {
   occurred_at: string;
   comment: string | null;
 }
+export interface CardQuestionnaire {
+  questions: string;
+  answers: string;
+}
 export interface ApiCard {
   id: string;
   workspace_id: string;
+  operator_id: string | null;
   card_number: string;
   event_type_id: number;
   description: string;
-  questionnaire: Record<string, unknown> | null;
+  questionnaire: CardQuestionnaire | null;
   reported_address: string | null;
   incident_address: string | null;
   victims_count: number | null;
@@ -143,9 +190,13 @@ export interface CardListItem {
   features_summary: Record<string, unknown>;
   services_summary: Record<string, unknown>[];
 }
+export interface CardListPage {
+  items: CardListItem[];
+  next_cursor: string | null;
+}
 export interface CardPatch {
   description: string;
-  questionnaire: Record<string, unknown>;
+  questionnaire: CardQuestionnaire | null;
   incident_address: string;
 }
 export interface AudioMessage {

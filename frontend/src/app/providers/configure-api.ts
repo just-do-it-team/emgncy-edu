@@ -7,10 +7,15 @@ import { api, RequestError } from "@/shared/api";
 const SESSION_EXPIRED = "Сессия истекла";
 
 const request = api.interceptors.request.use((config) => {
+  const { profile } = useSessionStore.getState();
+  const expectedUserId = config.headers["X-User-Id"];
+  if (expectedUserId && expectedUserId !== profile?.userId) {
+    throw new RequestError(401, "Сессия изменилась. Откройте занятие повторно.");
+  }
+
   const token = getToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
 
-  const { profile } = useSessionStore.getState();
   if (profile) config.headers["X-User-Id"] = profile.userId;
 
   return config;
@@ -22,6 +27,7 @@ const response = api.interceptors.response.use(
     if (
       error.response?.status !== 401 ||
       error.config?.url === authEndpoints.AUTH.LOGIN ||
+      error.config?.headers.Authorization !== `Bearer ${getToken()}` ||
       !useSessionStore.getState().profile
     ) {
       throw error;

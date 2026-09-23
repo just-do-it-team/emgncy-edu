@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useForm } from "@mantine/form";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useSessionStore } from "@/entities/session";
 import { login } from "../api/login";
 import { Button, Form, PasswordInput, TextInput } from "@/shared/ui";
@@ -21,6 +21,7 @@ const inputClassNames = {
 
 export const LoginForm = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const signIn = useSessionStore((state) => state.signIn);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -38,8 +39,14 @@ export const LoginForm = () => {
 
     setSubmitting(true);
     try {
-      signIn(await login({ username: username.trim(), password }));
-      navigate("/", { replace: true });
+      const session = await login({ username: username.trim(), password });
+      signIn(session);
+      const returnTo = (location.state as { returnTo?: unknown } | null)?.returnTo;
+      const resumeWorkspace =
+        session.profile.role === "student" &&
+        typeof returnTo === "string" &&
+        (returnTo === "/student/arm" || returnTo.startsWith("/student/arm?"));
+      navigate(resumeWorkspace ? returnTo : "/", { replace: true });
     } catch (e) {
       form.setFieldValue("password", "");
       setError(e instanceof Error ? e.message : "Не удалось войти. Повторите попытку.");

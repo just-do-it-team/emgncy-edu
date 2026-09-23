@@ -32,6 +32,8 @@ export const emptyOperatorDraft = {
   locationPhone: "",
   address: emptyAddress,
   description: "",
+  questions: "",
+  answers: "",
   group: "",
   features: [null, null, null] as (string | null)[],
   recordId: null as number | null,
