@@ -28,6 +28,11 @@ class AudioMessageResponse(BaseModel):
     incident_card_id: uuid.UUID | None
     training_call_id: uuid.UUID | None
     actor_user_id: uuid.UUID | None
+    speaker_role: str
+    reply_to_message_id: uuid.UUID | None
+    generation_id: uuid.UUID | None
+    generation_status: str | None
+    final_segment_count: int | None
     kind: str
     direction: str
     status: str
@@ -48,3 +53,18 @@ class AudioMessageResponse(BaseModel):
     action_recorded_at: datetime | None
     content_url: str | None = None
     idempotent_replay: bool = False
+
+
+class TtsSegmentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    audio_message_id: uuid.UUID
+    generation_id: uuid.UUID
+    segment_no: int
+    text: str
+    status: str
+    sample_rate: int | None
+    size_bytes: int | None
+    last_error: str | None
+    content_url: str | None = None

@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     audio_stt_result_topic: str = "audio.stt.completed.v1"
     audio_tts_request_topic: str = "audio.tts.requested.v1"
     audio_tts_result_topic: str = "audio.tts.completed.v1"
+    dialogue_request_topic: str = "dialogue.requested.v1"
     audio_failed_topic: str = "audio.processing.failed.v1"
     speech_request_consumer_group: str = "speech-request-worker-v1"
     speech_result_consumer_group: str = "speech-result-worker-v1"
@@ -48,7 +49,13 @@ class Settings(BaseSettings):
     audio_reconcile_interval_seconds: float = Field(default=300.0, ge=10.0)
     audio_orphan_grace_seconds: int = Field(default=3600, ge=60)
     realtime_instance_id: str = "realtime-local"
-    outbox_poll_interval_seconds: float = Field(default=0.5, ge=0.05)
+    outbox_poll_interval_seconds: float = Field(default=0.05, ge=0.05)
+    call_vad_silence_ms: int = Field(default=600, ge=200, le=5000)
+    dialogue_llm_base_url: str = "http://host.docker.internal:8080/v1"
+    dialogue_llm_model: str = "default"
+    dialogue_llm_api_key: str = ""
+    dialogue_llm_timeout_seconds: float = Field(default=120.0, ge=1.0)
+    dialogue_llm_history_messages: int = Field(default=12, ge=1, le=100)
     outbox_batch_size: int = Field(default=100, ge=1, le=1000)
     outbox_lock_seconds: int = Field(default=30, ge=5)
     scenario_worker_poll_interval_seconds: float = Field(default=0.5, ge=0.05)

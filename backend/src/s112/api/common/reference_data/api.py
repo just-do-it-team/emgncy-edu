@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from s112.api.dependencies import get_read_session, get_write_session
 from s112.api.schemas import (
-    ClassificationResolutionResponse,
     EmergencyServiceCreate,
     EmergencyServiceResponse,
     EventKindResponse,
@@ -16,9 +15,7 @@ from s112.domain.models import (
     EmergencyService,
     EventKind,
     EventType,
-    FeatureSchema,
     FirstOrderFeature,
-    IncidentType,
     SecondOrderFeature,
     ThirdOrderFeature,
 )
@@ -174,43 +171,6 @@ async def create_third_order_feature(
         session.add(feature)
         await session.flush()
     return feature
-
-
-@router.get(
-    "/feature-schemas/resolve",
-    response_model=ClassificationResolutionResponse,
-)
-async def resolve_feature_schema(
-    event_kind_id: int,
-    first_order_feature_id: int | None = None,
-    second_order_feature_id: int | None = None,
-    third_order_feature_id: int | None = None,
-    session: AsyncSession = Depends(get_read_session),
-) -> ClassificationResolutionResponse:
-    result = await session.execute(
-        select(FeatureSchema, IncidentType)
-        .outerjoin(IncidentType, IncidentType.id == FeatureSchema.incident_type_id)
-        .where(
-            FeatureSchema.event_kind_id == event_kind_id,
-            FeatureSchema.first_order_feature_id == first_order_feature_id,
-            FeatureSchema.second_order_feature_id == second_order_feature_id,
-            FeatureSchema.third_order_feature_id == third_order_feature_id,
-            FeatureSchema.is_active.is_(True),
-        )
-        .order_by(FeatureSchema.version.desc())
-        .limit(1)
-    )
-    row = result.one_or_none()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Feature schema not found")
-    schema, incident_type = row
-    return ClassificationResolutionResponse(
-        feature_schema_id=schema.id,
-        incident_type_id=schema.incident_type_id,
-        incident_type_name=incident_type.name if incident_type is not None else None,
-        ekp_name=incident_type.ekp_name if incident_type is not None else None,
-        additional_features_schema=schema.json_schema,
-    )
 
 
 @router.post(

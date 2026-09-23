@@ -8,6 +8,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
+import asyncpg
+
 from aiokafka import AIOKafkaProducer
 from sqlalchemy import exists, or_, select, update
 from sqlalchemy.orm import aliased
@@ -74,24 +76,58 @@ class OutboxWorker:
         self.settings = settings
         self.worker_id = worker_id or f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
         self._stopping = asyncio.Event()
+        self._wake = asyncio.Event()
 
     def stop(self) -> None:
         self._stopping.set()
+        self._wake.set()
+
+    async def _listen(self) -> None:
+        dsn = self.settings.database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+        while not self._stopping.is_set():
+            connection = None
+            disconnected = asyncio.Event()
+            try:
+                connection = await asyncpg.connect(dsn=dsn)
+                await connection.add_listener("s112_outbox", lambda *_: self._wake.set())
+                connection.add_termination_listener(lambda *_: disconnected.set())
+                # Scan once after LISTEN is active to cover the connection race.
+                self._wake.set()
+                await disconnected.wait()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Outbox notification listener unavailable; polling continues")
+            finally:
+                if connection is not None and not connection.is_closed():
+                    await connection.close()
+            if not self._stopping.is_set():
+                try:
+                    await asyncio.wait_for(self._stopping.wait(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    pass
 
     async def run(self) -> None:
         await self.publisher.start()
+        listener = asyncio.create_task(self._listen(), name="outbox-notify-listener")
         try:
             while not self._stopping.is_set():
+                self._wake.clear()
                 processed = await self.run_once()
                 if processed == 0:
                     try:
                         await asyncio.wait_for(
-                            self._stopping.wait(),
+                            self._wake.wait(),
                             timeout=self.settings.outbox_poll_interval_seconds,
                         )
                     except asyncio.TimeoutError:
                         pass
         finally:
+            listener.cancel()
+            try:
+                await listener
+            except asyncio.CancelledError:
+                pass
             await self.publisher.stop()
 
     async def run_once(self) -> int:
@@ -180,4 +216,3 @@ class OutboxWorker:
                 event.locked_by = None
                 event.locked_until = None
                 event.last_error = str(error)[:4000]
-

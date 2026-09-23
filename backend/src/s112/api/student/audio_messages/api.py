@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from s112.api.common.dependencies import raise_http_error
 from s112.api.dependencies import get_write_session
 from s112.api.service import DomainError
-from s112.audio.schemas import AudioMessageResponse, TTSMessageCreate
+from s112.audio.schemas import AudioMessageResponse, TTSMessageCreate, TtsSegmentResponse
 from s112.audio.service import AudioMessageService
 from s112.audio.storage import (
     AudioStorageError,
@@ -29,7 +29,8 @@ from s112.audio.storage import (
     SeaweedStorage,
 )
 from s112.common.enums import AudioMessageDirection
-from s112.domain.models import AudioMessage
+from s112.domain.models import AudioMessage, TtsSegment
+from sqlalchemy import select
 
 
 router = APIRouter(prefix="/api/v1", tags=["student/audio_messages"])
@@ -45,6 +46,11 @@ SUPPORTED_AUDIO_TYPES = {
 }
 
 
+@router.get("/call-audio-config")
+async def call_audio_config(request: Request) -> dict[str, int]:
+    return {"vad_silence_ms": request.app.state.settings.call_vad_silence_ms}
+
+
 def _service(request: Request) -> AudioMessageService:
     return AudioMessageService(request.app.state.settings)
 
@@ -57,10 +63,25 @@ def _response(
     message: AudioMessage, *, idempotent_replay: bool = False
 ) -> AudioMessageResponse:
     payload = AudioMessageResponse.model_validate(message)
-    if message.size_bytes is not None:
+    if message.size_bytes is not None and message.object_key is not None:
         payload.content_url = f"/api/v1/audio-messages/{message.id}/content"
     payload.idempotent_replay = idempotent_replay
     return payload
+
+
+def _segment_response(segment: TtsSegment) -> TtsSegmentResponse:
+    payload = TtsSegmentResponse.model_validate(segment)
+    if segment.status == "COMPLETED" and segment.size_bytes is not None:
+        payload.content_url = f"/api/v1/tts-segments/{segment.id}/content"
+    return payload
+
+
+def _assert_header_identity(request: Request, user_id: uuid.UUID) -> None:
+    principal = getattr(request.state, "principal", None)
+    if request.app.state.auth_settings.enabled and (
+        principal is None or principal.user_id != user_id
+    ):
+        raise HTTPException(status_code=403, detail="X-User-Id does not match token")
 
 
 @router.post(
@@ -83,6 +104,7 @@ async def upload_audio_message(
     ),
     session: AsyncSession = Depends(get_write_session),
 ) -> AudioMessageResponse:
+    _assert_header_identity(request, user_id)
     service = _service(request)
     storage = _storage(request)
     normalized_key = idempotency_key.strip()
@@ -208,6 +230,8 @@ async def upload_incoming_call_audio_message(
 ) -> AudioMessageResponse:
     """Accept the trainee's speech during an active incoming call."""
 
+    _assert_header_identity(request, user_id)
+
     service = _service(request)
     storage = _storage(request)
     normalized_key = idempotency_key.strip()
@@ -324,6 +348,7 @@ async def create_tts_message(
     ),
     session: AsyncSession = Depends(get_write_session),
 ) -> AudioMessageResponse:
+    _assert_header_identity(request, user_id)
     normalized_key = idempotency_key.strip()
     if not normalized_key:
         raise HTTPException(status_code=422, detail="Idempotency-Key is blank")
@@ -370,6 +395,7 @@ async def create_incoming_call_tts_message(
     ),
     session: AsyncSession = Depends(get_write_session),
 ) -> AudioMessageResponse:
+    _assert_header_identity(request, user_id)
     normalized_key = idempotency_key.strip()
     if not normalized_key:
         raise HTTPException(status_code=422, detail="Idempotency-Key is blank")
@@ -411,6 +437,7 @@ async def list_audio_messages(
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_write_session),
 ) -> list[AudioMessageResponse]:
+    _assert_header_identity(request, user_id)
     service = _service(request)
     try:
         async with session.begin():
@@ -436,6 +463,7 @@ async def list_incoming_call_audio_messages(
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_write_session),
 ) -> list[AudioMessageResponse]:
+    _assert_header_identity(request, user_id)
     service = _service(request)
     try:
         async with session.begin():
@@ -460,6 +488,7 @@ async def get_audio_message(
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_write_session),
 ) -> AudioMessageResponse:
+    _assert_header_identity(request, user_id)
     service = _service(request)
     try:
         async with session.begin():
@@ -478,13 +507,14 @@ async def get_audio_message_content(
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_write_session),
 ) -> Response:
+    _assert_header_identity(request, user_id)
     service = _service(request)
     try:
         async with session.begin():
             message = await service.assert_message_access(
                 session, message_id, user_id
             )
-            if message.size_bytes is None:
+            if message.size_bytes is None or message.object_key is None:
                 raise HTTPException(status_code=409, detail="Audio is not ready")
             object_key = message.object_key
             etag = message.object_etag
@@ -499,6 +529,56 @@ async def get_audio_message_content(
     if etag:
         headers["ETag"] = f'"{etag}"'
     return Response(content=content, media_type=content_type, headers=headers)
+
+
+@router.get("/audio-messages/{message_id}/tts-segments", response_model=list[TtsSegmentResponse])
+async def list_tts_segments(
+    message_id: uuid.UUID,
+    request: Request,
+    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    session: AsyncSession = Depends(get_write_session),
+) -> list[TtsSegmentResponse]:
+    _assert_header_identity(request, user_id)
+    try:
+        async with session.begin():
+            await _service(request).assert_message_access(session, message_id, user_id)
+            segments = list(await session.scalars(select(TtsSegment).where(
+                TtsSegment.audio_message_id == message_id,
+            ).order_by(TtsSegment.segment_no)))
+    except DomainError as exc:
+        raise_http_error(exc)
+    return [_segment_response(segment) for segment in segments]
+
+
+@router.get("/tts-segments/{segment_id}/content")
+async def get_tts_segment_content(
+    segment_id: uuid.UUID,
+    request: Request,
+    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    session: AsyncSession = Depends(get_write_session),
+) -> Response:
+    _assert_header_identity(request, user_id)
+    try:
+        async with session.begin():
+            segment = await session.get(TtsSegment, segment_id)
+            if segment is None:
+                raise HTTPException(status_code=404, detail="TTS segment not found")
+            await _service(request).assert_message_access(session, segment.audio_message_id, user_id)
+            if segment.status != "COMPLETED" or segment.size_bytes is None:
+                raise HTTPException(status_code=409, detail="TTS segment is not ready")
+            object_key = segment.object_key
+            expected_hash = segment.sha256
+    except DomainError as exc:
+        raise_http_error(exc)
+    try:
+        content, content_type = await _storage(request).get_bytes(object_key)
+    except AudioStorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if expected_hash:
+        import hashlib
+        if hashlib.sha256(content).hexdigest() != expected_hash:
+            raise HTTPException(status_code=503, detail="TTS segment checksum mismatch")
+    return Response(content=content, media_type=content_type, headers={"Cache-Control": "private, no-store"})
 
 
 async def _find_committed_message(

@@ -9,7 +9,7 @@ from sqlalchemy import select
 from s112.audio.storage import SeaweedStorage
 from s112.common.config import Settings
 from s112.common.database import Database
-from s112.domain.models import AudioMessage
+from s112.domain.models import AudioMessage, TtsSegment
 
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,11 @@ class AudioObjectReconciler:
         # otherwise make a live object look orphaned.
         async with self.database.write_session_factory() as session:
             known_keys = set(await session.scalars(select(AudioMessage.object_key)))
+            known_keys.update(
+                await session.scalars(
+                    select(TtsSegment.object_key).where(TtsSegment.status == "COMPLETED")
+                )
+            )
         cutoff = datetime.now(timezone.utc) - timedelta(
             seconds=self.settings.audio_orphan_grace_seconds
         )

@@ -5,11 +5,16 @@ import json
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from s112.common.config import Settings, get_settings
+from s112.common.database import Database
+from s112.auth.dependencies import require_auth_if_enabled
+from s112.auth.settings import get_auth_settings
+from s112.domain.models import WorkspaceMember
+import uuid
 from s112.realtime_gateway.consumer import RealtimeKafkaConsumer
 from s112.realtime_gateway.hub import RealtimeHub
 
@@ -30,6 +35,8 @@ def create_app(
     app_settings = settings or get_settings()
     app_hub = hub or RealtimeHub(app_settings.sse_client_queue_size)
     consumer = RealtimeKafkaConsumer(app_settings, app_hub) if start_consumer else None
+    auth_settings = get_auth_settings()
+    database = Database.from_settings(app_settings)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -40,6 +47,7 @@ def create_app(
         finally:
             if consumer:
                 await consumer.stop()
+            await database.dispose()
 
     app = FastAPI(title="System-112 Realtime Gateway", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
@@ -52,6 +60,8 @@ def create_app(
     )
     app.state.hub = app_hub
     app.state.settings = app_settings
+    app.state.auth_settings = auth_settings
+    app.state.database = database
 
     @app.get("/health")
     async def health() -> dict[str, object]:
@@ -67,7 +77,20 @@ def create_app(
         card_id: str | None = Query(default=None),
         workspace_id: str | None = Query(default=None),
         teacher_id: str | None = Query(default=None),
+        _principal: object = Depends(require_auth_if_enabled),
     ) -> StreamingResponse:
+        if auth_settings.enabled:
+            principal = request.state.principal
+            if not workspace_id or teacher_id and teacher_id != str(principal.user_id):
+                raise HTTPException(status_code=403, detail="Workspace subscription required")
+            try:
+                workspace_uuid = uuid.UUID(workspace_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="Invalid workspace_id") from exc
+            async with database.write_session_factory() as db_session:
+                member = await db_session.get(WorkspaceMember, (workspace_uuid, principal.user_id))
+                if member is None or member.left_at is not None:
+                    raise HTTPException(status_code=403, detail="Workspace membership required")
         async def event_stream() -> AsyncIterator[str]:
             yield "retry: 3000\n\n"
             async with app_hub.subscribe(

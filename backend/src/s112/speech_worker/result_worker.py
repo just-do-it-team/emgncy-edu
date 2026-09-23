@@ -23,6 +23,7 @@ from s112.domain.models import (
     AudioMessage,
     EventInbox,
     OutboxEvent,
+    TtsSegment,
     SessionScheduledCard,
     TrainingAction,
     TrainingSession,
@@ -96,6 +97,10 @@ class SpeechResultWorker:
             raise ValueError("Audio result event data must be an object")
         message_id = uuid.UUID(str(data["audio_message_id"]))
 
+        if event_type in {"audio.tts.segment.completed", "audio.tts.segment.failed"}:
+            await self._process_segment_result(event_id, event_type, data)
+            return
+
         async with self.database.write_session_factory() as session:
             async with session.begin():
                 if await session.get(
@@ -123,6 +128,8 @@ class SpeechResultWorker:
 
                 if event_type == "audio.stt.completed":
                     await self._record_transcript_action(session, message)
+                    if message.training_call_id is not None:
+                        self._request_dialogue(session, message, event_id)
                     await self._request_semantic_evaluation(
                         session,
                         message,
@@ -144,21 +151,83 @@ class SpeechResultWorker:
                 )
                 training_session = await session.scalar(
                     select(TrainingSession)
-                    .where(
-                        TrainingSession.id == message.training_session_id
-                    )
+                    .where(TrainingSession.id == message.training_session_id)
                     .with_for_update()
                 )
                 if training_session is not None:
-                    await ScenarioCompletionService(
-                        self.settings.kafka_topic
-                    ).refresh(session, training_session)
-                session.add(
-                    EventInbox(
-                        consumer_name=self.consumer_name,
-                        event_id=event_id,
-                    )
-                )
+                    await ScenarioCompletionService(self.settings.kafka_topic).refresh(session, training_session)
+                session.add(EventInbox(consumer_name=self.consumer_name, event_id=event_id))
+
+    def _request_dialogue(self, session: Any, message: AudioMessage, source_event_id: uuid.UUID) -> None:
+        event_id = uuid.uuid4()
+        session.add(OutboxEvent(
+            id=event_id,
+            aggregate_type="dialogue_request",
+            aggregate_id=str(message.id),
+            aggregate_version=1,
+            event_type="dialogue.requested",
+            topic=self.settings.dialogue_request_topic,
+            message_key=str(message.training_call_id),
+            payload={
+                "schema_version": 1,
+                "event_id": str(event_id),
+                "event_type": "dialogue.requested",
+                "aggregate_type": "dialogue_request",
+                "aggregate_id": str(message.id),
+                "aggregate_version": 1,
+                "correlation_id": str(message.training_call_id),
+                "causation_id": str(source_event_id),
+                "data": {"audio_message_id": str(message.id), "training_call_id": str(message.training_call_id)},
+            },
+        ))
+
+    async def _process_segment_result(self, event_id: uuid.UUID, event_type: str, data: dict[str, Any]) -> None:
+        segment_id = uuid.UUID(str(data["segment_id"]))
+        async with self.database.write_session_factory() as session:
+            async with session.begin():
+                if await session.get(EventInbox, (self.consumer_name, event_id)):
+                    return
+                segment = await session.get(TtsSegment, segment_id)
+                if segment is None:
+                    raise LookupError(f"TTS segment {segment_id} not found")
+                message = await session.get(AudioMessage, segment.audio_message_id)
+                if message is None:
+                    raise LookupError(f"Audio message {segment.audio_message_id} not found")
+                notification_id = uuid.uuid4()
+                ready = event_type == "audio.tts.segment.completed"
+                session.add(OutboxEvent(
+                    id=notification_id,
+                    aggregate_type="tts_segment_notification",
+                    aggregate_id=str(segment.id),
+                    aggregate_version=1,
+                    event_type="training.tts_segment_ready" if ready else "training.tts_segment_failed",
+                    topic=self.settings.kafka_topic,
+                    message_key=str(message.training_call_id or message.training_session_id),
+                    payload={
+                        "schema_version": 1,
+                        "event_id": str(notification_id),
+                        "event_type": "training.tts_segment_ready" if ready else "training.tts_segment_failed",
+                        "aggregate_type": "tts_segment",
+                        "aggregate_id": str(segment.id),
+                        "aggregate_version": 1,
+                        "workspace_id": str(message.workspace_id),
+                        "correlation_id": str(message.training_call_id),
+                        "causation_id": str(event_id),
+                        "data": {
+                            "training_call_id": str(message.training_call_id),
+                            "audio_message_id": str(message.id),
+                            "reply_to_message_id": str(message.reply_to_message_id) if message.reply_to_message_id else None,
+                            "segment_id": str(segment.id),
+                            "segment_no": segment.segment_no,
+                            "generation_id": str(segment.generation_id),
+                            "status": segment.status,
+                            "text": segment.text,
+                            "content_url": f"/api/v1/tts-segments/{segment.id}/content" if ready else None,
+                            "error": segment.last_error if not ready else None,
+                        },
+                    },
+                ))
+                session.add(EventInbox(consumer_name=self.consumer_name, event_id=event_id))
 
     async def _record_transcript_action(
         self, session: Any, message: AudioMessage

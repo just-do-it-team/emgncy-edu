@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -57,6 +57,7 @@ from s112.common.enums import (
     WorkspaceStatus,
 )
 from s112.domain.models import (
+    AudioMessage,
     AssignmentBatch,
     AssignmentParticipant,
     CardFeature,
@@ -1795,6 +1796,7 @@ class SimulationApplicationService:
         now = utcnow()
         item.status = TrainingCallStatus.ACTIVE.value
         item.answered_at = now
+        item.operator_user_id = request.user_id
         self._add_training_call_action(
             session,
             item,
@@ -1850,6 +1852,14 @@ class SimulationApplicationService:
         if existing_call is not None:
             raise ConflictError("Incident card is already linked to another incoming call")
         item.incident_card_id = card.id
+        await session.execute(
+            update(AudioMessage)
+            .where(
+                AudioMessage.training_call_id == item.id,
+                AudioMessage.incident_card_id.is_(None),
+            )
+            .values(incident_card_id=card.id)
+        )
         self._add_training_call_action(
             session,
             item,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from s112.api.service import ConflictError, NotFoundError, ValidationError
@@ -147,6 +147,8 @@ class AudioMessageService:
             and training_call.status != TrainingCallStatus.ACTIVE.value
         ):
             raise ConflictError("Audio can be sent only during an active incoming call")
+        if require_active_call and training_call.operator_user_id != user_id:
+            raise ConflictError("Only the answering operator can speak in this call")
         if require_active:
             self.assert_context_active(workspace, training_session)
         return workspace, training_session, training_call
@@ -315,7 +317,7 @@ class AudioMessageService:
         stored: StoredAudioObject,
         client_sent_at: datetime | None,
     ) -> tuple[AudioMessage, bool]:
-        workspace, training_session, _ = await self.validate_call_context(
+        workspace, training_session, training_call = await self.validate_call_context(
             session,
             workspace_id=workspace_id,
             call_id=call_id,
@@ -339,11 +341,24 @@ class AudioMessageService:
             return replay, True
         self.assert_context_active(workspace, training_session)
 
+        latest = await session.scalar(
+            select(AudioMessage)
+            .where(AudioMessage.training_call_id == call_id)
+            .order_by(AudioMessage.sequence_no.desc())
+            .limit(1)
+        )
+        if latest is not None and (
+            latest.status in {AudioMessageStatus.QUEUED.value, AudioMessageStatus.PROCESSING.value}
+            or (latest.kind == AudioMessageKind.STT.value and latest.status == AudioMessageStatus.COMPLETED.value)
+        ):
+            raise ConflictError("The previous call turn is still being processed")
+
         message = AudioMessage(
             id=message_id,
             training_session_id=training_session.id,
             workspace_id=workspace.id,
             training_call_id=call_id,
+            incident_card_id=training_call.incident_card_id,
             actor_user_id=user_id,
             kind=AudioMessageKind.STT.value,
             direction=AudioMessageDirection.OUTBOUND.value,
@@ -377,7 +392,7 @@ class AudioMessageService:
         text: str,
         client_sent_at: datetime | None,
     ) -> tuple[AudioMessage, bool]:
-        workspace, training_session, _ = await self.validate_call_context(
+        workspace, training_session, training_call = await self.validate_call_context(
             session,
             workspace_id=workspace_id,
             call_id=call_id,
@@ -412,6 +427,7 @@ class AudioMessageService:
             training_session_id=training_session.id,
             workspace_id=workspace.id,
             training_call_id=call_id,
+            incident_card_id=training_call.incident_card_id,
             actor_user_id=user_id,
             kind=AudioMessageKind.TTS.value,
             direction=AudioMessageDirection.OUTBOUND.value,
@@ -507,7 +523,12 @@ class AudioMessageService:
                 select(AudioMessage)
                 .where(
                     AudioMessage.workspace_id == workspace_id,
-                    AudioMessage.incident_card_id == card_id,
+                    or_(
+                        AudioMessage.incident_card_id == card_id,
+                        AudioMessage.training_call_id.in_(
+                            select(TrainingCall.id).where(TrainingCall.incident_card_id == card_id)
+                        ),
+                    ),
                 )
                 .order_by(AudioMessage.sequence_no)
             )
@@ -553,7 +574,7 @@ class AudioMessageService:
     ) -> None:
         if (
             message.kind != kind
-            or message.incident_card_id != card_id
+            or (training_call_id is None and message.incident_card_id != card_id)
             or message.training_call_id != training_call_id
             or message.actor_user_id != user_id
             or (source_text is not None and message.source_text != source_text)

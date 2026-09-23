@@ -104,14 +104,6 @@ class AdditionalFeaturesSchema(BaseModel):
                 raise ValueError(f"Invalid additional feature: {key}")
 
 
-class ClassificationResolutionResponse(BaseModel):
-    feature_schema_id: uuid.UUID
-    incident_type_id: uuid.UUID | None
-    incident_type_name: str | None
-    ekp_name: str | None
-    additional_features_schema: AdditionalFeaturesSchema
-
-
 class CardQuestionnaire(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -124,7 +116,6 @@ class CardFeatureInput(BaseModel):
     first_order_feature_id: int | None = None
     second_order_feature_id: int | None = None
     third_order_feature_id: int | None = None
-    feature_schema_id: uuid.UUID | None = None
     additional_features: dict[str, JsonValue] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -180,7 +171,6 @@ class CardFeatureResponse(OrmModel):
     second_order_feature_id: int | None
     third_order_feature_id: int | None
     incident_type_id: uuid.UUID | None
-    feature_schema_id: uuid.UUID | None
     additional_features: dict[str, JsonValue]
     revision: int
     updated_by: uuid.UUID | None
@@ -253,7 +243,6 @@ class CardFeatureHistoryResponse(OrmModel):
     second_order_feature_id: int | None
     third_order_feature_id: int | None
     incident_type_id: uuid.UUID | None
-    feature_schema_id: uuid.UUID | None
     additional_features: dict[str, JsonValue]
     changed_by: uuid.UUID | None
     changed_at: datetime

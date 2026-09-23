@@ -166,40 +166,6 @@ class IncidentType(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
-class FeatureSchema(Base, TimestampMixin):
-    __tablename__ = "feature_schema"
-    __table_args__ = (
-        UniqueConstraint(
-            "event_kind_id",
-            "first_order_feature_id",
-            "second_order_feature_id",
-            "third_order_feature_id",
-            "version",
-        ),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    event_kind_id: Mapped[int] = mapped_column(
-        ForeignKey("event_kind.id", ondelete="RESTRICT"),
-        nullable=False,
-    )
-    first_order_feature_id: Mapped[int | None] = mapped_column(
-        ForeignKey("first_order_feature.id", ondelete="RESTRICT")
-    )
-    second_order_feature_id: Mapped[int | None] = mapped_column(
-        ForeignKey("second_order_feature.id", ondelete="RESTRICT")
-    )
-    third_order_feature_id: Mapped[int | None] = mapped_column(
-        ForeignKey("third_order_feature.id", ondelete="RESTRICT")
-    )
-    incident_type_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("incident_type.id", ondelete="RESTRICT")
-    )
-    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    json_schema: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-
-
 class SourceSystem(Base, TimestampMixin):
     __tablename__ = "source_system"
 
@@ -223,17 +189,20 @@ class EmergencyService(Base, TimestampMixin):
 
 
 class ServiceRoutingRule(Base, TimestampMixin):
-    """A system rule that adds a service for one classifier combination."""
+    """A system rule that adds a service for an event kind."""
 
     __tablename__ = "service_routing_rule"
     __table_args__ = (
-        UniqueConstraint("feature_schema_id", "service_id", "route_code"),
-        Index("ix_service_routing_rule_schema_active", "feature_schema_id", "is_active"),
+        UniqueConstraint(
+            "event_kind_id", "service_id", "route_code",
+            name="uq_service_routing_rule_kind_service_route",
+        ),
+        Index("ix_service_routing_rule_kind_active", "event_kind_id", "is_active"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    feature_schema_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("feature_schema.id", ondelete="CASCADE"),
+    event_kind_id: Mapped[int] = mapped_column(
+        ForeignKey("event_kind.id", ondelete="CASCADE"),
         nullable=False,
     )
     service_id: Mapped[uuid.UUID] = mapped_column(
@@ -389,9 +358,6 @@ class CardFeature(Base):
     incident_type_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("incident_type.id", ondelete="RESTRICT")
     )
-    feature_schema_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("feature_schema.id", ondelete="RESTRICT")
-    )
     additional_features: Mapped[dict[str, Any]] = mapped_column(
         JsonType,
         nullable=False,
@@ -426,7 +392,6 @@ class CardFeatureHistory(Base):
     second_order_feature_id: Mapped[int | None] = mapped_column(Integer)
     third_order_feature_id: Mapped[int | None] = mapped_column(Integer)
     incident_type_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
-    feature_schema_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     additional_features: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
     changed_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     changed_at: Mapped[datetime] = mapped_column(
@@ -1141,7 +1106,7 @@ class SessionScheduledCard(Base):
 
 
 class TrainingCall(Base):
-    """A scheduled and subsequently active incoming call in a training session."""
+    """A simulated conversation within a training session."""
 
     __tablename__ = "training_call"
     __table_args__ = (
@@ -1156,6 +1121,7 @@ class TrainingCall(Base):
         ),
         Index("ix_training_call_due", "status", "scheduled_at"),
         Index("ix_training_call_workspace", "workspace_id", "status"),
+        CheckConstraint("direction IN ('INBOUND', 'OUTBOUND')", name="direction_valid"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -1176,6 +1142,9 @@ class TrainingCall(Base):
         String(32), nullable=False, default=ScenarioCardSourceType.SNAPSHOT.value
     )
     call_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    direction: Mapped[str] = mapped_column(String(16), nullable=False, default="INBOUND")
+    operator_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("user_account.id", ondelete="RESTRICT"))
+    interlocutor_role: Mapped[str] = mapped_column(String(32), nullable=False, default="CALLER")
     expected_result: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(
@@ -1243,8 +1212,10 @@ class AudioMessage(Base):
             "sequence_no",
             name="uq_audio_message_session_sequence",
         ),
+        UniqueConstraint("reply_to_message_id", name="uq_audio_message_reply_to"),
         CheckConstraint("sequence_no > 0", name="sequence_positive"),
         CheckConstraint("revision > 0", name="revision_positive"),
+        CheckConstraint("speaker_role IN ('TRAINEE', 'CALLER', 'COMMANDER')", name="speaker_role_valid"),
         CheckConstraint(
             "kind IN ('STT', 'TTS')",
             name="kind_valid",
@@ -1287,6 +1258,11 @@ class AudioMessage(Base):
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("user_account.id", ondelete="RESTRICT")
     )
+    speaker_role: Mapped[str] = mapped_column(String(32), nullable=False, default="TRAINEE")
+    reply_to_message_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("audio_message.id", ondelete="SET NULL"))
+    generation_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    generation_status: Mapped[str | None] = mapped_column(String(20))
+    final_segment_count: Mapped[int | None] = mapped_column(Integer)
     kind: Mapped[str] = mapped_column(
         String(16), nullable=False, default=AudioMessageKind.STT.value
     )
@@ -1301,7 +1277,7 @@ class AudioMessage(Base):
     idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
     source_text: Mapped[str | None] = mapped_column(Text)
     transcript: Mapped[str | None] = mapped_column(Text)
-    object_key: Mapped[str] = mapped_column(String(1024), nullable=False)
+    object_key: Mapped[str | None] = mapped_column(String(1024))
     object_etag: Mapped[str | None] = mapped_column(String(255))
     sha256: Mapped[str | None] = mapped_column(String(64))
     content_type: Mapped[str | None] = mapped_column(String(128))
@@ -1320,6 +1296,32 @@ class AudioMessage(Base):
     action_recorded_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
+
+
+class TtsSegment(Base):
+    __tablename__ = "tts_segment"
+    __table_args__ = (
+        UniqueConstraint("audio_message_id", "generation_id", "segment_no", name="uq_tts_segment_order"),
+        CheckConstraint("segment_no > 0", name="segment_positive"),
+        CheckConstraint("status IN ('QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED')", name="status_valid"),
+        Index("ix_tts_segment_message_order", "audio_message_id", "segment_no"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    audio_message_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("audio_message.id", ondelete="CASCADE"), nullable=False)
+    generation_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    segment_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="QUEUED")
+    object_key: Mapped[str] = mapped_column(String(1024), nullable=False)
+    sha256: Mapped[str | None] = mapped_column(String(64))
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    sample_rate: Mapped[int | None] = mapped_column(Integer)
+    content_type: Mapped[str | None] = mapped_column(String(128))
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class EventInbox(Base):

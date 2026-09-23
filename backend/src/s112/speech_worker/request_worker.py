@@ -13,13 +13,14 @@ from pathlib import Path
 from typing import Any
 
 from aiokafka import AIOKafkaConsumer, TopicPartition
-from sqlalchemy import select
+from sqlalchemy import func, select
 
+from s112.api.scenario_completion import ScenarioCompletionService
 from s112.audio.storage import SeaweedStorage, StoredAudioObject
 from s112.common.config import Settings
 from s112.common.database import Database
 from s112.common.enums import AudioMessageKind, AudioMessageStatus
-from s112.domain.models import AudioMessage, EventInbox, OutboxEvent
+from s112.domain.models import AudioMessage, EventInbox, OutboxEvent, TrainingSession, TtsSegment
 from s112.speech_worker.client import SpeechModelClient
 
 
@@ -94,6 +95,9 @@ class SpeechRequestWorker:
         data = payload.get("data")
         if not isinstance(data, dict):
             raise ValueError("Audio request event data must be an object")
+        if payload.get("event_type") == "audio.tts.segment.requested":
+            await self._process_segment(uuid.UUID(str(data["segment_id"])), event_id)
+            return
         message_id = uuid.UUID(str(data["audio_message_id"]))
 
         if await self._is_consumed(event_id):
@@ -126,6 +130,111 @@ class SpeechRequestWorker:
                 continue
             await self._mark_completed(message_id, event_id, result)
             return
+
+    async def _process_segment(self, segment_id: uuid.UUID, event_id: uuid.UUID) -> None:
+        if await self._is_consumed(event_id):
+            return
+        while True:
+            async with self.database.write_session_factory() as session:
+                async with session.begin():
+                    segment = await session.scalar(select(TtsSegment).where(TtsSegment.id == segment_id).with_for_update())
+                    if segment is None:
+                        raise LookupError(f"TTS segment {segment_id} not found")
+                    if segment.status in {"COMPLETED", "FAILED", "CANCELLED"}:
+                        session.add(EventInbox(consumer_name=self.consumer_name, event_id=event_id))
+                        return
+                    segment.status = "PROCESSING"
+                    segment.attempts += 1
+                    text = segment.text
+                    key = segment.object_key
+                    attempts = segment.attempts
+                    message = await session.get(AudioMessage, segment.audio_message_id)
+                    if message is None:
+                        raise LookupError(f"Audio message {segment.audio_message_id} not found")
+                    if message.status == "FAILED":
+                        segment.status = "CANCELLED"
+                        session.add(EventInbox(consumer_name=self.consumer_name, event_id=event_id))
+                        return
+                    metadata = {
+                        "Audio-Message-Id": str(message.id),
+                        "Training-Call-Id": str(message.training_call_id),
+                        "TTS-Segment-Id": str(segment.id),
+                        "Generation-Id": str(segment.generation_id),
+                        "Segment-No": str(segment.segment_no),
+                    }
+            try:
+                audio, sample_rate = await self.speech.synthesize(text)
+                stored = await self.storage.put_bytes(key, audio, content_type="audio/wav", metadata=metadata)
+            except Exception as exc:
+                async with self.database.write_session_factory() as session:
+                    async with session.begin():
+                        segment = await session.scalar(select(TtsSegment).where(TtsSegment.id == segment_id).with_for_update())
+                        segment.last_error = str(exc)[:4000]
+                        if attempts >= self.settings.speech_worker_retry_limit:
+                            segment.status = "FAILED"
+                            segment.completed_at = utcnow()
+                            parent = await session.scalar(select(AudioMessage).where(AudioMessage.id == segment.audio_message_id).with_for_update())
+                            parent.status = "FAILED"
+                            parent.last_error = segment.last_error
+                            parent.completed_at = utcnow()
+                            self._add_segment_result(session, segment, parent, event_id, success=False)
+                            training_session = await session.scalar(select(TrainingSession).where(TrainingSession.id == parent.training_session_id).with_for_update())
+                            await ScenarioCompletionService(self.settings.kafka_topic).refresh(session, training_session)
+                            session.add(EventInbox(consumer_name=self.consumer_name, event_id=event_id))
+                        else:
+                            segment.status = "QUEUED"
+                if attempts >= self.settings.speech_worker_retry_limit:
+                    return
+                await asyncio.sleep(min(60.0, self.settings.speech_worker_retry_base_seconds * 2 ** (attempts - 1)))
+                continue
+            async with self.database.write_session_factory() as session:
+                async with session.begin():
+                    if await session.get(EventInbox, (self.consumer_name, event_id)):
+                        return
+                    segment = await session.scalar(select(TtsSegment).where(TtsSegment.id == segment_id).with_for_update())
+                    parent = await session.scalar(select(AudioMessage).where(AudioMessage.id == segment.audio_message_id).with_for_update())
+                    if parent.status == "FAILED":
+                        segment.status = "CANCELLED"
+                        session.add(EventInbox(consumer_name=self.consumer_name, event_id=event_id))
+                        return
+                    segment.status = "COMPLETED"
+                    segment.sha256 = stored.sha256
+                    segment.size_bytes = stored.size_bytes
+                    segment.content_type = stored.content_type
+                    segment.sample_rate = sample_rate
+                    segment.completed_at = utcnow()
+                    await session.flush()
+                    if parent.generation_status == "COMPLETED":
+                        remaining = await session.scalar(select(func.count()).select_from(TtsSegment).where(TtsSegment.audio_message_id == parent.id, TtsSegment.status != "COMPLETED"))
+                        if remaining == 0:
+                            parent.status = "COMPLETED"
+                            parent.completed_at = utcnow()
+                    self._add_segment_result(session, segment, parent, event_id, success=True)
+                    if parent.status == "COMPLETED":
+                        training_session = await session.scalar(select(TrainingSession).where(TrainingSession.id == parent.training_session_id).with_for_update())
+                        await ScenarioCompletionService(self.settings.kafka_topic).refresh(session, training_session)
+                    session.add(EventInbox(consumer_name=self.consumer_name, event_id=event_id))
+            return
+
+    def _add_segment_result(self, session: Any, segment: TtsSegment, parent: AudioMessage, request_id: uuid.UUID, *, success: bool) -> None:
+        result_id = uuid.uuid4()
+        event_type = "audio.tts.segment.completed" if success else "audio.tts.segment.failed"
+        session.add(OutboxEvent(
+            id=result_id,
+            aggregate_type="tts_segment",
+            aggregate_id=str(segment.id),
+            aggregate_version=2,
+            event_type=event_type,
+            topic=self.settings.audio_tts_result_topic if success else self.settings.audio_failed_topic,
+            message_key=str(parent.training_call_id),
+            payload={
+                "schema_version": 1, "event_id": str(result_id),
+                "event_type": event_type, "aggregate_type": "tts_segment",
+                "aggregate_id": str(segment.id), "aggregate_version": 2,
+                "correlation_id": str(parent.training_call_id), "causation_id": str(request_id),
+                "data": {"audio_message_id": str(parent.id), "segment_id": str(segment.id), "segment_no": segment.segment_no},
+            },
+        ))
 
     async def _process(self, message: AudioMessage) -> ProcessingResult:
         if message.kind == AudioMessageKind.STT.value:

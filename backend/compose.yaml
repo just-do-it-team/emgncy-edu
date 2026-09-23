@@ -7,6 +7,14 @@ x-app-environment: &app-environment
   S112_AUDIO_STT_RESULT_TOPIC: ${S112_AUDIO_STT_RESULT_TOPIC:-audio.stt.completed.v1}
   S112_AUDIO_TTS_REQUEST_TOPIC: ${S112_AUDIO_TTS_REQUEST_TOPIC:-audio.tts.requested.v1}
   S112_AUDIO_TTS_RESULT_TOPIC: ${S112_AUDIO_TTS_RESULT_TOPIC:-audio.tts.completed.v1}
+  S112_DIALOGUE_REQUEST_TOPIC: ${S112_DIALOGUE_REQUEST_TOPIC:-dialogue.requested.v1}
+  S112_OUTBOX_POLL_INTERVAL_SECONDS: ${S112_OUTBOX_POLL_INTERVAL_SECONDS:-0.05}
+  S112_CALL_VAD_SILENCE_MS: ${S112_CALL_VAD_SILENCE_MS:-600}
+  S112_DIALOGUE_LLM_BASE_URL: ${S112_DIALOGUE_LLM_BASE_URL:-http://host.docker.internal:8080/v1}
+  S112_DIALOGUE_LLM_MODEL: ${S112_DIALOGUE_LLM_MODEL:-default}
+  S112_DIALOGUE_LLM_API_KEY: ${S112_DIALOGUE_LLM_API_KEY:-}
+  S112_DIALOGUE_LLM_TIMEOUT_SECONDS: ${S112_DIALOGUE_LLM_TIMEOUT_SECONDS:-120}
+  S112_DIALOGUE_LLM_HISTORY_MESSAGES: ${S112_DIALOGUE_LLM_HISTORY_MESSAGES:-12}
   S112_AUDIO_FAILED_TOPIC: ${S112_AUDIO_FAILED_TOPIC:-audio.processing.failed.v1}
   S112_SPEECH_REQUEST_CONSUMER_GROUP: ${S112_SPEECH_REQUEST_CONSUMER_GROUP:-speech-request-worker-v1}
   S112_SPEECH_RESULT_CONSUMER_GROUP: ${S112_SPEECH_RESULT_CONSUMER_GROUP:-speech-result-worker-v1}
@@ -351,6 +359,7 @@ services:
         ${S112_AUDIO_STT_RESULT_TOPIC:-audio.stt.completed.v1} \
         ${S112_AUDIO_TTS_REQUEST_TOPIC:-audio.tts.requested.v1} \
         ${S112_AUDIO_TTS_RESULT_TOPIC:-audio.tts.completed.v1} \
+        ${S112_DIALOGUE_REQUEST_TOPIC:-dialogue.requested.v1} \
         ${S112_AUDIO_FAILED_TOPIC:-audio.processing.failed.v1} \
         ${S112_SEMANTIC_EVALUATION_REQUEST_TOPIC:-training.semantic-evaluation.requested.v1} \
         ${S112_SEMANTIC_EVALUATION_RESULT_TOPIC:-training.semantic-evaluation.completed.v1};
@@ -559,6 +568,21 @@ services:
     environment:
       <<: *app-environment
     command: ["python", "-m", "s112.speech_worker.result_main"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+
+  dialogue-worker:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["python", "-m", "s112.dialogue.main"]
     depends_on:
       migrate:
         condition: service_completed_successfully

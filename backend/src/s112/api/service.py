@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from s112.api.schemas import (
-    AdditionalFeaturesSchema,
     CardCreate,
     CardFeatureInput,
     CardFeatureUpdate,
@@ -38,7 +37,6 @@ from s112.domain.models import (
     EmergencyService,
     EventKind,
     EventType,
-    FeatureSchema,
     FirstOrderFeature,
     IncidentCard,
     OutboxEvent,
@@ -111,11 +109,8 @@ class CardApplicationService:
         if event_type is None or not event_type.is_active:
             raise ValidationError("Unknown or inactive event_type_id")
 
-        resolved_schema: FeatureSchema | None = None
         if request.features is not None:
-            resolved_schema = await self._validate_features(
-                session, request.event_type_id, request.features
-            )
+            await self._validate_features(session, request.event_type_id, request.features)
 
         if request.parent_card_id is not None:
             parent = await session.get(IncidentCard, request.parent_card_id)
@@ -170,7 +165,6 @@ class CardApplicationService:
                 card,
                 request.features,
                 request.operator_id,
-                resolved_schema,
             )
             session.add(feature_model)
             session.add(self._feature_history(feature_model, request.operator_id))
@@ -254,21 +248,17 @@ class CardApplicationService:
         await self._assert_workspace_access(session, card.workspace_id, request.actor_id)
         existing_feature = await session.get(CardFeature, card.id)
         before_state = self._features_summary(existing_feature)
-        resolved_schema = await self._validate_features(session, card.event_type_id, request)
+        await self._validate_features(session, card.event_type_id, request)
 
         feature = existing_feature
         if feature is None:
-            feature = self._make_feature(card, request, request.actor_id, resolved_schema)
+            feature = self._make_feature(card, request, request.actor_id)
             session.add(feature)
         else:
             feature.event_kind_id = request.event_kind_id
             feature.first_order_feature_id = request.first_order_feature_id
             feature.second_order_feature_id = request.second_order_feature_id
             feature.third_order_feature_id = request.third_order_feature_id
-            feature.incident_type_id = (
-                resolved_schema.incident_type_id if resolved_schema is not None else None
-            )
-            feature.feature_schema_id = resolved_schema.id if resolved_schema is not None else None
             feature.additional_features = request.additional_features
             feature.updated_by = request.actor_id
             feature.updated_at = utcnow()
@@ -937,18 +927,16 @@ class CardApplicationService:
         card: IncidentCard,
         feature: CardFeature,
     ) -> None:
-        rules: list[ServiceRoutingRule] = []
-        if feature.feature_schema_id is not None:
-            rules = list(
-                await session.scalars(
-                    select(ServiceRoutingRule)
-                    .where(
-                        ServiceRoutingRule.feature_schema_id == feature.feature_schema_id,
-                        ServiceRoutingRule.is_active.is_(True),
-                    )
-                    .order_by(ServiceRoutingRule.sort_order, ServiceRoutingRule.route_code)
+        rules = list(
+            await session.scalars(
+                select(ServiceRoutingRule)
+                .where(
+                    ServiceRoutingRule.event_kind_id == feature.event_kind_id,
+                    ServiceRoutingRule.is_active.is_(True),
                 )
+                .order_by(ServiceRoutingRule.sort_order, ServiceRoutingRule.route_code)
             )
+        )
         matched_rules = [
             rule
             for rule in rules
@@ -1084,7 +1072,7 @@ class CardApplicationService:
         session: AsyncSession,
         event_type_id: int,
         features: CardFeatureInput,
-    ) -> FeatureSchema | None:
+    ) -> None:
         event_kind = await session.get(EventKind, features.event_kind_id)
         if event_kind is None or not event_kind.is_active:
             raise ValidationError("Unknown or inactive event_kind_id")
@@ -1112,49 +1100,11 @@ class CardApplicationService:
             if third.second_order_feature_id != features.second_order_feature_id:
                 raise ValidationError("Third-order feature does not belong to second-order feature")
 
-        schema: FeatureSchema | None
-        if features.feature_schema_id is not None:
-            schema = await session.get(FeatureSchema, features.feature_schema_id)
-            if schema is None or not schema.is_active:
-                raise ValidationError("Unknown or inactive feature_schema_id")
-            if (
-                schema.event_kind_id != features.event_kind_id
-                or schema.first_order_feature_id != features.first_order_feature_id
-                or schema.second_order_feature_id != features.second_order_feature_id
-                or schema.third_order_feature_id != features.third_order_feature_id
-            ):
-                raise ValidationError("Feature schema does not match selected feature hierarchy")
-        else:
-            schema = await session.scalar(
-                select(FeatureSchema)
-                .where(
-                    FeatureSchema.event_kind_id == features.event_kind_id,
-                    FeatureSchema.first_order_feature_id
-                    == features.first_order_feature_id,
-                    FeatureSchema.second_order_feature_id
-                    == features.second_order_feature_id,
-                    FeatureSchema.third_order_feature_id
-                    == features.third_order_feature_id,
-                    FeatureSchema.is_active.is_(True),
-                )
-                .order_by(FeatureSchema.version.desc())
-                .limit(1)
-            )
-        if schema is not None and schema.json_schema:
-            try:
-                AdditionalFeaturesSchema.model_validate(schema.json_schema).validate_values(
-                    features.additional_features
-                )
-            except ValueError as exc:
-                raise ValidationError(str(exc)) from exc
-        return schema
-
     def _make_feature(
         self,
         card: IncidentCard,
         request: CardFeatureInput,
         actor_id: uuid.UUID | None,
-        schema: FeatureSchema | None,
     ) -> CardFeature:
         return CardFeature(
             card_id=card.id,
@@ -1163,8 +1113,7 @@ class CardApplicationService:
             first_order_feature_id=request.first_order_feature_id,
             second_order_feature_id=request.second_order_feature_id,
             third_order_feature_id=request.third_order_feature_id,
-            incident_type_id=schema.incident_type_id if schema is not None else None,
-            feature_schema_id=schema.id if schema is not None else None,
+            incident_type_id=None,
             additional_features=request.additional_features,
             revision=1,
             updated_by=actor_id,
@@ -1183,7 +1132,6 @@ class CardApplicationService:
             second_order_feature_id=feature.second_order_feature_id,
             third_order_feature_id=feature.third_order_feature_id,
             incident_type_id=feature.incident_type_id,
-            feature_schema_id=feature.feature_schema_id,
             additional_features=feature.additional_features,
             changed_by=actor_id,
         )

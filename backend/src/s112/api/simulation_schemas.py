@@ -1030,6 +1030,9 @@ class TrainingCallResponse(OrmModel):
     trigger_type: str
     trigger_config: dict[str, Any]
     call_payload: InitialIncomingCall
+    direction: str
+    operator_user_id: uuid.UUID | None
+    interlocutor_role: str
     status: str
     incident_card_id: uuid.UUID | None
     scheduled_at: datetime | None
