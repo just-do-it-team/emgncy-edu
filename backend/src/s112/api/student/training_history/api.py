@@ -3,10 +3,11 @@ import uuid
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from s112.api.dependencies import get_read_session
 from s112.api.common.training.responses import student_training_history_item
-from s112.api.simulation_schemas import TrainingSessionResponse
+from s112.api.simulation_schemas import TrainingSessionResponse, TrainingSessionSummary
 from s112.api.student.training_history.schemas import StudentTrainingHistoryPage
 from s112.common.enums import UserRole
 from s112.domain.models import (
@@ -93,14 +94,29 @@ async def get_own_training_history(
     )
 
 
-@router.get("/training-sessions", response_model=list[TrainingSessionResponse])
+@router.get("/training-sessions", response_model=list[TrainingSessionSummary])
 async def list_training_sessions(
     assignment_id: uuid.UUID | None = None,
     participant_user_id: uuid.UUID | None = None,
     session_status: str | None = Query(default=None, alias="status"),
     session: AsyncSession = Depends(get_read_session),
-) -> list[TrainingSession]:
-    statement = select(TrainingSession)
+) -> list[TrainingSessionSummary]:
+    statement = select(TrainingSession).options(
+        load_only(
+            TrainingSession.id,
+            TrainingSession.assignment_id,
+            TrainingSession.attempt_number,
+            TrainingSession.status,
+            TrainingSession.completion_policy,
+            TrainingSession.started_at,
+            TrainingSession.completed_at,
+            TrainingSession.score,
+            TrainingSession.passed,
+            TrainingSession.expert_score,
+            TrainingSession.expert_passed,
+            TrainingSession.expert_evaluated_at,
+        )
+    )
     if assignment_id is not None:
         statement = statement.where(TrainingSession.assignment_id == assignment_id)
     if participant_user_id is not None:
@@ -110,9 +126,10 @@ async def list_training_sessions(
         ).where(AssignmentParticipant.user_id == participant_user_id)
     if session_status:
         statement = statement.where(TrainingSession.status == session_status)
-    return list(
+    training_sessions = list(
         await session.scalars(statement.order_by(TrainingSession.started_at.desc()))
     )
+    return [TrainingSessionSummary.model_validate(item) for item in training_sessions]
 
 
 @router.get(

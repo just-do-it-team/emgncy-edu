@@ -190,6 +190,125 @@ async def upload_audio_message(
 
 
 @router.post(
+    "/workspaces/{workspace_id}/incoming-calls/{call_id}/audio-messages",
+    response_model=AudioMessageResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def upload_incoming_call_audio_message(
+    workspace_id: uuid.UUID,
+    call_id: uuid.UUID,
+    request: Request,
+    audio: UploadFile = File(...),
+    client_sent_at: datetime | None = Form(default=None),
+    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    idempotency_key: str = Header(
+        alias="Idempotency-Key", min_length=1, max_length=128
+    ),
+    session: AsyncSession = Depends(get_write_session),
+) -> AudioMessageResponse:
+    """Accept the trainee's speech during an active incoming call."""
+
+    service = _service(request)
+    storage = _storage(request)
+    normalized_key = idempotency_key.strip()
+    if not normalized_key:
+        raise HTTPException(status_code=422, detail="Idempotency-Key is blank")
+    content_type = (audio.content_type or "").split(";", 1)[0].lower()
+    suffix = SUPPORTED_AUDIO_TYPES.get(content_type)
+    if suffix is None:
+        raise HTTPException(status_code=415, detail="Unsupported audio content type")
+
+    try:
+        async with session.begin():
+            workspace, training_session, _ = await service.validate_call_context(
+                session,
+                workspace_id=workspace_id,
+                call_id=call_id,
+                user_id=user_id,
+                require_active=False,
+            )
+            replay = await service.find_replay(
+                session,
+                training_session_id=training_session.id,
+                idempotency_key=normalized_key,
+            )
+            if replay is not None:
+                service.assert_replay_matches(
+                    replay,
+                    kind="STT",
+                    training_call_id=call_id,
+                    user_id=user_id,
+                    direction=AudioMessageDirection.OUTBOUND.value,
+                )
+                return _response(replay, idempotent_replay=True)
+            service.assert_context_active(workspace, training_session)
+    except DomainError as exc:
+        raise_http_error(exc)
+
+    message_id = uuid.uuid4()
+    received_at = datetime.now(timezone.utc)
+    object_key = (
+        f"{request.app.state.settings.seaweed_audio_prefix.rstrip('/')}"
+        f"/{training_session.id}/{message_id}{suffix}"
+    )
+    try:
+        stored = await storage.upload_file(
+            object_key,
+            audio,
+            content_type=content_type,
+            metadata={
+                "Audio-Message-Id": str(message_id),
+                "Training-Session-Id": str(training_session.id),
+                "Workspace-Id": str(workspace_id),
+                "Training-Call-Id": str(call_id),
+                "Actor-User-Id": str(user_id),
+                "Kind": "STT",
+                "Direction": AudioMessageDirection.OUTBOUND.value,
+                "Received-At": received_at.isoformat(),
+                **(
+                    {"Client-Sent-At": client_sent_at.isoformat()}
+                    if client_sent_at
+                    else {}
+                ),
+            },
+        )
+    except AudioTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except InvalidAudioError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except AudioStorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
+        async with session.begin():
+            message, replayed = await service.create_call_stt_message(
+                session,
+                message_id=message_id,
+                workspace_id=workspace_id,
+                call_id=call_id,
+                user_id=user_id,
+                idempotency_key=normalized_key,
+                stored=stored,
+                client_sent_at=client_sent_at,
+            )
+    except DomainError as exc:
+        await storage.delete(object_key)
+        raise_http_error(exc)
+    except Exception as exc:
+        committed = await _find_committed_message(request, message_id)
+        if committed is not None:
+            return _response(committed)
+        raise HTTPException(
+            status_code=503,
+            detail="Audio metadata could not be committed",
+        ) from exc
+
+    if replayed:
+        await storage.delete(object_key)
+    return _response(message, idempotent_replay=replayed)
+
+
+@router.post(
     "/workspaces/{workspace_id}/cards/{card_id}/tts-messages",
     response_model=AudioMessageResponse,
     status_code=status.HTTP_202_ACCEPTED,
@@ -235,6 +354,52 @@ async def create_tts_message(
     return _response(message, idempotent_replay=replayed)
 
 
+@router.post(
+    "/workspaces/{workspace_id}/incoming-calls/{call_id}/tts-messages",
+    response_model=AudioMessageResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def create_incoming_call_tts_message(
+    workspace_id: uuid.UUID,
+    call_id: uuid.UUID,
+    body: TTSMessageCreate,
+    request: Request,
+    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    idempotency_key: str = Header(
+        alias="Idempotency-Key", min_length=1, max_length=128
+    ),
+    session: AsyncSession = Depends(get_write_session),
+) -> AudioMessageResponse:
+    normalized_key = idempotency_key.strip()
+    if not normalized_key:
+        raise HTTPException(status_code=422, detail="Idempotency-Key is blank")
+    service = _service(request)
+    message_id = uuid.uuid4()
+    try:
+        async with session.begin():
+            message, replayed = await service.create_call_tts_message(
+                session,
+                message_id=message_id,
+                workspace_id=workspace_id,
+                call_id=call_id,
+                user_id=user_id,
+                idempotency_key=normalized_key,
+                text=body.text,
+                client_sent_at=body.client_sent_at,
+            )
+    except DomainError as exc:
+        raise_http_error(exc)
+    except Exception as exc:
+        committed = await _find_committed_message(request, message_id)
+        if committed is not None:
+            return _response(committed)
+        raise HTTPException(
+            status_code=503,
+            detail="TTS request metadata could not be committed",
+        ) from exc
+    return _response(message, idempotent_replay=replayed)
+
+
 @router.get(
     "/workspaces/{workspace_id}/cards/{card_id}/audio-messages",
     response_model=list[AudioMessageResponse],
@@ -253,6 +418,31 @@ async def list_audio_messages(
                 session,
                 workspace_id=workspace_id,
                 card_id=card_id,
+                user_id=user_id,
+            )
+    except DomainError as exc:
+        raise_http_error(exc)
+    return [_response(message) for message in messages]
+
+
+@router.get(
+    "/workspaces/{workspace_id}/incoming-calls/{call_id}/audio-messages",
+    response_model=list[AudioMessageResponse],
+)
+async def list_incoming_call_audio_messages(
+    workspace_id: uuid.UUID,
+    call_id: uuid.UUID,
+    request: Request,
+    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    session: AsyncSession = Depends(get_write_session),
+) -> list[AudioMessageResponse]:
+    service = _service(request)
+    try:
+        async with session.begin():
+            messages = await service.list_call_messages(
+                session,
+                workspace_id=workspace_id,
+                call_id=call_id,
                 user_id=user_id,
             )
     except DomainError as exc:

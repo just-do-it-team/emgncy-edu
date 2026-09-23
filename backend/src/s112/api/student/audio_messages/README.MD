@@ -5,6 +5,12 @@
 хранятся в SeaweedFS; в PostgreSQL сохраняются только метаданные, текст и
 состояние обработки.
 
+Для входящего звонка оператора 112 сообщение до создания карточки связывается
+с `training_call` вместо `incident_card`. Такая речь воспроизводит диалог и
+блокирует преждевременное завершение, пока STT/TTS не закончат работу, но не
+участвует в оценке: результат входящего звонка определяется только сравнением
+сохранённой карточки с `expected_result.card`.
+
 ## STT
 
 Длинные WAV-записи автоматически делятся внутри `speech-api` на фрагменты по
@@ -22,6 +28,20 @@ Content-Type: multipart/form-data
 audio=<file>
 client_sent_at=<optional ISO-8601 timestamp>
 direction=INBOUND|OUTBOUND
+```
+
+Речь обучаемого в уже принятом входящем звонке отправляется отдельным
+call-scoped методом. Направление фиксировано как `OUTBOUND`, поэтому клиент не
+может выдать речь оператора за реплику заявителя:
+
+```http
+POST /api/v1/workspaces/{workspaceId}/incoming-calls/{callId}/audio-messages
+X-User-Id: <student-uuid>
+Idempotency-Key: <stable-request-id>
+Content-Type: multipart/form-data
+
+audio=<file>
+client_sent_at=<optional ISO-8601 timestamp>
 ```
 
 Допустимы WAV, WebM, OGG, MP3 и M4A. API сначала сохраняет файл в SeaweedFS,
@@ -50,6 +70,17 @@ Content-Type: application/json
 {"text":"Текст для озвучивания","client_sent_at":null}
 ```
 
+Для активного входящего звонка используется аналогичный метод:
+
+```http
+POST /api/v1/workspaces/{workspaceId}/incoming-calls/{callId}/tts-messages
+X-User-Id: <student-uuid>
+Idempotency-Key: <stable-request-id>
+Content-Type: application/json
+
+{"text":"Вопрос оператора заявителю","client_sent_at":null}
+```
+
 Текст проходит тот же outbox/Kafka pipeline. TTS worker сохраняет WAV в
 SeaweedFS и публикует `audio.tts.completed` через result-outbox.
 
@@ -57,6 +88,7 @@ SeaweedFS и публикует `audio.tts.completed` через result-outbox.
 
 ```http
 GET /api/v1/workspaces/{workspaceId}/cards/{cardId}/audio-messages
+GET /api/v1/workspaces/{workspaceId}/incoming-calls/{callId}/audio-messages
 GET /api/v1/audio-messages/{audioMessageId}
 GET /api/v1/audio-messages/{audioMessageId}/content
 X-User-Id: <user-uuid>

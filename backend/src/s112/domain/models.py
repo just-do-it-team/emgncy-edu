@@ -677,6 +677,19 @@ class UserAccount(Base, TimestampMixin):
     updated_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
 
 
+class RevokedAccessToken(Base):
+    __tablename__ = "revoked_access_token"
+
+    token_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_account.id", ondelete="CASCADE"), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class LearningGroup(Base, TimestampMixin):
     __tablename__ = "learning_group"
     __table_args__ = (

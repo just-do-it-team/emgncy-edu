@@ -71,8 +71,9 @@ X-User-Id: <student-uuid>
 Для технического экрана доступны также:
 
 - `GET /api/v1/training-sessions?participant_user_id={studentId}&status=...` —
-  непагинированный список базовых объектов сессии;
-- `GET /api/v1/training-sessions/{sessionId}` — базовый объект одной сессии;
+  непагинированный список кратких сведений без `completion_state`, `result` и
+  экспертного комментария;
+- `GET /api/v1/training-sessions/{sessionId}` — полный объект одной сессии;
 - `GET /api/v1/training-sessions/{sessionId}/actions` — хронология действий;
 - `GET /api/v1/training-sessions/{sessionId}/scheduled-cards` — карточки плана.
 

@@ -188,6 +188,11 @@ class SpeechResultWorker:
                     result=TrainingActionResult.SUCCESS.value,
                     details={
                         "audio_message_id": str(message.id),
+                        "training_call_id": (
+                            str(message.training_call_id)
+                            if message.training_call_id
+                            else None
+                        ),
                         "sequence_no": message.sequence_no,
                         "transcript": message.transcript,
                         "direction": message.direction,
@@ -392,6 +397,11 @@ class SpeechResultWorker:
                         "incident_card_id": (
                             str(message.incident_card_id)
                             if message.incident_card_id
+                            else None
+                        ),
+                        "training_call_id": (
+                            str(message.training_call_id)
+                            if message.training_call_id
                             else None
                         ),
                         "actor_user_id": (

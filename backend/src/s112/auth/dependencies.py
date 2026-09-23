@@ -13,7 +13,7 @@ from s112.auth.principal import Principal
 from s112.auth.settings import AuthSettings, get_auth_settings
 from s112.auth.tokens import TokenError, decode_access_token
 from s112.common.enums import UserRole
-from s112.domain.models import UserAccount
+from s112.domain.models import RevokedAccessToken, UserAccount
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -64,6 +64,9 @@ async def _load_principal(
     async with database.write_session_factory() as session:
         session: AsyncSession
         user = await session.get(UserAccount, user_id)
+        revoked = await session.get(RevokedAccessToken, token_id)
+    if revoked is not None:
+        raise _unauthorized("Access token has been revoked")
     if user is None:
         raise _unauthorized("User account no longer exists")
     if user.is_blocked:

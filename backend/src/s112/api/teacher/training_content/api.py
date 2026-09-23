@@ -62,8 +62,10 @@ async def create_card_template(
 @router.get("/card-templates", response_model=list[CardTemplateResponse])
 async def list_card_templates(
     active_only: bool = True,
+    user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_read_session),
 ) -> list[CardTemplate]:
+    await _require_teacher_or_administrator(session, user_id)
     statement = select(CardTemplate)
     if active_only:
         statement = statement.where(CardTemplate.is_active.is_(True))
@@ -77,8 +79,10 @@ async def list_card_templates(
 @router.get("/card-templates/{template_id}", response_model=CardTemplateResponse)
 async def get_card_template(
     template_id: uuid.UUID,
+    user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_read_session),
 ) -> CardTemplate:
+    await _require_teacher_or_administrator(session, user_id)
     template = await session.get(CardTemplate, template_id)
     if template is None:
         raise HTTPException(status_code=404, detail="Card template not found")
@@ -125,8 +129,10 @@ async def create_incoming_call_template(
 )
 async def list_incoming_call_templates(
     active_only: bool = True,
+    user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_read_session),
 ) -> list[IncomingCallTemplate]:
+    await _require_teacher_or_administrator(session, user_id)
     statement = select(IncomingCallTemplate)
     if active_only:
         statement = statement.where(IncomingCallTemplate.is_active.is_(True))
@@ -147,8 +153,10 @@ async def list_incoming_call_templates(
 )
 async def get_incoming_call_template(
     template_id: uuid.UUID,
+    user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_read_session),
 ) -> IncomingCallTemplate:
+    await _require_teacher_or_administrator(session, user_id)
     template = await session.get(IncomingCallTemplate, template_id)
     if template is None:
         raise HTTPException(status_code=404, detail="Incoming call template not found")

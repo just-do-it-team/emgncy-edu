@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -10,12 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from s112.api.schemas import CardCreate
 from s112.api.scenario_completion import ScenarioCompletionService
+from s112.api.procedural import procedural_card_work_finished
 from s112.api.service import CardApplicationService
 from s112.api.simulation_service import SimulationApplicationService
 from s112.common.database import Database
 from s112.common.enums import (
     ScenarioTriggerType,
     ScenarioCompletionPolicy,
+    ProceduralGenerationStatus,
     ScheduledCardStatus,
     TrainingActionResult,
     TrainingCallStatus,
@@ -23,6 +26,8 @@ from s112.common.enums import (
 )
 from s112.domain.models import (
     SessionScheduledCard,
+    ScenarioAssignment,
+    SimulationWorkspace,
     TrainingAction,
     TrainingCall,
     TrainingSession,
@@ -147,6 +152,7 @@ class ScenarioSchedulerWorker:
                     session, now, batch_size=self.batch_size
                 )
                 await self._resolve_action_triggers(session, now)
+                await self._generate_procedural_cards(session, now)
                 statement = (
                     select(SessionScheduledCard.id)
                     .join(
@@ -219,6 +225,140 @@ class ScenarioSchedulerWorker:
                 await self._record_call_failure(call_id, exc)
         await self._refresh_completion_states()
         return emitted
+
+    async def _generate_procedural_cards(
+        self, session: AsyncSession, now: datetime
+    ) -> None:
+        statement = (
+            select(TrainingSession)
+            .where(TrainingSession.status == TrainingSessionStatus.RUNNING.value)
+            .order_by(TrainingSession.started_at, TrainingSession.id)
+            .limit(self.batch_size)
+        )
+        if session.bind and session.bind.dialect.name == "postgresql":
+            statement = statement.with_for_update(skip_locked=True)
+        training_sessions = list(await session.scalars(statement))
+        for training_session in training_sessions:
+            state = dict(training_session.generation_state or {})
+            if state.get("status") != ProceduralGenerationStatus.RUNNING.value:
+                continue
+            next_at_raw = state.get("next_generation_at")
+            if not isinstance(next_at_raw, str):
+                state["status"] = ProceduralGenerationStatus.FAILED.value
+                state["last_error"] = "next_generation_at is missing"
+                training_session.generation_state = state
+                continue
+            next_at = datetime.fromisoformat(next_at_raw)
+            if next_at.tzinfo is None:
+                next_at = next_at.replace(tzinfo=timezone.utc)
+            if next_at > now:
+                continue
+
+            generator_key = str(state["generator_key"])
+            generated_count = int(state["generated_count"])
+            target_count = int(state["target_count"])
+            if generated_count >= target_count:
+                state["status"] = ProceduralGenerationStatus.EXHAUSTED.value
+                state["next_generation_at"] = None
+                training_session.generation_state = state
+                continue
+
+            generated_items = list(
+                await session.scalars(
+                    select(SessionScheduledCard)
+                    .where(
+                        SessionScheduledCard.training_session_id == training_session.id,
+                        SessionScheduledCard.generator_key == generator_key,
+                    )
+                    .order_by(SessionScheduledCard.generation_index)
+                )
+            )
+            active_count = 0
+            for item in generated_items:
+                if item.status == ScheduledCardStatus.PENDING.value:
+                    active_count += 1
+                elif (
+                    item.status == ScheduledCardStatus.EMITTED.value
+                    and not await procedural_card_work_finished(session, item)
+                ):
+                    active_count += 1
+            if active_count >= int(state["max_active"]):
+                continue
+
+            remaining_ids = list(state.get("remaining_template_ids", []))
+            if not remaining_ids:
+                state["status"] = ProceduralGenerationStatus.FAILED.value
+                state["last_error"] = "Procedural template pool was exhausted early"
+                training_session.generation_state = state
+                continue
+            selected_id = secrets.choice(remaining_ids)
+            assignment = await session.get(
+                ScenarioAssignment, training_session.assignment_id
+            )
+            if assignment is None:
+                state["status"] = ProceduralGenerationStatus.FAILED.value
+                state["last_error"] = "Scenario assignment is missing"
+                training_session.generation_state = state
+                continue
+            catalog = assignment.scenario_snapshot["definition"][
+                "procedural_catalog"
+            ]
+            template = next(
+                (item for item in catalog if item["template_id"] == selected_id),
+                None,
+            )
+            if template is None:
+                state["status"] = ProceduralGenerationStatus.FAILED.value
+                state["last_error"] = "Selected template is missing from snapshot"
+                training_session.generation_state = state
+                continue
+
+            generation_index = generated_count + 1
+            session.add(
+                SessionScheduledCard(
+                    training_session_id=training_session.id,
+                    workspace_id=await self._workspace_id(session, training_session.id),
+                    scenario_card_key=(
+                        f"generated.{generator_key}.{generation_index:04d}"
+                    ),
+                    trigger_type=ScenarioTriggerType.TIME_OFFSET.value,
+                    trigger_config={"offset_seconds": 0},
+                    source_type="SNAPSHOT",
+                    card_payload=template["initial_card"],
+                    expected_result=template["expected_result"],
+                    evaluation_rules=template.get("evaluation_rules", {}),
+                    scheduled_at=now,
+                    status=ScheduledCardStatus.PENDING.value,
+                    generator_key=generator_key,
+                    generation_index=generation_index,
+                    source_template_id=uuid.UUID(selected_id),
+                )
+            )
+            remaining_ids.remove(selected_id)
+            state["generated_count"] = generation_index
+            state["remaining_template_ids"] = remaining_ids
+            if generation_index >= target_count:
+                state["status"] = ProceduralGenerationStatus.EXHAUSTED.value
+                state["next_generation_at"] = None
+            else:
+                state["next_generation_at"] = (
+                    now
+                    + timedelta(seconds=int(state["release_interval_seconds"]))
+                ).isoformat()
+            training_session.generation_state = state
+
+    @staticmethod
+    async def _workspace_id(
+        session: AsyncSession, training_session_id: uuid.UUID
+    ) -> uuid.UUID:
+        workspace_id = await session.scalar(
+            select(SimulationWorkspace.id).where(
+                SimulationWorkspace.training_session_id == training_session_id
+            )
+        )
+        if workspace_id is None:
+            raise ValueError("Training session workspace is missing")
+        return workspace_id
 
     async def _refresh_completion_states(self) -> None:
         async with self.database.write_session_factory() as session:

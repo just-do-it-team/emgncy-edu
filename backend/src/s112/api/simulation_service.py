@@ -40,9 +40,11 @@ from s112.common.enums import (
     AssignmentStatus,
     LaunchPolicy,
     ParticipantStatus,
+    ProceduralGenerationStatus,
     ScenarioCardSourceType,
     ScenarioCompletionPolicy,
     ScenarioItemType,
+    ScenarioMode,
     ScenarioStatus,
     ScenarioTriggerType,
     ScheduledCardStatus,
@@ -92,6 +94,15 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+PROCEDURAL_PRESETS: dict[int, dict[str, int]] = {
+    1: {"initial_delay_seconds": 5, "release_interval_seconds": 180, "max_active": 1},
+    2: {"initial_delay_seconds": 5, "release_interval_seconds": 120, "max_active": 1},
+    3: {"initial_delay_seconds": 5, "release_interval_seconds": 90, "max_active": 2},
+    4: {"initial_delay_seconds": 0, "release_interval_seconds": 60, "max_active": 3},
+    5: {"initial_delay_seconds": 0, "release_interval_seconds": 30, "max_active": 4},
+}
 
 
 class SimulationApplicationService:
@@ -169,6 +180,15 @@ class SimulationApplicationService:
             ):
                 raise ConflictError(
                     "Card template is referenced by an active training scenario"
+                )
+            generator = definition.procedural_generation
+            if (
+                generator is not None
+                and generator.template_pool.template_ids is not None
+                and template.id in generator.template_pool.template_ids
+            ):
+                raise ConflictError(
+                    "Card template is referenced by an active procedural scenario"
                 )
         template.is_active = False
         await session.flush()
@@ -249,13 +269,20 @@ class SimulationApplicationService:
         await self._require_user_role(
             session, request.created_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
         )
-        await self._validate_template_references(session, request.definition)
+        await self._validate_template_references(
+            session, request.definition, request.difficulty
+        )
+        procedural_count = (
+            request.definition.procedural_generation.target_count
+            if request.definition.procedural_generation is not None
+            else 0
+        )
         scenario = TrainingScenario(
             name=request.name,
             description=request.description,
             difficulty=request.difficulty,
             estimated_duration_seconds=request.estimated_duration_seconds,
-            cards_count=len(request.definition.cards),
+            cards_count=len(request.definition.cards) + procedural_count,
             workspace_mode=request.workspace_mode.value,
             completion_policy=self._resolve_completion_policy(
                 request.workspace_mode.value,
@@ -321,11 +348,23 @@ class SimulationApplicationService:
                 scenario.workspace_mode, None
             )
         if request.definition is not None:
-            await self._validate_template_references(session, request.definition)
+            await self._validate_template_references(
+                session, request.definition, scenario.difficulty
+            )
             scenario.definition = strip_scenario_card_runtime_fields(
                 request.definition.model_dump(mode="json", exclude_none=True)
             )
-            scenario.cards_count = len(request.definition.cards)
+            scenario.cards_count = len(request.definition.cards) + (
+                request.definition.procedural_generation.target_count
+                if request.definition.procedural_generation is not None
+                else 0
+            )
+        elif request.difficulty is not None:
+            await self._validate_template_references(
+                session,
+                ScenarioDefinition.model_validate(scenario.definition),
+                scenario.difficulty,
+            )
 
         self._validate_participant_range(
             scenario.workspace_mode,
@@ -636,6 +675,27 @@ class SimulationApplicationService:
                 raw["initial_card"].pop("request_id", None)
             resolved_cards.append(raw)
 
+        procedural_catalog: list[dict[str, Any]] = []
+        if definition.procedural_generation is not None:
+            templates = await self._procedural_templates(
+                session, definition, scenario.difficulty
+            )
+            for template in templates:
+                initial_card = dict(template.initial_card)
+                initial_card.pop("workspace_id", None)
+                initial_card.pop("request_id", None)
+                procedural_catalog.append(
+                    {
+                        "template_id": str(template.id),
+                        "template_key": str(template.template_key),
+                        "template_version": template.version,
+                        "difficulty": template.difficulty,
+                        "initial_card": initial_card,
+                        "expected_result": dict(template.expected_result),
+                        "evaluation_rules": dict(template.evaluation_rules),
+                    }
+                )
+
         snapshot = {
             "scenario_id": str(scenario.id),
             "scenario_revision": scenario.revision,
@@ -649,7 +709,16 @@ class SimulationApplicationService:
             "max_participants": scenario.max_participants,
             "definition": {
                 "schema_version": definition.schema_version,
+                "mode": definition.mode.value,
                 "cards": resolved_cards,
+                "procedural_generation": (
+                    definition.procedural_generation.model_dump(
+                        mode="json", exclude_none=True
+                    )
+                    if definition.procedural_generation is not None
+                    else None
+                ),
+                "procedural_catalog": procedural_catalog,
             },
         }
         ScenarioSnapshot.model_validate(snapshot)
@@ -797,6 +866,9 @@ class SimulationApplicationService:
             completion_policy=self._snapshot_completion_policy(assignment),
             started_at=now,
             result={},
+            generation_state=self._initial_generation_state(
+                assignment.scenario_snapshot, now
+            ),
         )
         session.add(training_session)
         await session.flush()
@@ -954,6 +1026,9 @@ class SimulationApplicationService:
             completion_policy=self._snapshot_completion_policy(assignment),
             started_at=now,
             result={},
+            generation_state=self._initial_generation_state(
+                assignment.scenario_snapshot, now
+            ),
         )
         session.add(training_session)
         await session.flush()
@@ -1312,6 +1387,8 @@ class SimulationApplicationService:
         training_session = await session.get(TrainingSession, session_id)
         if training_session is None:
             raise NotFoundError("Training session not found")
+        if training_session.status != TrainingSessionStatus.COMPLETED.value:
+            raise ConflictError("Expert review is available after session completion")
         assignment = await session.get(ScenarioAssignment, training_session.assignment_id)
         if assignment is None:
             raise ConflictError("Scenario assignment is missing")
@@ -1947,7 +2024,10 @@ class SimulationApplicationService:
         )
 
     async def _validate_template_references(
-        self, session: AsyncSession, definition: ScenarioDefinition
+        self,
+        session: AsyncSession,
+        definition: ScenarioDefinition,
+        scenario_difficulty: int,
     ) -> None:
         for item in definition.cards:
             if item.source_type is not ScenarioCardSourceType.TEMPLATE:
@@ -1964,6 +2044,81 @@ class SimulationApplicationService:
                     raise ValidationError(
                         f"Inactive or missing card template: {item.template_id}"
                     )
+        if definition.procedural_generation is not None:
+            await self._procedural_templates(
+                session, definition, scenario_difficulty
+            )
+
+    @staticmethod
+    async def _procedural_templates(
+        session: AsyncSession,
+        definition: ScenarioDefinition,
+        scenario_difficulty: int,
+    ) -> list[CardTemplate]:
+        generator = definition.procedural_generation
+        if generator is None:
+            return []
+        pool = generator.template_pool
+        statement = select(CardTemplate).where(
+            CardTemplate.is_active.is_(True),
+            CardTemplate.difficulty <= scenario_difficulty,
+        )
+        if pool.template_ids is not None:
+            statement = statement.where(CardTemplate.id.in_(pool.template_ids))
+        templates = list(
+            await session.scalars(
+                statement.order_by(CardTemplate.difficulty, CardTemplate.id)
+            )
+        )
+        if pool.template_ids is not None:
+            resolved_ids = {template.id for template in templates}
+            missing = set(pool.template_ids) - resolved_ids
+            if missing:
+                formatted = ", ".join(sorted(str(item) for item in missing))
+                raise ValidationError(
+                    "Procedural template_ids contain missing, inactive, or too difficult "
+                    f"templates: {formatted}"
+                )
+        if pool.event_type_ids is not None:
+            event_type_ids = set(pool.event_type_ids)
+            templates = [
+                template
+                for template in templates
+                if template.initial_card.get("event_type_id") in event_type_ids
+            ]
+        if len(templates) < generator.target_count:
+            raise ValidationError(
+                "Procedural template pool must contain at least target_count "
+                f"eligible unique templates; found {len(templates)}, "
+                f"required {generator.target_count}"
+            )
+        return templates
+
+    @staticmethod
+    def _initial_generation_state(
+        scenario_snapshot: dict[str, Any], started_at: datetime
+    ) -> dict[str, Any]:
+        definition = scenario_snapshot["definition"]
+        generator = definition.get("procedural_generation")
+        if generator is None:
+            return {}
+        difficulty = int(scenario_snapshot["difficulty"])
+        preset = PROCEDURAL_PRESETS[difficulty]
+        next_generation_at = started_at + timedelta(
+            seconds=preset["initial_delay_seconds"]
+        )
+        return {
+            "status": ProceduralGenerationStatus.RUNNING.value,
+            "generator_key": generator["key"],
+            "target_count": int(generator["target_count"]),
+            "generated_count": 0,
+            "max_active": preset["max_active"],
+            "release_interval_seconds": preset["release_interval_seconds"],
+            "next_generation_at": next_generation_at.isoformat(),
+            "remaining_template_ids": [
+                item["template_id"] for item in definition["procedural_catalog"]
+            ],
+        }
 
     @staticmethod
     def _add_scheduled_items(

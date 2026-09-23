@@ -7,12 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from s112.auth.dependencies import get_current_principal
 from s112.auth.passwords import verify_password
+from s112.auth.principal import Principal
 from s112.auth.schemas import AuthenticatedUser, LoginRequest, LoginResponse
 from s112.auth.settings import AuthSettings
 from s112.auth.tokens import create_access_token
 from s112.common.enums import UserRole
-from s112.domain.models import UserAccount
+from s112.domain.models import RevokedAccessToken, UserAccount
 
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -91,3 +93,72 @@ async def login(
         expires_at=expires_at,
         user=AuthenticatedUser.from_user(user),
     )
+
+
+@router.get("/profile", response_model=AuthenticatedUser)
+async def profile(
+    principal: Principal = Depends(get_current_principal),
+    session: AsyncSession = Depends(get_auth_session),
+) -> AuthenticatedUser:
+    user = await session.get(UserAccount, principal.user_id)
+    if user is None:
+        raise HTTPException(status_code=401, detail="User account no longer exists")
+    return AuthenticatedUser.from_user(user)
+
+
+@router.post("/refresh", response_model=LoginResponse)
+async def refresh(
+    request: Request,
+    principal: Principal = Depends(get_current_principal),
+    session: AsyncSession = Depends(get_auth_session),
+) -> LoginResponse:
+    auth_settings: AuthSettings = request.app.state.auth_settings
+    async with session.begin():
+        user = await session.scalar(
+            select(UserAccount)
+            .where(UserAccount.id == principal.user_id)
+            .with_for_update()
+        )
+        if await session.get(RevokedAccessToken, principal.token_id) is not None:
+            raise HTTPException(status_code=401, detail="Access token has been revoked")
+        token, expires_at = create_access_token(
+            user_id=user.id,
+            username=user.username,
+            role=UserRole(user.role),
+            settings=auth_settings,
+        )
+        session.add(
+            RevokedAccessToken(
+                token_id=principal.token_id,
+                user_id=user.id,
+                expires_at=principal.token_expires_at,
+            )
+        )
+    return LoginResponse(
+        access_token=token,
+        expires_in=auth_settings.access_token_ttl_seconds,
+        expires_at=expires_at,
+        user=AuthenticatedUser.from_user(user),
+    )
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(
+    principal: Principal = Depends(get_current_principal),
+    session: AsyncSession = Depends(get_auth_session),
+) -> None:
+    async with session.begin():
+        await session.scalar(
+            select(UserAccount)
+            .where(UserAccount.id == principal.user_id)
+            .with_for_update()
+        )
+        if await session.get(RevokedAccessToken, principal.token_id) is not None:
+            raise HTTPException(status_code=401, detail="Access token has been revoked")
+        session.add(
+            RevokedAccessToken(
+                token_id=principal.token_id,
+                user_id=principal.user_id,
+                expires_at=principal.token_expires_at,
+            )
+        )

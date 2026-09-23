@@ -8,9 +8,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from s112.api.service import ConflictError, NotFoundError, ValidationError
+from s112.api.procedural import procedural_card_work_finished
 from s112.common.enums import (
     AudioMessageKind,
     AudioMessageStatus,
+    ProceduralGenerationStatus,
     ScheduledCardStatus,
     TrainingActionResult,
     TrainingCallStatus,
@@ -191,6 +193,24 @@ class ScenarioCompletionService:
         ]
 
         blockers: list[dict[str, Any]] = []
+        generation_state = dict(training_session.generation_state or {})
+        generation_status = generation_state.get("status")
+        if generation_status == ProceduralGenerationStatus.RUNNING.value:
+            blockers.append(
+                {
+                    "code": "PROCEDURAL_GENERATION_RUNNING",
+                    "message": "Procedural scenario has not generated all cards yet",
+                }
+            )
+        elif generation_status == ProceduralGenerationStatus.FAILED.value:
+            blockers.append(
+                {
+                    "code": "PROCEDURAL_GENERATION_FAILED",
+                    "message": generation_state.get(
+                        "last_error", "Procedural scenario generation failed"
+                    ),
+                }
+            )
         for item in pending:
             blockers.append(
                 {
@@ -222,6 +242,18 @@ class ScenarioCompletionService:
                         "code": "EMITTED_CARD_MISSING_INCIDENT",
                         "message": "An emitted scenario card has no incident card",
                         "scenario_card_key": item.scenario_card_key,
+                    }
+                )
+            elif (
+                item.generator_key is not None
+                and not await procedural_card_work_finished(session, item)
+            ):
+                blockers.append(
+                    {
+                        "code": "GENERATED_CARD_ACTIONS_PENDING",
+                        "message": "A generated card still requires trainee actions",
+                        "scenario_card_key": item.scenario_card_key,
+                        "incident_card_id": str(item.incident_card_id),
                     }
                 )
 
@@ -349,6 +381,13 @@ class ScenarioCompletionService:
             ),
             default=None,
         )
+        generation_next_raw = generation_state.get("next_generation_at")
+        if isinstance(generation_next_raw, str):
+            generation_next = datetime.fromisoformat(generation_next_raw)
+            if generation_next.tzinfo is None:
+                generation_next = generation_next.replace(tzinfo=timezone.utc)
+            if next_scheduled_at is None or generation_next < next_scheduled_at:
+                next_scheduled_at = generation_next
         return {
             "training_session_id": str(training_session.id),
             "status": training_session.status,
@@ -360,6 +399,9 @@ class ScenarioCompletionService:
             "cards_emitted": len(emitted),
             "cards_failed": len(failed),
             "cards_cancelled": len(cancelled),
+            "generation_status": generation_status,
+            "generated_cards": int(generation_state.get("generated_count", 0)),
+            "generation_target": int(generation_state.get("target_count", 0)),
             "calls_total": len(training_calls),
             "calls_pending": len(calls_by_status[TrainingCallStatus.PENDING.value]),
             "calls_ringing": len(calls_by_status[TrainingCallStatus.RINGING.value]),

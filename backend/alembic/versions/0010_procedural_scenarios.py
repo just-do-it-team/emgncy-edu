@@ -57,7 +57,7 @@ def upgrade() -> None:
         ["training_session_id", "generator_key", "generation_index"],
     )
     op.create_check_constraint(
-        "ck_session_scheduled_card_generation_fields_valid",
+        "generation_fields_valid",
         "session_scheduled_card",
         "(generator_key IS NULL AND generation_index IS NULL) OR "
         "(generator_key IS NOT NULL AND generation_index > 0)",

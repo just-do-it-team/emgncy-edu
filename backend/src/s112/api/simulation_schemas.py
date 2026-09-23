@@ -208,7 +208,7 @@ class ProceduralCardGeneration(BaseModel):
     key: str = Field(
         default="procedural-cards",
         min_length=1,
-        max_length=100,
+        max_length=80,
         pattern=r"^[A-Za-z0-9_.-]+$",
     )
     target_count: int = Field(ge=1, le=100)
@@ -294,11 +294,48 @@ class ResolvedScenarioItem(BaseModel):
         return self
 
 
+class ResolvedProceduralCardTemplate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    template_id: uuid.UUID
+    template_key: uuid.UUID
+    template_version: int = Field(ge=1)
+    difficulty: int = Field(ge=1, le=5)
+    initial_card: CardCreate
+    expected_result: ExpectedResult
+    evaluation_rules: dict[str, Any] = Field(default_factory=dict)
+
+
 class ResolvedScenarioDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: int = Field(ge=1)
-    cards: list[ResolvedScenarioItem] = Field(min_length=1)
+    mode: ScenarioMode = ScenarioMode.STATIC
+    cards: list[ResolvedScenarioItem] = Field(default_factory=list)
+    procedural_generation: ProceduralCardGeneration | None = None
+    procedural_catalog: list[ResolvedProceduralCardTemplate] = Field(
+        default_factory=list
+    )
+
+    @model_validator(mode="after")
+    def validate_resolved_definition(self) -> "ResolvedScenarioDefinition":
+        if self.mode is ScenarioMode.STATIC:
+            if not self.cards or self.procedural_generation is not None:
+                raise ValueError("Resolved STATIC scenario requires static cards only")
+            if self.procedural_catalog:
+                raise ValueError("Resolved STATIC scenario must not contain a catalog")
+        else:
+            if self.procedural_generation is None:
+                raise ValueError("Resolved procedural scenario requires generation config")
+            if not self.procedural_catalog:
+                raise ValueError("Resolved procedural scenario requires a template catalog")
+            if self.mode is ScenarioMode.PROCEDURAL and self.cards:
+                raise ValueError("Resolved PROCEDURAL scenario must not contain static cards")
+            if self.mode is ScenarioMode.HYBRID and not self.cards:
+                raise ValueError("Resolved HYBRID scenario requires static cards")
+            if len(self.procedural_catalog) < self.procedural_generation.target_count:
+                raise ValueError("Procedural catalog is smaller than target_count")
+        return self
 
 
 class ScenarioSnapshot(BaseModel):
@@ -541,6 +578,7 @@ class AssignmentParticipantResponse(OrmModel):
 class ScenarioAssignmentResponse(OrmModel):
     id: uuid.UUID
     scenario_id: uuid.UUID
+    scenario_name: str
     scenario_revision: int
     assignment_batch_id: uuid.UUID | None = None
     assigned_by: uuid.UUID
@@ -682,6 +720,21 @@ class TrainingSessionResponse(OrmModel):
     expert_passed: bool | None
     expert_comment: str | None
     expert_evaluated_by: uuid.UUID | None
+    expert_evaluated_at: datetime | None
+
+
+class TrainingSessionSummary(OrmModel):
+    id: uuid.UUID
+    assignment_id: uuid.UUID
+    attempt_number: int
+    status: str
+    completion_policy: str
+    started_at: datetime
+    completed_at: datetime | None
+    score: Decimal | None
+    passed: bool | None
+    expert_score: Decimal | None
+    expert_passed: bool | None
     expert_evaluated_at: datetime | None
 
 
@@ -976,6 +1029,7 @@ class TrainingCallResponse(OrmModel):
     scenario_item_key: str
     trigger_type: str
     trigger_config: dict[str, Any]
+    call_payload: InitialIncomingCall
     status: str
     incident_card_id: uuid.UUID | None
     scheduled_at: datetime | None

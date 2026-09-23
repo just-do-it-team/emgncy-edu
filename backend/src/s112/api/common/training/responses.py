@@ -44,6 +44,7 @@ async def assignment_response(
     return ScenarioAssignmentResponse(
         id=assignment.id,
         scenario_id=assignment.scenario_id,
+        scenario_name=str(assignment.scenario_snapshot.get("name", "")),
         scenario_revision=assignment.scenario_revision,
         assignment_batch_id=assignment.assignment_batch_id,
         assigned_by=assignment.assigned_by,
