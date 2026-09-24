@@ -384,7 +384,7 @@ class CardApplicationService:
             session.add(card_service)
         else:
             card_service = existing
-        card_service.added_reason = ServiceAddedReason.MANUAL.value
+        card_service.added_reason = request.added_reason.value
         card_service.notification_method = service.notification_method
         card_service.is_visible = True
         card_service.is_active = True
@@ -418,6 +418,7 @@ class CardApplicationService:
             {
                 "card_service_id": str(card_service.id),
                 "service_id": str(card_service.service_id),
+                "added_reason": card_service.added_reason,
                 "acceptance_deadline_at": card_service.acceptance_deadline_at.isoformat(),
             },
         )
@@ -430,6 +431,7 @@ class CardApplicationService:
             after_state={
                 "card_service_id": str(card_service.id),
                 "service_id": str(card_service.service_id),
+                "added_reason": card_service.added_reason,
                 "status": card_service.current_status,
             },
         )
@@ -1198,6 +1200,7 @@ class CardApplicationService:
                 "card_service_id": str(card_service.id),
                 "service_id": str(service.id),
                 "service_code": service.code,
+                "added_reason": card_service.added_reason,
                 "status": card_service.current_status,
             }
             for card_service, service in services

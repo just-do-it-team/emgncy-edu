@@ -30,6 +30,7 @@ class NotificationMethod(str, Enum):
 
 class ServiceAddedReason(str, Enum):
     EKP = "EKP"
+    CLASSIFIER = "CLASSIFIER"
     MANUAL = "MANUAL"
     VIS_UPDATE = "VIS_UPDATE"
 

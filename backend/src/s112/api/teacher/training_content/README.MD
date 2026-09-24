@@ -173,6 +173,17 @@ GET /api/v1/training-scenarios/{scenarioId}
 X-User-Id: <teacher-or-administrator-uuid>
 ```
 
+Детальная ручка дополнительно возвращает `items[]` для элементов статического
+плана. Каждый элемент содержит `key`, `item_type`, источник и имя шаблона,
+`initial_card` либо `initial_call`, а также `expected_card`. Для карточки с
+заданными признаками сервер добавляет `event_type_name`, `event_kind_name` и
+`features[]` с названиями выбранных признаков. `notification_list` и
+`main_service` вычисляются по действующим правилам маршрутизации ЕКП; если
+таких правил нет, список берётся из `expected_card.services` без признака
+главной службы. `incident_type_name` и `ekp35_incident_type` могут быть `null`:
+текущая схема эталона не хранит итоговый тип ЕКП. Для процедурного сценария
+будущие карточки до генерации в `items[]` не перечисляются.
+
 Статусы: `DRAFT`, `PUBLISHED`, `ARCHIVED`. Без `status` архивные сценарии скрыты,
 если не передан `include_archived=true`.
 

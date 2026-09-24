@@ -178,7 +178,7 @@ Query:
 в системе стоят значения.
 
 `services[]`: `service_id`, `name`, `is_main` (главная служба), `added_reason`
-(`ServiceAddedReason` с бэка: `EKP`, `MANUAL`, `VIS_UPDATE`).
+(`ServiceAddedReason` с бэка: `EKP`, `CLASSIFIER`, `MANUAL`, `VIS_UPDATE`).
 
 `mode: "DDS"` добавляет `response_statuses[]`: `service_id`, `status` (`ServiceResponseStatus`
 с бэка), `set_at`, `comment`.

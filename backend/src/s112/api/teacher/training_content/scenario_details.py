@@ -76,7 +76,10 @@ async def scenario_detail_response(
         event_type_id = expected_card.get("event_type_id") or initial_card.get("event_type_id")
         if event_type_id is not None:
             event_type_ids.add(event_type_id)
-        features = expected_card.get("features") or initial_card.get("features") or {}
+        features = {
+            **(initial_card.get("features") or {}),
+            **(expected_card.get("features") or {}),
+        }
         for key in (
             "event_kind_id",
             "first_order_feature_id",
@@ -146,7 +149,10 @@ async def scenario_detail_response(
 
     details = []
     for item, template, expected_card, initial_card in resolved:
-        features = expected_card.get("features") or initial_card.get("features") or {}
+        features = {
+            **(initial_card.get("features") or {}),
+            **(expected_card.get("features") or {}),
+        }
         event_type_id = expected_card.get("event_type_id") or initial_card.get("event_type_id")
         event_type = event_types.get(event_type_id)
         event_kind_id = features.get("event_kind_id")

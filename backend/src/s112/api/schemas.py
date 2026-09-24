@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 from s112.common.enums import (
     CardStatus,
     NotificationMethod,
+    ServiceAddedReason,
     ServiceResponseStatus,
     SourceType,
 )
@@ -183,6 +184,7 @@ class CardServiceSummary(BaseModel):
     card_service_id: uuid.UUID
     service_id: uuid.UUID
     service_code: str
+    added_reason: ServiceAddedReason | None = None
     status: ServiceResponseStatus
 
 
@@ -270,6 +272,9 @@ class EmergencyServiceResponse(OrmModel):
 class CardServiceCreate(BaseModel):
     service_id: uuid.UUID
     expected_card_version: int = Field(ge=1)
+    added_reason: Literal[
+        ServiceAddedReason.MANUAL, ServiceAddedReason.CLASSIFIER
+    ] = ServiceAddedReason.MANUAL
     actor_id: uuid.UUID | None = None
     request_id: str | None = Field(default=None, max_length=128)
 
@@ -278,7 +283,7 @@ class CardServiceResponse(OrmModel):
     id: uuid.UUID
     card_id: uuid.UUID
     service_id: uuid.UUID
-    added_reason: str
+    added_reason: ServiceAddedReason
     notification_method: str
     is_visible: bool
     is_active: bool
