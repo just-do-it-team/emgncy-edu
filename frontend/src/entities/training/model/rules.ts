@@ -3,6 +3,7 @@ export const statusLabels: Record<string, string> = {
   ASSIGNED: "Назначено",
   RUNNING: "В процессе",
   COMPLETED: "Завершено",
+  ABORTED: "Не сдано",
   CANCELLED: "Отменено",
   EXPIRED: "Истёк срок",
   REGISTERED: "Зарегистрирована",

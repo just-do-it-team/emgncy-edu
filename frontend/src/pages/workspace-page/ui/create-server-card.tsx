@@ -38,6 +38,7 @@ export function CreateServerCard({
   types,
   kinds,
   readOnly,
+  incomingCall = false,
   onClose,
   onCreated,
 }: {
@@ -45,6 +46,7 @@ export function CreateServerCard({
   types: ReferenceOption[];
   kinds: EventKind[];
   readOnly: boolean;
+  incomingCall?: boolean;
   onClose: () => void;
   onCreated: (card: ApiCard) => void;
 }) {
@@ -132,8 +134,13 @@ export function CreateServerCard({
   return (
     <Modal
       opened
-      title="Новая карточка происшествия"
+      title={
+        incomingCall
+          ? "Карточка входящего звонка"
+          : "Новая карточка происшествия"
+      }
       size="xl"
+      fullScreen={incomingCall}
       onClose={() => {
         if (!busy) onClose();
       }}

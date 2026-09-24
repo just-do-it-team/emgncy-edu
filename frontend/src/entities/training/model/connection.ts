@@ -1,16 +1,18 @@
-import type { ArmMode, Assignment, LaunchContext } from "./types";
+import type { Assignment, LaunchContext } from "./types";
 
 export const STUDENT_API_ENABLED =
   import.meta.env.VITE_STUDENT_API_ENABLED !== "false";
 export const STUDENT_API_URL = (
   import.meta.env.VITE_ARM_API_URL || "/student-api"
 ).replace(/\/$/, "");
+export const REALTIME_GATEWAY_URL = (
+  import.meta.env.VITE_REALTIME_GATEWAY_URL || "/realtime-gateway"
+).replace(/\/$/, "");
 export const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 export function assignmentLaunchContext(
   assignment: Assignment,
   userId: string,
-  mode?: ArmMode,
 ): LaunchContext | null {
   const session = assignment.active_session;
   if (
@@ -25,7 +27,7 @@ export function assignmentLaunchContext(
     sessionId: session.session_id,
     workspaceId: session.workspace_id,
     assignmentId: assignment.id,
-    mode: mode ?? (assignment.participant.position_code ? "DDS" : "ARM112"),
+    mode: assignment.participant.position_code === null ? "ARM112" : "DDS",
     positionCode: assignment.participant.position_code,
     title: assignment.scenario.name,
   };

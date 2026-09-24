@@ -183,6 +183,14 @@ export const trainingApi = {
         { ...requestConfig(ctx.userId) },
       )
     ).data,
+  abort: async (ctx: LaunchContext) =>
+    (
+      await api.post<TrainingSession>(
+        `/training-sessions/${ctx.sessionId}/abort`,
+        { user_id: ctx.userId },
+        { ...requestConfig(ctx.userId) },
+      )
+    ).data,
   cards: async (
     ctx: LaunchContext,
     cursor: string | null,

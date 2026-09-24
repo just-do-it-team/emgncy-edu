@@ -59,6 +59,7 @@ export interface TrainingSession {
   passed: boolean | null;
 }
 export interface CompletionReadiness {
+  revision: number;
   status: string;
   can_complete: boolean;
   completion_policy: string;
@@ -130,6 +131,7 @@ export interface AdditionalFeaturesSchema {
 export interface IncomingCall {
   id: string;
   status: string;
+  caller_number?: string | null;
   incident_card_id: string | null;
   scheduled_at: string | null;
   ringing_at: string | null;

@@ -6,7 +6,6 @@ import {
   Button,
   Loader,
   Paper,
-  Select,
   Stack,
   Table,
   Text,
@@ -25,7 +24,6 @@ import {
   startKey,
   statusLabels,
   trainingApi,
-  type ArmMode,
   type Assignment,
   type TrainingSession,
 } from "@/entities/training";
@@ -103,11 +101,6 @@ function Assignments({ userId }: { userId: string }) {
           преподавателем.
         </Text>
       )}
-      <Text size="xs" c="dimmed">
-        В API пока нет отдельного поля «Оператор 112 / ДДС». Выберите нужный
-        интерфейс; доступ к карточкам и службе определяется назначением
-        преподавателя.
-      </Text>
     </Stack>
   );
 }
@@ -123,9 +116,7 @@ function AssignmentRow({
   stale: boolean;
 }) {
   const { participant, scenario } = assignment;
-  const [mode, setMode] = useState<ArmMode>(
-    participant.position_code ? "DDS" : "ARM112",
-  );
+  const mode = participant.position_code === null ? "ARM112" : "DDS";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingStart, setPendingStart] = useState(
@@ -133,14 +124,15 @@ function AssignmentRow({
   );
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const context = assignmentLaunchContext(assignment, userId, mode);
-  const running = sessions.some((s) => ["CREATED", "RUNNING"].includes(s.status));
+  const context = assignmentLaunchContext(assignment, userId);
+  const running = sessions.some((s) =>
+    ["CREATED", "RUNNING"].includes(s.status),
+  );
   const blocker = assignmentBlocker(assignment, sessions.length);
   function openSession(sessionId: string) {
     const params = new URLSearchParams({
       assignment: assignment.id,
       session: sessionId,
-      mode,
     });
     navigate(`/student/arm?${params}`);
   }
@@ -150,7 +142,7 @@ function AssignmentRow({
     setError(null);
     try {
       const current = await trainingApi.assignment(assignment.id, userId);
-      const active = assignmentLaunchContext(current, userId, mode);
+      const active = assignmentLaunchContext(current, userId);
       if (useSessionStore.getState().profile?.userId !== userId) return;
       if (active) {
         clearStartKey(userId, assignment.id);
@@ -204,27 +196,19 @@ function AssignmentRow({
         </Text>
         <Text size="xs">
           Сложность: {scenario.difficulty} ·{" "}
-          {Math.ceil(scenario.estimated_duration_seconds / 60)} мин ·
-          карточек: {scenario.cards_count}
+          {Math.ceil(scenario.estimated_duration_seconds / 60)} мин · карточек:{" "}
+          {scenario.cards_count}
         </Text>
         <Text size="xs" c="dimmed">
           Попытки: {sessions.length} / {assignment.max_attempts}
         </Text>
       </Table.Td>
       <Table.Td>
-        <Select
-          aria-label="Рабочее место"
-          w={175}
-          allowDeselect={false}
-          value={mode}
-          onChange={(v) => setMode(v as ArmMode)}
-          data={[
-            { value: "ARM112", label: "Оператор 112" },
-            { value: "DDS", label: "ДДС" },
-          ]}
-        />
+        <Text fw={600}>{mode === "ARM112" ? "Оператор 112" : "ДДС"}</Text>
         <Text size="xs">
-          Служба: {participant.position_code ?? "не назначена"}
+          {mode === "DDS"
+            ? `Служба: ${participant.position_code}`
+            : "Служба 112"}
         </Text>
       </Table.Td>
       <Table.Td>
@@ -237,7 +221,9 @@ function AssignmentRow({
         <Button
           size="xs"
           loading={busy}
-          disabled={stale || (!context && !running && !pendingStart && !!blocker)}
+          disabled={
+            stale || (!context && !running && !pendingStart && !!blocker)
+          }
           onClick={() => void start()}
         >
           {context
