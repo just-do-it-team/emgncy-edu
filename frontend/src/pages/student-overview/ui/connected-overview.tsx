@@ -147,16 +147,12 @@ function AssignmentRow({
       if (active) {
         clearStartKey(userId, assignment.id);
         setPendingStart(false);
-        openSession(active.sessionId);
-        return;
+        throw new Error("Занятие уже запущено. Повторный запуск недоступен.");
       }
+      if (context || running || current.status === "RUNNING")
+        throw new Error("Занятие уже запущено. Повторный запуск недоступен.");
       // Only a previously persisted key may replay an uncertain start.
       if (!pendingStartKey(userId, assignment.id)) {
-        if (context || running || current.status === "RUNNING") {
-          throw new Error(
-            "Активная попытка пока недоступна или уже завершилась. Обновите занятия и повторите открытие.",
-          );
-        }
         const reason = assignmentBlocker(current, sessions.length);
         if (reason) throw new Error(reason);
       }
@@ -222,21 +218,20 @@ function AssignmentRow({
           size="xs"
           loading={busy}
           disabled={
-            stale || (!context && !running && !pendingStart && !!blocker)
+            stale || !!context || running || (!pendingStart && !!blocker)
           }
           onClick={() => void start()}
         >
-          {context
-            ? "Продолжить"
-            : running || pendingStart
-              ? "Восстановить сессию"
-              : "Начать обучение"}
+          Начать обучение
         </Button>
-        {!context && !pendingStart && blocker && (
+        {(context || running) && (
           <Text size="xs" maw={260} mt={4}>
-            {running
-              ? "Данные активной попытки обновляются. Повторите открытие через несколько секунд."
-              : blocker}
+            Занятие уже запущено. Повторный запуск недоступен.
+          </Text>
+        )}
+        {!context && !running && !pendingStart && blocker && (
+          <Text size="xs" maw={260} mt={4}>
+            {blocker}
           </Text>
         )}
         {error && (

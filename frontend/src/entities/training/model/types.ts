@@ -55,7 +55,7 @@ export interface TrainingSession {
   assignment_id: string;
   status: string;
   completion_policy: string;
-  score: string | null;
+  score: string | number | null;
   passed: boolean | null;
 }
 export interface CompletionReadiness {
@@ -206,11 +206,23 @@ export interface AudioMessage {
   kind: string;
   direction: string;
   status: string;
+  reply_to_message_id?: string | null;
+  generation_status?: string | null;
+  final_segment_count?: number | null;
+  last_error?: string | null;
   created_at: string;
   source_text: string | null;
   transcript: string | null;
   content_type: string | null;
   content_url: string | null;
+}
+export interface TtsSegment {
+  id: string;
+  audio_message_id: string;
+  segment_no: number;
+  status: string;
+  content_url: string | null;
+  last_error: string | null;
 }
 export interface CardStatusHistory {
   id: string;

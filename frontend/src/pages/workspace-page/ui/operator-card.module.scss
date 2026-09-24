@@ -40,6 +40,12 @@
   align-items: center;
   gap: 16px;
 }
+.hangup {
+  flex-shrink: 0;
+  min-width: 54px;
+  min-height: 54px;
+  padding: 0;
+}
 .cardNumber {
   display: flex;
   flex-direction: column;
@@ -262,4 +268,234 @@
   background: var(--mantine-color-povBlue-6);
   color: white;
   font-weight: 600;
+}
+
+.incomingCard {
+  min-height: 100dvh;
+  background: #d6dde2;
+
+  .topbar {
+    grid-template-columns:
+      minmax(260px, 1.2fr) repeat(3, minmax(0, 1.4fr))
+      minmax(185px, 0.9fr) 112px;
+    align-items: stretch;
+    min-height: 82px;
+
+    > div {
+      background: #f8f9fa;
+    }
+
+    .timer {
+      background: #30373b;
+
+      strong {
+        font-size: 33px;
+      }
+    }
+  }
+
+  .callState {
+    gap: 12px;
+
+    > div {
+      padding: 0;
+      background: transparent;
+    }
+  }
+
+  .hangup {
+    min-width: 60px;
+    min-height: 62px;
+  }
+
+  .cardNumber {
+    justify-content: center;
+    gap: 2px;
+
+    strong {
+      font-size: 16px;
+    }
+
+    span,
+    small {
+      font-size: 12px;
+    }
+  }
+
+  .columns {
+    align-items: stretch;
+    grid-template-columns: minmax(0, 45fr) minmax(0, 54fr);
+    gap: 8px;
+    padding: 0 8px 8px;
+  }
+
+  .leftColumn,
+  .rightColumn {
+    gap: 8px;
+  }
+
+  .panel {
+    background: #f8f9fa;
+  }
+
+  .applicantRow {
+    grid-template-columns: minmax(0, 1.6fr) repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .sectionTitle {
+    font-size: 13px;
+  }
+
+  .addressSummary {
+    margin-bottom: 10px;
+    padding: 8px 0 5px;
+    font-size: 16px;
+  }
+
+  .addressGrid {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 12px 14px;
+
+    > * {
+      grid-column: span 4;
+      min-width: 0;
+    }
+
+    > :nth-child(4),
+    > :nth-child(7) {
+      grid-column: span 6;
+    }
+
+    > :nth-child(5),
+    > :nth-child(6),
+    > :nth-child(8),
+    > :nth-child(9) {
+      grid-column: span 3;
+    }
+
+    > :nth-child(n + 10):nth-child(-n + 13) {
+      grid-column: span 2;
+    }
+  }
+
+  .leftColumn > :nth-child(2) {
+    min-height: 440px;
+  }
+
+  .description {
+    flex: 1;
+    min-height: 250px;
+  }
+
+  .rightColumn > .panel:first-child {
+    min-height: 65px;
+    display: flex;
+    align-items: center;
+  }
+
+  .rightColumn > .panel:first-child :global(.mantine-Group-root) {
+    flex-wrap: wrap;
+  }
+
+  .rightColumn > .panel:nth-child(2) {
+    min-height: 78px;
+  }
+
+  .rightColumn > .panel:nth-child(2) :global(.mantine-Input-input) {
+    min-height: 38px;
+    font-size: 20px;
+  }
+
+  .selectedIncidentType {
+    min-height: 45px;
+    padding: 8px 12px;
+    background: #f8f9fa;
+
+    span {
+      display: inline-block;
+      padding: 6px 12px;
+      border: 1px solid var(--pov-card-border);
+      background: white;
+      font-size: 12px;
+    }
+  }
+
+  .criteria {
+    h2 {
+      background: #30373b;
+    }
+  }
+
+  .criterionRow {
+    grid-template-columns: minmax(210px, 29%) minmax(0, 1fr);
+    padding: 10px 12px;
+  }
+
+  .options {
+    gap: 8px;
+  }
+
+  .trainingClassification {
+    summary {
+      cursor: pointer;
+      font-weight: 600;
+    }
+  }
+
+  .footer {
+    min-height: 72px;
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .service {
+    max-width: 180px;
+    min-height: 48px;
+    gap: 0;
+
+    small {
+      display: none;
+    }
+  }
+}
+
+@media (max-width: 1350px) {
+  .incomingCard {
+    .topbar {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .criterionRow {
+      grid-template-columns: minmax(150px, 29%) minmax(0, 1fr);
+    }
+  }
+}
+
+@media (max-width: 850px) {
+  .incomingCard {
+    .columns {
+      grid-template-columns: 1fr;
+    }
+
+    .topbar {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .applicantRow {
+      grid-template-columns: 1fr;
+    }
+
+    .addressGrid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+
+      > * {
+        grid-column: auto !important;
+      }
+    }
+
+    .criterionRow {
+      grid-template-columns: 1fr;
+    }
+  }
 }
