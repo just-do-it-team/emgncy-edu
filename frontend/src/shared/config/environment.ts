@@ -6,3 +6,8 @@ export const AUTH_API_URL = (import.meta.env.VITE_AUTH_API_URL || "/auth-api").r
   /\/$/,
   "",
 );
+
+export const CARD_API_URL = `${(import.meta.env.VITE_ARM_API_URL || "/student-api").replace(
+  /\/$/,
+  "",
+)}/api/v1`;
