@@ -399,6 +399,12 @@ X-User-Id: <workspace-member-uuid>
 
 Подробные расхождения находятся в REST-ответе `TrainingSessionResponse.result`.
 
+### `training.session_aborted`
+
+Индивидуальная попытка или общая сессия завершена досрочно; workspace переведён
+в `READ_ONLY`. Для индивидуальной попытки событие содержит `score` и `passed`.
+Подробный результат доступен через `GET /api/v1/training-sessions/{sessionId}`.
+
 ### `training.expert_assessment_updated`
 
 Преподаватель сохранил или заменил экспертную оценку завершённой сессии.

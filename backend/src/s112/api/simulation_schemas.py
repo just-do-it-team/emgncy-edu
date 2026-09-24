@@ -654,6 +654,10 @@ class SessionAbortRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=2000)
 
 
+class IndividualSessionAbortRequest(BaseModel):
+    user_id: uuid.UUID
+
+
 class TrainingDiscrepancy(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

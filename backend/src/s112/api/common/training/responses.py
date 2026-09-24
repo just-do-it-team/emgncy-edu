@@ -141,7 +141,7 @@ def student_training_history_item(
         automatic_passed=training_session.passed,
         automatic_result=(
             training_session.result
-            if training_session.status == "COMPLETED"
+            if training_session.status in {"COMPLETED", "ABORTED"}
             else {}
         ),
         expert_score=training_session.expert_score,

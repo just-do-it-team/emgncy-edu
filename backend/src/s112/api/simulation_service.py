@@ -1268,50 +1268,18 @@ class SimulationApplicationService:
                 .order_by(TrainingCall.scenario_item_key)
             )
         )
-        card_results: list[dict[str, Any]] = []
-        call_results: list[dict[str, Any]] = []
-        total_score = Decimal("0")
-        evaluated_count = 0
-        for item in scheduled_cards:
-            if item.status != ScheduledCardStatus.EMITTED.value or item.incident_card_id is None:
-                raise CompletionNotReadyError(readiness)
-            result = await self._evaluate_card(session, item)
-            session.add(result)
-            total_score += result.score
-            evaluated_count += 1
-            card_results.append(
-                {
-                    "scenario_card_key": item.scenario_card_key,
-                    "incident_card_id": str(item.incident_card_id),
-                    "score": float(result.score),
-                    "passed": result.passed,
-                    "discrepancies": result.discrepancies,
-                }
-            )
-
-        for item in training_calls:
-            if (
-                item.status != TrainingCallStatus.COMPLETED.value
-                or item.incident_card_id is None
-            ):
-                raise CompletionNotReadyError(readiness)
-            result = await self._evaluate_incoming_call(session, item)
-            total_score += result["score"]
-            evaluated_count += 1
-            call_results.append(
-                {
-                    "scenario_item_key": item.scenario_item_key,
-                    "training_call_id": str(item.id),
-                    "incident_card_id": str(item.incident_card_id),
-                    "score": float(result["score"]),
-                    "passed": result["passed"],
-                    "discrepancies": result["discrepancies"],
-                }
-            )
-
-        score = total_score / evaluated_count if evaluated_count else Decimal("0")
-        passed = evaluated_count > 0 and all(
-            item["passed"] for item in [*card_results, *call_results]
+        if any(
+            item.status != ScheduledCardStatus.EMITTED.value
+            or item.incident_card_id is None
+            for item in scheduled_cards
+        ) or any(
+            item.status != TrainingCallStatus.COMPLETED.value
+            or item.incident_card_id is None
+            for item in training_calls
+        ):
+            raise CompletionNotReadyError(readiness)
+        score, passed, result = await self._evaluate_session_work(
+            session, scheduled_cards, training_calls
         )
         now = utcnow()
         training_session.status = TrainingSessionStatus.COMPLETED.value
@@ -1325,10 +1293,7 @@ class SimulationApplicationService:
         }
         training_session.score = score.quantize(Decimal("0.01"))
         training_session.passed = passed
-        training_session.result = {
-            "cards": card_results,
-            "incoming_calls": call_results,
-        }
+        training_session.result = result
         training_session.completed_automatically = automatic
         workspace.status = WorkspaceStatus.READ_ONLY.value
         workspace.closed_at = now
@@ -1386,6 +1351,191 @@ class SimulationApplicationService:
                     "completed_automatically": automatic,
                 },
             )
+        await session.flush()
+        return training_session
+
+    async def _evaluate_session_work(
+        self,
+        session: AsyncSession,
+        scheduled_cards: list[SessionScheduledCard],
+        training_calls: list[TrainingCall],
+    ) -> tuple[Decimal, bool, dict[str, Any]]:
+        card_results: list[dict[str, Any]] = []
+        call_results: list[dict[str, Any]] = []
+        total_score = Decimal("0")
+        for item in scheduled_cards:
+            if item.status != ScheduledCardStatus.EMITTED.value or item.incident_card_id is None:
+                continue
+            result = await self._evaluate_card(session, item)
+            session.add(result)
+            total_score += result.score
+            card_results.append(
+                {
+                    "scenario_card_key": item.scenario_card_key,
+                    "incident_card_id": str(item.incident_card_id),
+                    "score": float(result.score),
+                    "passed": result.passed,
+                    "discrepancies": result.discrepancies,
+                }
+            )
+        for item in training_calls:
+            if item.status != TrainingCallStatus.COMPLETED.value or item.incident_card_id is None:
+                continue
+            result = await self._evaluate_incoming_call(session, item)
+            total_score += result["score"]
+            call_results.append(
+                {
+                    "scenario_item_key": item.scenario_item_key,
+                    "training_call_id": str(item.id),
+                    "incident_card_id": str(item.incident_card_id),
+                    "score": float(result["score"]),
+                    "passed": result["passed"],
+                    "discrepancies": result["discrepancies"],
+                }
+            )
+        evaluated_count = len(card_results) + len(call_results)
+        score = total_score / evaluated_count if evaluated_count else Decimal("0")
+        passed = evaluated_count > 0 and all(
+            item["passed"] for item in [*card_results, *call_results]
+        )
+        return score, passed, {"cards": card_results, "incoming_calls": call_results}
+
+    async def abort_individual_session(
+        self,
+        session: AsyncSession,
+        session_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> TrainingSession:
+        training_session = await session.scalar(
+            select(TrainingSession)
+            .where(TrainingSession.id == session_id)
+            .with_for_update()
+        )
+        if training_session is None:
+            raise NotFoundError("Training session not found")
+        assignment = await session.get(ScenarioAssignment, training_session.assignment_id)
+        if assignment is None or assignment.workspace_mode != WorkspaceMode.INDIVIDUAL.value:
+            raise ValidationError("Only an individual training session can be aborted here")
+        workspace = await session.scalar(
+            select(SimulationWorkspace).where(
+                SimulationWorkspace.training_session_id == training_session.id
+            )
+        )
+        if workspace is None:
+            raise ConflictError("Training session workspace is missing")
+        member = await session.get(WorkspaceMember, (workspace.id, user_id))
+        if (
+            member is None
+            or member.left_at is not None
+            or member.member_role != WorkspaceMemberRole.PARTICIPANT.value
+        ):
+            raise ValidationError("Only the session participant can abort this session")
+        await self._require_user_role(session, user_id, {UserRole.STUDENT})
+        if training_session.status == TrainingSessionStatus.ABORTED.value:
+            return training_session
+        if training_session.status != TrainingSessionStatus.RUNNING.value:
+            raise ConflictError("Only a running session can be aborted")
+
+        readiness = await self.completion.calculate(
+            session, training_session, workspace=workspace
+        )
+        scheduled_cards = list(
+            await session.scalars(
+                select(SessionScheduledCard)
+                .where(SessionScheduledCard.training_session_id == session_id)
+                .order_by(SessionScheduledCard.scenario_card_key)
+            )
+        )
+        training_calls = list(
+            await session.scalars(
+                select(TrainingCall)
+                .where(TrainingCall.training_session_id == session_id)
+                .order_by(TrainingCall.scenario_item_key)
+            )
+        )
+        score, work_passed, result = await self._evaluate_session_work(
+            session, scheduled_cards, training_calls
+        )
+        passed = readiness["can_complete"] and work_passed
+        now = utcnow()
+        training_session.status = TrainingSessionStatus.ABORTED.value
+        training_session.completed_at = now
+        training_session.ready_to_complete_at = None
+        training_session.completion_state = {}
+        training_session.score = score.quantize(Decimal("0.01"))
+        training_session.passed = passed
+        training_session.result = result
+        workspace.status = WorkspaceStatus.READ_ONLY.value
+        workspace.closed_at = now
+        await session.execute(
+            update(SessionScheduledCard)
+            .where(
+                SessionScheduledCard.training_session_id == session_id,
+                SessionScheduledCard.status == ScheduledCardStatus.PENDING.value,
+            )
+            .values(status=ScheduledCardStatus.CANCELLED.value)
+        )
+        await session.execute(
+            update(TrainingCall)
+            .where(
+                TrainingCall.training_session_id == session_id,
+                TrainingCall.status.in_(
+                    [
+                        TrainingCallStatus.PENDING.value,
+                        TrainingCallStatus.RINGING.value,
+                        TrainingCallStatus.ACTIVE.value,
+                    ]
+                ),
+            )
+            .values(status=TrainingCallStatus.CANCELLED.value)
+        )
+        assignment.status = (
+            AssignmentStatus.COMPLETED.value
+            if passed or training_session.attempt_number >= assignment.max_attempts
+            else AssignmentStatus.ASSIGNED.value
+        )
+        participants = list(
+            await session.scalars(
+                select(AssignmentParticipant).where(
+                    AssignmentParticipant.assignment_id == assignment.id
+                )
+            )
+        )
+        for participant in participants:
+            if assignment.status == AssignmentStatus.COMPLETED.value:
+                participant.status = ParticipantStatus.COMPLETED.value
+                participant.completed_at = now
+            else:
+                participant.status = ParticipantStatus.ASSIGNED.value
+                participant.ready_at = None
+        action_id = uuid.uuid4()
+        session.add(
+            TrainingAction(
+                id=action_id,
+                training_session_id=session_id,
+                workspace_id=workspace.id,
+                actor_user_id=user_id,
+                action_type="SESSION_ABORTED",
+                entity_type="training_session",
+                entity_id=str(session_id),
+                occurred_at=now,
+                request_id=f"session-abort:{session_id}",
+                result=TrainingActionResult.SUCCESS.value,
+                details={
+                    "score": float(training_session.score),
+                    "passed": passed,
+                },
+            )
+        )
+        self._add_monitoring_outbox(
+            session,
+            event_id=action_id,
+            event_type="training.session_aborted",
+            training_session=training_session,
+            workspace_id=workspace.id,
+            teacher_id=assignment.assigned_by,
+            data={"score": float(training_session.score), "passed": passed},
+        )
         await session.flush()
         return training_session
 

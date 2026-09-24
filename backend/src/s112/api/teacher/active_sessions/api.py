@@ -9,6 +9,7 @@ from s112.api.common.training.responses import teacher_monitoring_response
 from s112.api.dependencies import get_read_session, get_write_session
 from s112.api.service import DomainError
 from s112.api.simulation_schemas import (
+    IndividualSessionAbortRequest,
     ManualCardReleaseRequest,
     ScheduledCardResponse,
     SessionAbortRequest,
@@ -43,22 +44,25 @@ router = APIRouter(prefix="/api/v1", tags=["teacher/active_sessions"])
     "/training-sessions/{session_id}/abort",
     response_model=TrainingSessionResponse,
 )
-async def abort_shared_training_session(
+async def abort_training_session(
     session_id: uuid.UUID,
-    body: SessionAbortRequest,
+    body: SessionAbortRequest | IndividualSessionAbortRequest,
     request: Request,
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> TrainingSession:
+    actor_id = body.teacher_id if isinstance(body, SessionAbortRequest) else body.user_id
     if request.app.state.auth_settings.enabled:
         principal = getattr(request.state, "principal", None)
-        if principal is None or principal.user_id != body.teacher_id:
-            raise HTTPException(status_code=403, detail="Teacher does not match token")
+        if principal is None or principal.user_id != actor_id:
+            raise HTTPException(status_code=403, detail="User does not match token")
     try:
         async with session.begin():
-            return await service.abort_shared_session(
-                session, session_id, body.teacher_id, body.reason
-            )
+            if isinstance(body, SessionAbortRequest):
+                return await service.abort_shared_session(
+                    session, session_id, body.teacher_id, body.reason
+                )
+            return await service.abort_individual_session(session, session_id, actor_id)
     except DomainError as exc:
         raise_http_error(exc)
 

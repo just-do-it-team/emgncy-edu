@@ -130,7 +130,10 @@ async def get_own_training_result(
     if row is None:
         raise HTTPException(status_code=404, detail="Training session not found")
     training_session, assignment, group = row
-    if training_session.status != TrainingSessionStatus.COMPLETED.value:
+    if training_session.status not in {
+        TrainingSessionStatus.COMPLETED.value,
+        TrainingSessionStatus.ABORTED.value,
+    }:
         raise HTTPException(status_code=409, detail="Training session is not completed")
     response.headers["Cache-Control"] = "no-store"
     return student_training_history_item(training_session, assignment, group)

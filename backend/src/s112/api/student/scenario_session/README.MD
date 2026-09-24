@@ -217,6 +217,22 @@ Content-Type: application/json
 `detail.completion_readiness` находится тот же снимок с blockers, поэтому
 frontend может сразу обновить состояние кнопки без дополнительного запроса.
 
+Индивидуальную попытку можно завершить досрочно:
+
+```http
+POST /api/v1/training-sessions/{sessionId}/abort
+Content-Type: application/json
+
+{"user_id":"student-uuid"}
+```
+
+Ответ — `TrainingSessionResponse` со статусом `ABORTED`. Workspace становится
+`READ_ONLY`, попытка учитывается в лимите. `score` и `result` рассчитываются по
+уже выпущенным карточкам и завершённым звонкам по тем же правилам, что при
+обычном завершении. `passed=true` возможно, если вся работа была готова к
+завершению и оценка каждого элемента успешна. Повторный запрос того же
+участника возвращает сохранённый результат.
+
 Поля `completion_policy`, `completion_state`, `completion_state_revision` и
 `ready_to_complete_at` также присутствуют в `TrainingSessionResponse`.
 `completion_state` до первого расчёта может быть `{}`, затем содержит структуру

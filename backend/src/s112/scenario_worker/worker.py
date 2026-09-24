@@ -86,6 +86,9 @@ class ScenarioCardEmitter:
 
 
 class ScenarioCallEmitter:
+    def __init__(self, kafka_topic: str = "card.events") -> None:
+        self.completion = ScenarioCompletionService(kafka_topic)
+
     async def emit(
         self,
         session: AsyncSession,
@@ -123,6 +126,7 @@ class ScenarioCallEmitter:
                 details={"scenario_item_key": item.scenario_item_key},
             )
         )
+        await self.completion.refresh(session, training_session)
         await session.flush()
         return item
 
@@ -140,7 +144,7 @@ class ScenarioSchedulerWorker:
         self.batch_size = batch_size
         self.retry_limit = retry_limit
         self.emitter = ScenarioCardEmitter(kafka_topic)
-        self.call_emitter = ScenarioCallEmitter()
+        self.call_emitter = ScenarioCallEmitter(kafka_topic)
         self.completion = ScenarioCompletionService(kafka_topic)
         self.simulation = SimulationApplicationService(kafka_topic)
 
