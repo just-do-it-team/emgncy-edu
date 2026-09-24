@@ -4,10 +4,17 @@
 
 ```http
 GET /api/v1/training-sessions/{sessionId}/incoming-calls
+X-User-Id: <student-uuid>
 ```
 
 После срабатывания триггера звонок переходит из `PENDING` в `RINGING`.
-Обучаемый последовательно вызывает:
+Текущий клиент узнаёт об этом через REST-опрос списка: при открытии экрана и
+затем каждые 2 секунды. Отдельного SSE-события о поступлении звонка сейчас нет.
+Действия со звонком и его аудиосообщениями доступны только участнику с ролью
+`OPERATOR_112` (`position_code: null`). Участник ДДС работает с карточками
+назначенной ему службы.
+
+После обнаружения звонка клиент вызывает методы по ходу сценария:
 
 ```http
 POST /api/v1/incoming-calls/{callId}/answer
@@ -31,8 +38,8 @@ POST /api/v1/incoming-calls/{callId}/complete
 `questionnaire`, если это поле задано в шаблоне. Содержание разговора и перечень
 заданных вопросов отдельно не оцениваются: call-scoped STT/TTS через
 `audio_message.training_call_id` нужны для воспроизведения диалога и ожидания
-окончания обработки речи. Старые шаблоны с `final_state` и `required_actions`
-продолжают работать по прежней логике.
+окончания обработки речи. Для старых шаблонов сохраняется поддержка
+`final_state` как описания ожидаемого состояния карточки.
 
 ## Разговор после принятия звонка
 
@@ -57,6 +64,82 @@ POST /api/v1/incoming-calls/{callId}/complete
 Событие `training.dialogue_finished` сообщает итоговое число сегментов.
 После привязки карточки её список аудиосообщений включает и ранее записанные
 реплики этого звонка.
+
+## Взаимодействие клиента с сервером
+
+Схема ниже описывает только публичные HTTP/SSE-вызовы, которые нужны
+фронтенду. Внутренние очереди, воркеры и хранилища здесь не показаны.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Student as Обучаемый
+    participant UI as Клиент
+    participant API as API
+    participant SSE as Realtime gateway
+
+    UI->>API: GET /api/v1/training-sessions/{sessionId}/incoming-calls
+    API-->>UI: Список звонков со статусами
+    loop Каждые 2 секунды до обнаружения RINGING
+        UI->>API: GET /api/v1/training-sessions/{sessionId}/incoming-calls
+        API-->>UI: Список, в котором появляется вызов со статусом RINGING
+    end
+    UI-->>Student: Модальное окно «Входящий звонок» и кнопка «Принять звонок»
+    Student->>UI: Принять звонок
+    UI->>API: GET /api/v1/call-audio-config
+    API-->>UI: vad_silence_ms
+    UI->>Student: Запрос доступа к микрофону
+    Student-->>UI: Доступ разрешён
+    UI->>SSE: GET /events?workspace_id={workspaceId}
+    SSE-->>UI: Открыт поток событий разговора
+    UI->>API: POST /api/v1/incoming-calls/{callId}/answer
+    API-->>UI: Вызов со статусом ACTIVE
+    UI-->>Student: Слушает речь без кнопки для каждой реплики
+    loop Пока разговор продолжается
+        Student->>UI: Произносит целую реплику
+        Note over UI: VAD завершает запись после vad_silence_ms тишины
+        UI->>API: POST /api/v1/workspaces/{workspaceId}/incoming-calls/{callId}/audio-messages + Idempotency-Key
+        API-->>UI: 202, audio_message.id
+        SSE-->>UI: training.audio_transcribed
+        loop Для каждого готового TTS-сегмента
+            SSE-->>UI: training.tts_segment_ready {segment_no, content_url}
+            UI->>API: GET {content_url}
+            API-->>UI: Аудиобайты сегмента
+            UI-->>Student: Воспроизводит по segment_no
+        end
+        SSE-->>UI: training.dialogue_finished {final_segment_count}
+        Note over UI: После последнего воспроизведённого сегмента снова слушает микрофон
+    end
+    UI->>API: POST /api/v1/cards (создать карточку)
+    API-->>UI: Созданная карточка с id
+    UI->>API: POST /api/v1/incoming-calls/{callId}/incident-card
+    API-->>UI: Вызов с incident_card_id
+    Student->>UI: Завершить звонок
+    UI->>API: POST /api/v1/incoming-calls/{callId}/complete
+    API-->>UI: Вызов со статусом COMPLETED
+```
+
+Для обнаружения звонка клиент передаёт `X-User-Id` в запросе списка, выбирает
+свой `workspace_id` и звонок в состоянии `RINGING`. Если экран перезагружен во
+время разговора, тот же список позволяет найти свой `ACTIVE`-звонок по
+`operator_user_id` и предложить продолжение. Текущая задержка появления
+модального окна — до интервала опроса (2 секунды) плюс время ответа API. Само
+по себе SSE-подключение не сообщает о новом входящем звонке.
+
+Для действий со звонком в JSON передаётся `user_id`; для загрузки речи нужны
+`X-User-Id`, `Idempotency-Key` и `multipart/form-data` с полем `audio`.
+Повторная отправка той же реплики использует тот же ключ идемпотентности.
+Клиент загружает сегменты по `content_url` через API, а не из SSE, и
+воспроизводит их по `segment_no`. После `training.dialogue_finished` он ждёт
+воспроизведения всех `final_segment_count` сегментов, затем снова включает
+прослушивание. `training.dialogue_finished` и готовые сегменты могут прийти в
+разном порядке; счётчик сегментов определяет конец ответа. При ошибке STT,
+TTS или генерации приходят `training.audio_processing_failed`,
+`training.tts_segment_failed` или `training.dialogue_failed`. При разрыве SSE
+или `stream.gap` состояние восстанавливается
+через `GET /api/v1/workspaces/{workspaceId}/incoming-calls/{callId}/audio-messages`
+и `GET /api/v1/audio-messages/{messageId}/tts-segments`. Базовые URL API и
+SSE задаются отдельно (`VITE_BACKEND_API_BASE_URL`, `VITE_REALTIME_BASE_URL`).
 
 Для локального интерфейса скопируйте `frontend/.env.example` в `frontend/.env`
 и задайте идентификаторы учебной сессии, workspace и Обучаемого. При наличии

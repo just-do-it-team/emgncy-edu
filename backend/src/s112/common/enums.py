@@ -122,6 +122,11 @@ class ParticipantStatus(str, Enum):
     COMPLETED = "COMPLETED"
 
 
+class ParticipantRole(str, Enum):
+    OPERATOR_112 = "OPERATOR_112"
+    DDS = "DDS"
+
+
 class TrainingSessionStatus(str, Enum):
     CREATED = "CREATED"
     RUNNING = "RUNNING"

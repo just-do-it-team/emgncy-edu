@@ -1,7 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from s112.api.dependencies import get_read_session
@@ -10,7 +10,14 @@ from s112.api.simulation_schemas import (
     TrainingActionResponse,
     TrainingCallResponse,
 )
-from s112.domain.models import SessionScheduledCard, TrainingAction, TrainingCall
+from s112.common.enums import WorkspaceMemberRole
+from s112.domain.models import (
+    SessionScheduledCard,
+    SimulationWorkspace,
+    TrainingAction,
+    TrainingCall,
+    WorkspaceMember,
+)
 
 
 router = APIRouter(prefix="/api/v1", tags=["common/training"])
@@ -59,12 +66,37 @@ async def list_scheduled_cards(
 )
 async def list_incoming_calls(
     session_id: uuid.UUID,
+    request: Request,
+    user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_read_session),
 ) -> list[TrainingCall]:
+    if request.app.state.auth_settings.enabled:
+        principal = getattr(request.state, "principal", None)
+        if principal is None or principal.user_id != user_id:
+            raise HTTPException(status_code=403, detail="User does not match token")
+    workspace = await session.scalar(
+        select(SimulationWorkspace).where(
+            SimulationWorkspace.training_session_id == session_id
+        )
+    )
+    if workspace is None:
+        raise HTTPException(status_code=404, detail="Training session not found")
+    member = await session.get(WorkspaceMember, (workspace.id, user_id))
+    if member is None or member.left_at is not None or (
+        member.member_role == WorkspaceMemberRole.PARTICIPANT.value
+        and member.position_code is not None
+    ):
+        raise HTTPException(status_code=403, detail="Operator 112 access is required")
+    statement = select(TrainingCall).where(TrainingCall.training_session_id == session_id)
+    if member.member_role == WorkspaceMemberRole.PARTICIPANT.value:
+        statement = statement.where(
+            or_(
+                TrainingCall.assigned_operator_user_id == user_id,
+                TrainingCall.assigned_operator_user_id.is_(None),
+            )
+        )
     return list(
         await session.scalars(
-            select(TrainingCall)
-            .where(TrainingCall.training_session_id == session_id)
-            .order_by(TrainingCall.scheduled_at, TrainingCall.scenario_item_key)
+            statement.order_by(TrainingCall.scheduled_at, TrainingCall.scenario_item_key)
         )
     )

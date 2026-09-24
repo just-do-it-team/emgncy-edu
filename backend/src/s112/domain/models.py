@@ -35,6 +35,7 @@ from s112.common.enums import (
     LaunchPolicy,
     NotificationMethod,
     OutboxStatus,
+    ParticipantRole,
     ParticipantStatus,
     ScenarioCardSourceType,
     ScenarioCompletionPolicy,
@@ -906,7 +907,24 @@ class ScenarioAssignment(Base, TimestampMixin):
 
 class AssignmentParticipant(Base):
     __tablename__ = "assignment_participant"
-    __table_args__ = (Index("ix_assignment_participant_user_status", "user_id", "status"),)
+    __table_args__ = (
+        Index("ix_assignment_participant_user_status", "user_id", "status"),
+        Index(
+            "uq_assignment_participant_dds_position",
+            "assignment_id",
+            "position_code",
+            unique=True,
+            postgresql_where=text("position_code IS NOT NULL"),
+            sqlite_where=text("position_code IS NOT NULL"),
+        ),
+        Index(
+            "uq_assignment_participant_one_running_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("status = 'RUNNING'"),
+            sqlite_where=text("status = 'RUNNING'"),
+        ),
+    )
 
     assignment_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("scenario_assignment.id", ondelete="CASCADE"), primary_key=True
@@ -918,6 +936,14 @@ class AssignmentParticipant(Base):
         String(32), nullable=False, default=ParticipantStatus.ASSIGNED.value
     )
     position_code: Mapped[str | None] = mapped_column(String(100))
+
+    @property
+    def participant_role(self) -> str:
+        return (
+            ParticipantRole.DDS.value
+            if self.position_code is not None
+            else ParticipantRole.OPERATOR_112.value
+        )
     ready_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -1037,6 +1063,14 @@ class WorkspaceMember(Base):
         String(32), nullable=False, default=WorkspaceMemberRole.PARTICIPANT.value
     )
     position_code: Mapped[str | None] = mapped_column(String(100))
+
+    @property
+    def participant_role(self) -> str:
+        return (
+            ParticipantRole.DDS.value
+            if self.position_code is not None
+            else ParticipantRole.OPERATOR_112.value
+        )
     joined_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -1144,6 +1178,9 @@ class TrainingCall(Base):
     call_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     direction: Mapped[str] = mapped_column(String(16), nullable=False, default="INBOUND")
     operator_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("user_account.id", ondelete="RESTRICT"))
+    assigned_operator_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user_account.id", ondelete="RESTRICT")
+    )
     interlocutor_role: Mapped[str] = mapped_column(String(32), nullable=False, default="CALLER")
     expected_result: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

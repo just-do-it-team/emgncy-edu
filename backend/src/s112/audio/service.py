@@ -124,6 +124,9 @@ class AudioMessageService:
         ):
             raise ValidationError("Active student workspace membership is required")
 
+        if member.position_code is not None:
+            raise ValidationError("Operator 112 access is required for incoming calls")
+
         session_statement = select(TrainingSession).where(
             TrainingSession.id == workspace.training_session_id
         )

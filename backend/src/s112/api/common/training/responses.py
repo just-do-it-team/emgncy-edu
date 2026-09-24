@@ -139,7 +139,11 @@ def student_training_history_item(
         completed_at=training_session.completed_at,
         automatic_score=training_session.score,
         automatic_passed=training_session.passed,
-        automatic_result=training_session.result,
+        automatic_result=(
+            training_session.result
+            if training_session.status == "COMPLETED"
+            else {}
+        ),
         expert_score=training_session.expert_score,
         expert_passed=training_session.expert_passed,
         final_score=(
@@ -272,6 +276,7 @@ async def teacher_monitoring_response(
                 display_name=user.display_name,
                 status=participant.status,
                 position_code=participant.position_code,
+                participant_role=participant.participant_role,
             )
             for participant, user in participant_rows
         ],

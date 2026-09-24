@@ -122,9 +122,10 @@ Content-Type: application/json
 Для `INDIVIDUAL` backend создаёт отдельное назначение каждому участнику и
 требует `STUDENT_SELF_START`. Для `SHARED` создаётся одно общее назначение и
 требуется `TEACHER_START`. Ответ `AssignmentBatchResponse` содержит созданные
-назначения в `assignments`. `participant_positions` должен содержать код
-активной службы каждого действующего участника группы: по этим кодам backend
-определяет обязательные для решения карточки и готовность завершения.
+назначения в `assignments`. `participant_positions` должен содержать запись
+для каждого действующего участника группы: код активной службы означает роль
+`DDS`, а `null` — роль `OPERATOR_112`. По кодам служб backend определяет
+обязательные для решения карточки и готовность завершения.
 
 ## Прямое назначение
 
@@ -145,8 +146,9 @@ Content-Type: application/json
 ```
 
 Назначать можно только сценарий со статусом `PUBLISHED`.
-`participant_positions` обязателен для каждого участника, а `position_code`
-должен совпадать с кодом активной экстренной службы.
+`participant_positions` обязателен для каждого участника. Для ДДС укажите
+код активной экстренной службы, для оператора 112 — `null`. В ответе каждого
+участника есть `participant_role` (`DDS` или `OPERATOR_112`).
 
 ```http
 GET /api/v1/scenario-assignments?assigned_by={teacherId}&group_id={groupId}&status=ASSIGNED

@@ -59,7 +59,8 @@ X-User-Id: <student-uuid>
 }
 ```
 
-Для участника с `position_code` backend оставляет только карточки его службы.
+Для участника с ролью `DDS` backend оставляет только карточки его службы.
+Оператор 112 (`position_code: null`) видит все карточки своей учебной сессии.
 Основные поля строки: `card_id`, `card_number`, `event_type_id`, адрес,
 `current_status`, `services_summary`, `features_summary`, `version`.
 

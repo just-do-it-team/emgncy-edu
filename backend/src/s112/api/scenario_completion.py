@@ -18,6 +18,7 @@ from s112.common.enums import (
     TrainingCallStatus,
     TrainingSessionStatus,
     WorkspaceMemberRole,
+    WorkspaceMode,
 )
 from s112.domain.models import (
     AudioMessage,
@@ -323,6 +324,8 @@ class ScenarioCompletionService:
             for item in emitted
             if item.incident_card_id is not None
         }
+        if workspace.mode == WorkspaceMode.SHARED.value:
+            position_codes.clear()
         service_rows: list[tuple[CardService, EmergencyService]] = []
         if position_codes and emitted_by_card_id:
             service_rows = list(

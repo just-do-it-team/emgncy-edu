@@ -218,7 +218,9 @@ class CardApplicationService:
         self, session: AsyncSession, card_id: uuid.UUID, request: CardUpdate
     ) -> IncidentCard:
         card = await self._lock_card(session, card_id, request.expected_version)
-        await self._assert_workspace_access(session, card.workspace_id, request.actor_id)
+        await self._assert_workspace_access(
+            session, card.workspace_id, request.actor_id, card_id=card.id
+        )
         before_state = self._card_core_state(card)
         values = request.model_dump(
             exclude={"expected_version", "actor_id", "request_id"}, exclude_unset=True
@@ -245,7 +247,9 @@ class CardApplicationService:
         self, session: AsyncSession, card_id: uuid.UUID, request: CardFeatureUpdate
     ) -> CardFeature:
         card = await self._lock_card(session, card_id, request.expected_card_version)
-        await self._assert_workspace_access(session, card.workspace_id, request.actor_id)
+        await self._assert_workspace_access(
+            session, card.workspace_id, request.actor_id, card_id=card.id
+        )
         existing_feature = await session.get(CardFeature, card.id)
         before_state = self._features_summary(existing_feature)
         await self._validate_features(session, card.event_type_id, request)
@@ -300,7 +304,9 @@ class CardApplicationService:
         self, session: AsyncSession, card_id: uuid.UUID, request: CardStatusCreate
     ) -> IncidentCard:
         card = await self._lock_card(session, card_id, request.expected_card_version)
-        await self._assert_workspace_access(session, card.workspace_id, request.actor_id)
+        await self._assert_workspace_access(
+            session, card.workspace_id, request.actor_id, card_id=card.id
+        )
         previous_status = card.current_status
         now = utcnow()
         await session.execute(
@@ -353,7 +359,9 @@ class CardApplicationService:
         self, session: AsyncSession, card_id: uuid.UUID, request: CardServiceCreate
     ) -> CardService:
         card = await self._lock_card(session, card_id, request.expected_card_version)
-        await self._assert_workspace_access(session, card.workspace_id, request.actor_id)
+        await self._assert_workspace_access(
+            session, card.workspace_id, request.actor_id, card_id=card.id
+        )
         service = await session.get(EmergencyService, request.service_id)
         if service is None or not service.is_active:
             raise ValidationError("Unknown or inactive service_id")
@@ -443,7 +451,9 @@ class CardApplicationService:
         card = await self._lock_card(
             session, card_service.card_id, request.expected_card_version
         )
-        await self._assert_workspace_access(session, card.workspace_id, request.author_id)
+        workspace = await self._assert_workspace_access(
+            session, card.workspace_id, request.author_id, card_id=card.id
+        )
         previous_status = card_service.current_status
         try:
             validate_service_status_transition(card_service.current_status, request.status)
@@ -452,6 +462,19 @@ class CardApplicationService:
             raise ValidationError(str(exc)) from exc
 
         service = await session.get(EmergencyService, card_service.service_id)
+        if workspace.training_session_id is not None:
+            member = await session.get(
+                WorkspaceMember, (workspace.id, request.author_id)
+            )
+            if (
+                member is not None
+                and member.member_role == WorkspaceMemberRole.PARTICIPANT.value
+                and member.position_code is not None
+                and (service is None or service.code != member.position_code)
+            ):
+                raise ValidationError(
+                    "DDS participants may update response statuses only for their own service"
+                )
         if service and service.code == "103" and request.status in {
             ServiceResponseStatus.REJECTED,
             ServiceResponseStatus.WORK_REFUSED,
@@ -1233,6 +1256,7 @@ class CardApplicationService:
         *,
         allow_system_actor: bool = False,
         allowed_roles: set[str] | None = None,
+        card_id: uuid.UUID | None = None,
     ) -> SimulationWorkspace:
         workspace = await session.get(SimulationWorkspace, workspace_id)
         if workspace is None:
@@ -1250,6 +1274,24 @@ class CardApplicationService:
             raise ValidationError("Actor is not a member of this workspace")
         if allowed_roles is not None and member.member_role not in allowed_roles:
             raise ValidationError("Actor role is not allowed for this workspace operation")
+        if (
+            card_id is not None
+            and member.member_role == WorkspaceMemberRole.PARTICIPANT.value
+            and member.position_code is not None
+        ):
+            notified = await session.scalar(
+                select(CardService.id)
+                .join(EmergencyService, EmergencyService.id == CardService.service_id)
+                .where(
+                    CardService.card_id == card_id,
+                    CardService.is_active.is_(True),
+                    EmergencyService.code == member.position_code,
+                    EmergencyService.is_active.is_(True),
+                )
+                .limit(1)
+            )
+            if notified is None:
+                raise ValidationError("Card is not routed to the participant service")
         return workspace
 
     async def _record_training_action(

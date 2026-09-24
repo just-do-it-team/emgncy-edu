@@ -36,6 +36,7 @@ X-User-Id: <student-uuid>
     "assigned_by": "teacher-uuid",
     "launch_policy": "STUDENT_SELF_START",
     "max_attempts": 2,
+    "attempts_used": 1,
     "status": "ASSIGNED",
     "available_from": "2026-09-21T09:00:00Z",
     "due_at": "2026-09-28T18:00:00Z",
@@ -44,6 +45,7 @@ X-User-Id: <student-uuid>
       "user_id": "student-uuid",
       "status": "RUNNING",
       "position_code": "101",
+      "participant_role": "DDS",
       "ready_at": null,
       "completed_at": null
     },
@@ -62,6 +64,10 @@ X-User-Id: <student-uuid>
 версии. В ответе принципиально отсутствуют `definition`, `expected_result`,
 `evaluation_rules`, эталонные тексты и ожидаемые действия. Студентский frontend
 не должен обращаться к преподавательскому `GET /api/v1/training-scenarios/{id}`.
+`cards_count` учитывает статические карточки и плановое число процедурных.
+`attempts_used` считает уже созданные попытки, включая активную; отдельный
+запрос списка сессий для счётчика не нужен. `participant_role` равен `DDS`
+при коде службы и `OPERATOR_112` при `position_code: null`.
 
 Для одного назначения доступен такой же контракт:
 

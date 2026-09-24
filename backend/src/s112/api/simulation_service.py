@@ -82,7 +82,6 @@ from s112.domain.models import (
 )
 from s112.semantic_evaluation.rules import (
     EVALUATION_RESULT_ACTION,
-    LEGACY_CALL_ACTION,
     outbound_call_rule,
 )
 
@@ -543,6 +542,13 @@ class SimulationApplicationService:
                 "Individual group assignments require STUDENT_SELF_START"
             )
         if (
+            scenario.workspace_mode == WorkspaceMode.INDIVIDUAL.value
+            and request.incoming_call_operators
+        ):
+            raise ValidationError(
+                "Incoming call operators are assigned automatically in individual scenarios"
+            )
+        if (
             scenario.workspace_mode == WorkspaceMode.SHARED.value
             and request.launch_policy is not LaunchPolicy.TEACHER_START
         ):
@@ -579,6 +585,11 @@ class SimulationApplicationService:
                         for student_id in participant_ids
                         if student_id in request.participant_positions
                     },
+                    incoming_call_operators=(
+                        request.incoming_call_operators
+                        if scenario.workspace_mode == WorkspaceMode.SHARED.value
+                        else {}
+                    ),
                     assigned_by=request.assigned_by,
                     launch_policy=request.launch_policy,
                     max_attempts=request.max_attempts,
@@ -618,10 +629,45 @@ class SimulationApplicationService:
             and scenario.workspace_mode != WorkspaceMode.INDIVIDUAL.value
         ):
             raise ValidationError("STUDENT_SELF_START is only available for individual scenarios")
+        if (
+            scenario.workspace_mode == WorkspaceMode.SHARED.value
+            and request.launch_policy is not LaunchPolicy.TEACHER_START
+        ):
+            raise ValidationError("Shared scenarios currently require TEACHER_START")
 
+        definition = ScenarioDefinition.model_validate(scenario.definition)
+        operator_ids = {
+            participant_id
+            for participant_id in request.participant_ids
+            if request.participant_positions[participant_id] is None
+        }
+        call_keys = {
+            item.key
+            for item in definition.cards
+            if item.item_type is ScenarioItemType.INCOMING_CALL
+        }
+        if call_keys and not operator_ids:
+            raise ValidationError("An incoming-call scenario needs an operator 112")
+        unknown_call_keys = set(request.incoming_call_operators) - call_keys
+        if unknown_call_keys:
+            raise ValidationError("incoming_call_operators contains unknown call keys")
+        if len(operator_ids) > 1 and call_keys - set(request.incoming_call_operators):
+            raise ValidationError(
+                "Assign every incoming call to an operator 112 when several are participating"
+            )
+        if any(
+            user_id not in operator_ids
+            for user_id in request.incoming_call_operators.values()
+        ):
+            raise ValidationError("Incoming calls must be assigned to participating operators 112")
+        assigned_call_operators = dict(request.incoming_call_operators)
+        if len(operator_ids) == 1:
+            sole_operator = next(iter(operator_ids))
+            for call_key in call_keys:
+                assigned_call_operators.setdefault(call_key, sole_operator)
         for participant_id in request.participant_ids:
             await self._require_user_role(session, participant_id, {UserRole.STUDENT})
-            position_code = request.participant_positions.get(participant_id)
+            position_code = request.participant_positions[participant_id]
             if position_code is not None:
                 service = await session.scalar(
                     select(EmergencyService).where(
@@ -634,10 +680,11 @@ class SimulationApplicationService:
                         f"Unknown or inactive participant service: {position_code}"
                     )
 
-        definition = ScenarioDefinition.model_validate(scenario.definition)
         resolved_cards: list[dict[str, Any]] = []
         for item in definition.cards:
             raw = item.model_dump(mode="json", exclude_none=True)
+            if item.item_type is ScenarioItemType.INCOMING_CALL:
+                raw["assigned_operator_user_id"] = str(assigned_call_operators[item.key])
             if item.source_type is ScenarioCardSourceType.TEMPLATE:
                 if item.item_type is ScenarioItemType.INCOMING_CALL:
                     template = await session.get(IncomingCallTemplate, item.template_id)
@@ -751,6 +798,41 @@ class SimulationApplicationService:
         await session.flush()
         return assignment
 
+    async def mark_participant_ready(
+        self,
+        session: AsyncSession,
+        assignment_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> AssignmentParticipant:
+        assignment = await session.scalar(
+            select(ScenarioAssignment)
+            .where(ScenarioAssignment.id == assignment_id)
+            .with_for_update()
+        )
+        if assignment is None:
+            raise NotFoundError("Scenario assignment not found")
+        if assignment.workspace_mode != WorkspaceMode.SHARED.value:
+            raise ValidationError("Readiness is only used for shared scenarios")
+        if assignment.status != AssignmentStatus.ASSIGNED.value:
+            raise ConflictError("Scenario assignment is not awaiting participants")
+        participant = await session.get(AssignmentParticipant, (assignment_id, user_id))
+        if participant is None:
+            raise ValidationError("User is not assigned to this scenario")
+        await self._require_user_role(session, user_id, {UserRole.STUDENT})
+        now = utcnow()
+        if assignment.available_from and now < _as_utc(assignment.available_from):
+            raise ConflictError("Assignment is not available yet")
+        if assignment.due_at and now > _as_utc(assignment.due_at):
+            raise ConflictError("Assignment deadline has passed")
+        if participant.status == ParticipantStatus.READY.value:
+            return participant
+        if participant.status != ParticipantStatus.ASSIGNED.value:
+            raise ConflictError("Participant cannot become ready from the current status")
+        participant.status = ParticipantStatus.READY.value
+        participant.ready_at = now
+        await session.flush()
+        return participant
+
     async def start_individual_assignment(
         self,
         session: AsyncSession,
@@ -848,6 +930,7 @@ class SimulationApplicationService:
         )
         if active is not None:
             raise ConflictError("Assignment already has an active session")
+        await self._assert_participants_not_running(session, [user_id])
         attempts = int(
             await session.scalar(
                 select(func.count())
@@ -1018,6 +1101,11 @@ class SimulationApplicationService:
         )
         if not participants:
             raise ConflictError("Shared assignment has no participants")
+        if any(participant.status != ParticipantStatus.READY.value for participant in participants):
+            raise ConflictError("All shared-scenario participants must confirm readiness")
+        await self._assert_participants_not_running(
+            session, [participant.user_id for participant in participants]
+        )
 
         training_session = TrainingSession(
             assignment_id=assignment.id,
@@ -1284,6 +1372,7 @@ class SimulationApplicationService:
                     participant.completed_at = now
                 else:
                     participant.status = ParticipantStatus.ASSIGNED.value
+                    participant.ready_at = None
             self._add_monitoring_outbox(
                 session,
                 event_id=completed_action_id,
@@ -1297,6 +1386,118 @@ class SimulationApplicationService:
                     "completed_automatically": automatic,
                 },
             )
+        await session.flush()
+        return training_session
+
+    async def abort_shared_session(
+        self,
+        session: AsyncSession,
+        session_id: uuid.UUID,
+        teacher_id: uuid.UUID,
+        reason: str,
+    ) -> TrainingSession:
+        training_session = await session.scalar(
+            select(TrainingSession)
+            .where(TrainingSession.id == session_id)
+            .with_for_update()
+        )
+        if training_session is None:
+            raise NotFoundError("Training session not found")
+        assignment = await session.get(ScenarioAssignment, training_session.assignment_id)
+        if assignment is None or assignment.workspace_mode != WorkspaceMode.SHARED.value:
+            raise ValidationError("Only a shared training session can be aborted here")
+        if assignment.assigned_by != teacher_id:
+            raise ValidationError("Only the assigning teacher can abort this session")
+        await self._require_user_role(
+            session, teacher_id, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
+        )
+        if training_session.status == TrainingSessionStatus.ABORTED.value:
+            return training_session
+        if training_session.status != TrainingSessionStatus.RUNNING.value:
+            raise ConflictError("Only a running session can be aborted")
+        workspace = await session.scalar(
+            select(SimulationWorkspace).where(
+                SimulationWorkspace.training_session_id == training_session.id
+            )
+        )
+        if workspace is None:
+            raise ConflictError("Training session workspace is missing")
+
+        now = utcnow()
+        training_session.status = TrainingSessionStatus.ABORTED.value
+        training_session.completed_at = now
+        training_session.ready_to_complete_at = None
+        training_session.completion_state = {}
+        workspace.status = WorkspaceStatus.READ_ONLY.value
+        workspace.closed_at = now
+        await session.execute(
+            update(SessionScheduledCard)
+            .where(
+                SessionScheduledCard.training_session_id == session_id,
+                SessionScheduledCard.status == ScheduledCardStatus.PENDING.value,
+            )
+            .values(status=ScheduledCardStatus.CANCELLED.value)
+        )
+        await session.execute(
+            update(TrainingCall)
+            .where(
+                TrainingCall.training_session_id == session_id,
+                TrainingCall.status.in_(
+                    [
+                        TrainingCallStatus.PENDING.value,
+                        TrainingCallStatus.RINGING.value,
+                        TrainingCallStatus.ACTIVE.value,
+                    ]
+                ),
+            )
+            .values(status=TrainingCallStatus.CANCELLED.value)
+        )
+        assignment.status = (
+            AssignmentStatus.COMPLETED.value
+            if training_session.attempt_number >= assignment.max_attempts
+            else AssignmentStatus.ASSIGNED.value
+        )
+        participants = list(
+            await session.scalars(
+                select(AssignmentParticipant).where(
+                    AssignmentParticipant.assignment_id == assignment.id
+                )
+            )
+        )
+        for participant in participants:
+            participant.status = (
+                ParticipantStatus.COMPLETED.value
+                if assignment.status == AssignmentStatus.COMPLETED.value
+                else ParticipantStatus.ASSIGNED.value
+            )
+            participant.ready_at = None
+            if assignment.status == AssignmentStatus.COMPLETED.value:
+                participant.completed_at = now
+        action_id = uuid.uuid4()
+        session.add(
+            TrainingAction(
+                id=action_id,
+                training_session_id=session_id,
+                workspace_id=workspace.id,
+                actor_user_id=teacher_id,
+                action_type="SESSION_ABORTED",
+                entity_type="training_session",
+                entity_id=str(session_id),
+                occurred_at=now,
+                request_id=f"session-abort:{session_id}",
+                result=TrainingActionResult.SUCCESS.value,
+                details={"reason": reason},
+            )
+        )
+        self._add_monitoring_outbox(
+            session,
+            event_id=action_id,
+            event_type="training.session_aborted",
+            training_session=training_session,
+            workspace_id=workspace.id,
+            teacher_id=teacher_id,
+            data={"reason": reason},
+        )
         await session.flush()
         return training_session
 
@@ -1519,34 +1720,6 @@ class SimulationApplicationService:
                 .order_by(TrainingAction.occurred_at)
             )
         )
-        for required in expected.get("required_actions", []):
-            if required["action_type"] == LEGACY_CALL_ACTION:
-                # Difficulty-2 templates created before outbound_call describe
-                # this operation as an exact action. The semantic result below
-                # is its canonical implementation and assessment.
-                continue
-            checks += 1
-            matching = [
-                action
-                for action in actions
-                if action.action_type == required["action_type"]
-                and action.result == TrainingActionResult.SUCCESS.value
-                and self._dict_contains(action.details, required.get("parameters", {}))
-            ]
-            deadline = required.get("deadline_seconds")
-            if deadline is not None and item.emitted_at is not None:
-                limit = _as_utc(item.emitted_at) + timedelta(seconds=int(deadline))
-                matching = [action for action in matching if _as_utc(action.occurred_at) <= limit]
-            if not matching:
-                discrepancies.append(
-                    {
-                        "path": "required_actions",
-                        "expected": required,
-                        "actual": None,
-                        "reason": "required_action_missing",
-                    }
-                )
-
         try:
             call_rule = outbound_call_rule(item.evaluation_rules, expected)
         except ValueError as exc:
@@ -1577,34 +1750,6 @@ class SimulationApplicationService:
                     for action in evaluations
                     if action.result == TrainingActionResult.SUCCESS.value
                 ]
-                legacy_call = next(
-                    (
-                        required
-                        for required in expected.get("required_actions", [])
-                        if required["action_type"] == LEGACY_CALL_ACTION
-                    ),
-                    None,
-                )
-                if (
-                    legacy_call is not None
-                    and legacy_call.get("deadline_seconds") is not None
-                    and item.emitted_at is not None
-                ):
-                    limit = _as_utc(item.emitted_at) + timedelta(
-                        seconds=int(legacy_call["deadline_seconds"])
-                    )
-                    on_time_audio_ids = {
-                        action.entity_id
-                        for action in actions
-                        if action.action_type == "AUDIO_MESSAGE_TRANSCRIBED"
-                        and action.entity_id is not None
-                        and _as_utc(action.occurred_at) <= limit
-                    }
-                    successful = [
-                        action
-                        for action in successful
-                        if action.entity_id in on_time_audio_ids
-                    ]
                 if not successful:
                     latest = evaluations[-1] if evaluations else None
                     discrepancies.append(
@@ -1641,6 +1786,9 @@ class SimulationApplicationService:
                 )
             )
         )
+        workspace = await session.get(SimulationWorkspace, item.workspace_id)
+        if workspace is not None and workspace.mode == WorkspaceMode.SHARED.value:
+            position_codes.clear()
         if position_codes:
             service_rows = (
                 await session.execute(
@@ -1727,46 +1875,6 @@ class SimulationApplicationService:
             "card" if expected.get("card") else "",
             discrepancies,
         )
-        actions = list(
-            await session.scalars(
-                select(TrainingAction)
-                .where(
-                    TrainingAction.training_session_id == item.training_session_id,
-                    (
-                        (
-                            TrainingAction.entity_type == "training_call"
-                        )
-                        & (TrainingAction.entity_id == str(item.id))
-                    )
-                    | (TrainingAction.incident_card_id == item.incident_card_id),
-                )
-                .order_by(TrainingAction.occurred_at)
-            )
-        )
-        for required in expected.get("required_actions", []):
-            checks += 1
-            matching = [
-                action
-                for action in actions
-                if action.action_type == required["action_type"]
-                and action.result == TrainingActionResult.SUCCESS.value
-                and self._dict_contains(action.details, required.get("parameters", {}))
-            ]
-            deadline = required.get("deadline_seconds")
-            if deadline is not None and item.ringing_at is not None:
-                limit = _as_utc(item.ringing_at) + timedelta(seconds=int(deadline))
-                matching = [
-                    action for action in matching if _as_utc(action.occurred_at) <= limit
-                ]
-            if not matching:
-                discrepancies.append(
-                    {
-                        "path": "required_actions",
-                        "expected": required,
-                        "actual": None,
-                        "reason": "required_action_missing",
-                    }
-                )
         matched = max(0, checks - len(discrepancies))
         score = Decimal("100") if checks == 0 else (
             Decimal(matched) * Decimal("100") / Decimal(checks)
@@ -1790,7 +1898,9 @@ class SimulationApplicationService:
             session, call_id, request.user_id
         )
         if item.status == TrainingCallStatus.ACTIVE.value:
-            return item
+            if item.operator_user_id == request.user_id:
+                return item
+            raise ConflictError("Incoming call is already being handled by another operator")
         if item.status != TrainingCallStatus.RINGING.value:
             raise ConflictError(f"Incoming call cannot be answered from status {item.status}")
         now = utcnow()
@@ -1881,7 +1991,9 @@ class SimulationApplicationService:
             session, call_id, request.user_id
         )
         if item.status == TrainingCallStatus.COMPLETED.value:
-            return item
+            if item.operator_user_id == request.user_id:
+                return item
+            raise ConflictError("Incoming call belongs to another operator")
         if item.status != TrainingCallStatus.ACTIVE.value:
             raise ConflictError(f"Incoming call cannot complete from status {item.status}")
         if item.incident_card_id is None:
@@ -1965,18 +2077,6 @@ class SimulationApplicationService:
             )
         return 1
 
-    @classmethod
-    def _dict_contains(cls, actual: dict[str, Any], expected: dict[str, Any]) -> bool:
-        for key, value in expected.items():
-            if key not in actual:
-                return False
-            if isinstance(value, dict):
-                if not isinstance(actual[key], dict) or not cls._dict_contains(actual[key], value):
-                    return False
-            elif actual[key] != value:
-                return False
-        return True
-
     async def _training_call_context(
         self,
         session: AsyncSession,
@@ -1997,6 +2097,15 @@ class SimulationApplicationService:
             or member.member_role != WorkspaceMemberRole.PARTICIPANT.value
         ):
             raise ValidationError("Active student workspace membership is required")
+        if member.position_code is not None:
+            raise ValidationError("Operator 112 access is required for incoming calls")
+        if (
+            item.assigned_operator_user_id is not None
+            and item.assigned_operator_user_id != user_id
+        ):
+            raise ValidationError("Incoming call is assigned to another operator 112")
+        if item.operator_user_id is not None and item.operator_user_id != user_id:
+            raise ConflictError("Incoming call is being handled by another operator")
         training_session = await session.get(TrainingSession, item.training_session_id)
         workspace = await session.get(SimulationWorkspace, item.workspace_id)
         if training_session is None or workspace is None:
@@ -2158,6 +2267,11 @@ class SimulationApplicationService:
                         trigger_config=item.get("trigger_config", {}),
                         source_type=ScenarioCardSourceType.SNAPSHOT.value,
                         call_payload=item["initial_call"],
+                        assigned_operator_user_id=(
+                            uuid.UUID(item["assigned_operator_user_id"])
+                            if item.get("assigned_operator_user_id")
+                            else None
+                        ),
                         expected_result=item["expected_result"],
                         scheduled_at=scheduled_at,
                         status=TrainingCallStatus.PENDING.value,
@@ -2192,6 +2306,27 @@ class SimulationApplicationService:
         if user.role not in {role.value for role in roles}:
             raise ValidationError("User role is not allowed for this operation")
         return user
+
+    @staticmethod
+    async def _assert_participants_not_running(
+        session: AsyncSession, participant_ids: list[uuid.UUID]
+    ) -> None:
+        await session.execute(
+            select(UserAccount.id)
+            .where(UserAccount.id.in_(participant_ids))
+            .order_by(UserAccount.id)
+            .with_for_update()
+        )
+        active_user = await session.scalar(
+            select(AssignmentParticipant.user_id)
+            .where(
+                AssignmentParticipant.user_id.in_(participant_ids),
+                AssignmentParticipant.status == ParticipantStatus.RUNNING.value,
+            )
+            .limit(1)
+        )
+        if active_user is not None:
+            raise ConflictError("A participant already has an active training session")
 
     async def _require_group_owner(
         self,

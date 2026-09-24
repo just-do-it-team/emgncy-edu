@@ -11,6 +11,7 @@ from s112.api.schemas import CardCreate, CardQuestionnaire, OrmModel
 from s112.common.enums import (
     CardStatus,
     LaunchPolicy,
+    ParticipantRole,
     ScenarioCardSourceType,
     ScenarioCompletionPolicy,
     ScenarioItemType,
@@ -23,19 +24,13 @@ from s112.common.enums import (
 from s112.semantic_evaluation.rules import OutboundCallRule, validate_evaluation_rules
 
 
-class RequiredAction(BaseModel):
-    action_type: str = Field(min_length=1, max_length=100)
-    deadline_seconds: int | None = Field(default=None, ge=0)
-    parameters: dict[str, Any] = Field(default_factory=dict)
-
-
 class ExpectedCardFeatures(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     event_kind_id: int
-    first_order_feature_id: int | None
-    second_order_feature_id: int | None
-    third_order_feature_id: int | None
+    first_order_feature_id: int | None = None
+    second_order_feature_id: int | None = None
+    third_order_feature_id: int | None = None
     additional_features: dict[str, JsonValue]
 
 
@@ -46,30 +41,29 @@ class ExpectedCardState(BaseModel):
 
     event_type_id: int
     description: str
-    questionnaire: CardQuestionnaire | None
-    reported_address: str | None
-    incident_address: str | None
+    questionnaire: CardQuestionnaire | None = None
+    reported_address: str | None = None
+    incident_address: str | None = None
     victims_count: int | None = Field(ge=0)
     current_status: CardStatus
-    features: ExpectedCardFeatures | None
+    features: ExpectedCardFeatures | None = None
     services: list[str]
     service_statuses: dict[str, ServiceResponseStatus]
 
 
 class ExpectedResult(BaseModel):
-    """Versioned assessment contract; legacy fields remain readable for old scenarios."""
+    """Expected card state and, when applicable, the expected outbound call."""
 
     model_config = ConfigDict(extra="forbid")
 
     card: ExpectedCardState | None = None
     outbound_call: OutboundCallRule | None = None
     final_state: dict[str, Any] = Field(default_factory=dict, deprecated=True)
-    required_actions: list[RequiredAction] = Field(default_factory=list, deprecated=True)
 
     @model_validator(mode="after")
     def validate_result(self) -> "ExpectedResult":
-        if self.card is not None and (self.final_state or self.required_actions):
-            raise ValueError("card cannot be combined with legacy final_state/required_actions")
+        if self.card is not None and self.final_state:
+            raise ValueError("card cannot be combined with legacy final_state")
         return self
 
 
@@ -283,6 +277,7 @@ class ResolvedScenarioItem(BaseModel):
     initial_call: InitialIncomingCall | None = None
     expected_result: ExpectedResult
     evaluation_rules: dict[str, Any] = Field(default_factory=dict)
+    assigned_operator_user_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def validate_payload(self) -> "ResolvedScenarioItem":
@@ -539,7 +534,8 @@ class TrainingScenarioResponse(OrmModel):
 class ScenarioAssignmentCreate(BaseModel):
     scenario_id: uuid.UUID
     participant_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
-    participant_positions: dict[uuid.UUID, str] = Field(default_factory=dict)
+    participant_positions: dict[uuid.UUID, str | None] = Field(default_factory=dict)
+    incoming_call_operators: dict[str, uuid.UUID] = Field(default_factory=dict)
     assigned_by: uuid.UUID
     launch_policy: LaunchPolicy = LaunchPolicy.STUDENT_SELF_START
     max_attempts: int = Field(default=1, ge=1, le=100)
@@ -556,12 +552,15 @@ class ScenarioAssignmentCreate(BaseModel):
         missing_positions = set(self.participant_ids) - set(self.participant_positions)
         if missing_positions:
             raise ValueError("participant_positions must contain every participant")
-        if any(not code.strip() for code in self.participant_positions.values()):
+        if any(code is not None and not code.strip() for code in self.participant_positions.values()):
             raise ValueError("participant position_code must not be blank")
         self.participant_positions = {
-            user_id: code.strip()
+            user_id: code.strip() if code is not None else None
             for user_id, code in self.participant_positions.items()
         }
+        dds_positions = [code for code in self.participant_positions.values() if code is not None]
+        if len(dds_positions) != len(set(dds_positions)):
+            raise ValueError("Only one participant may occupy each DDS position")
         if self.available_from and self.due_at and self.due_at <= self.available_from:
             raise ValueError("due_at must be later than available_from")
         return self
@@ -571,6 +570,7 @@ class AssignmentParticipantResponse(OrmModel):
     user_id: uuid.UUID
     status: str
     position_code: str | None
+    participant_role: ParticipantRole
     ready_at: datetime | None
     completed_at: datetime | None
 
@@ -618,6 +618,7 @@ class StudentScenarioAssignmentResponse(BaseModel):
     assigned_by: uuid.UUID
     launch_policy: str
     max_attempts: int
+    attempts_used: int
     status: str
     available_from: datetime | None
     due_at: datetime | None
@@ -627,6 +628,10 @@ class StudentScenarioAssignmentResponse(BaseModel):
 
 
 class StartAssignmentRequest(BaseModel):
+    user_id: uuid.UUID
+
+
+class ReadyAssignmentRequest(BaseModel):
     user_id: uuid.UUID
 
 
@@ -644,6 +649,11 @@ class SessionCompleteRequest(BaseModel):
     user_id: uuid.UUID
 
 
+class SessionAbortRequest(BaseModel):
+    teacher_id: uuid.UUID
+    reason: str = Field(min_length=1, max_length=2000)
+
+
 class TrainingDiscrepancy(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -657,7 +667,7 @@ class TrainingDiscrepancy(BaseModel):
     def validate_reason(cls, value: str) -> str:
         known = {
             "value_mismatch",
-            "required_action_missing",
+            "required_action_missing",  # Historical session results remain readable.
             "semantic_similarity_below_threshold",
             "semantic_evaluation_failed",
             "semantic_evaluation_missing",
@@ -848,7 +858,8 @@ class LearningGroupResponse(OrmModel):
 class GroupScenarioAssignmentCreate(BaseModel):
     scenario_id: uuid.UUID
     assigned_by: uuid.UUID
-    participant_positions: dict[uuid.UUID, str] = Field(default_factory=dict)
+    participant_positions: dict[uuid.UUID, str | None] = Field(default_factory=dict)
+    incoming_call_operators: dict[str, uuid.UUID] = Field(default_factory=dict)
     launch_policy: LaunchPolicy = LaunchPolicy.STUDENT_SELF_START
     max_attempts: int = Field(default=1, ge=1, le=100)
     available_from: datetime | None = None
@@ -856,12 +867,15 @@ class GroupScenarioAssignmentCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_dates_and_positions(self) -> "GroupScenarioAssignmentCreate":
-        if any(not code.strip() for code in self.participant_positions.values()):
+        if any(code is not None and not code.strip() for code in self.participant_positions.values()):
             raise ValueError("participant position_code must not be blank")
         self.participant_positions = {
-            user_id: code.strip()
+            user_id: code.strip() if code is not None else None
             for user_id, code in self.participant_positions.items()
         }
+        dds_positions = [code for code in self.participant_positions.values() if code is not None]
+        if len(dds_positions) != len(set(dds_positions)):
+            raise ValueError("Only one participant may occupy each DDS position")
         if self.available_from and self.due_at and self.due_at <= self.available_from:
             raise ValueError("due_at must be later than available_from")
         return self
@@ -967,6 +981,7 @@ class TeacherMonitoringParticipant(BaseModel):
     display_name: str
     status: str
     position_code: str | None
+    participant_role: ParticipantRole
 
 
 class TeacherMonitoringSession(BaseModel):
@@ -1032,6 +1047,7 @@ class TrainingCallResponse(OrmModel):
     call_payload: InitialIncomingCall
     direction: str
     operator_user_id: uuid.UUID | None
+    assigned_operator_user_id: uuid.UUID | None
     interlocutor_role: str
     status: str
     incident_card_id: uuid.UUID | None

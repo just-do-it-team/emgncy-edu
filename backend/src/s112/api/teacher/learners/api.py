@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -266,9 +266,14 @@ async def remove_learning_group_member(
 async def create_learning_group_assignment(
     group_id: uuid.UUID,
     request: GroupScenarioAssignmentCreate,
+    http_request: Request,
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> AssignmentBatchResponse:
+    if http_request.app.state.auth_settings.enabled:
+        principal = getattr(http_request.state, "principal", None)
+        if principal is None or principal.user_id != request.assigned_by:
+            raise HTTPException(status_code=403, detail="Teacher does not match token")
     try:
         async with session.begin():
             batch, assignments = await service.create_group_assignment(
@@ -286,12 +291,43 @@ async def create_learning_group_assignment(
 )
 async def create_scenario_assignment(
     request: ScenarioAssignmentCreate,
+    http_request: Request,
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> ScenarioAssignmentResponse:
+    if http_request.app.state.auth_settings.enabled:
+        principal = getattr(http_request.state, "principal", None)
+        if principal is None or principal.user_id != request.assigned_by:
+            raise HTTPException(status_code=403, detail="Teacher does not match token")
     try:
         async with session.begin():
             assignment = await service.create_assignment(session, request)
         return await assignment_response(session, assignment)
     except DomainError as exc:
         raise_http_error(exc)
+
+
+@router.get(
+    "/teacher/scenario-assignments/{assignment_id}",
+    response_model=ScenarioAssignmentResponse,
+)
+async def get_teacher_scenario_assignment(
+    assignment_id: uuid.UUID,
+    http_request: Request,
+    teacher_id: uuid.UUID = Header(alias="X-User-Id"),
+    session: AsyncSession = Depends(get_read_session),
+) -> ScenarioAssignmentResponse:
+    if http_request.app.state.auth_settings.enabled:
+        principal = getattr(http_request.state, "principal", None)
+        if principal is None or principal.user_id != teacher_id:
+            raise HTTPException(status_code=403, detail="Teacher does not match token")
+    teacher = await session.get(UserAccount, teacher_id)
+    if teacher is None or teacher.is_blocked or teacher.role not in {
+        UserRole.TEACHER.value,
+        UserRole.ADMINISTRATOR.value,
+    }:
+        raise HTTPException(status_code=403, detail="Teacher access required")
+    assignment = await session.get(ScenarioAssignment, assignment_id)
+    if assignment is None or assignment.assigned_by != teacher_id:
+        raise HTTPException(status_code=404, detail="Scenario assignment not found")
+    return await assignment_response(session, assignment)

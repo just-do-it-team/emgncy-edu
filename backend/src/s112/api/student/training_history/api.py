@@ -1,15 +1,19 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 
 from s112.api.dependencies import get_read_session
 from s112.api.common.training.responses import student_training_history_item
-from s112.api.simulation_schemas import TrainingSessionResponse, TrainingSessionSummary
+from s112.api.simulation_schemas import (
+    StudentTrainingHistoryItem,
+    TrainingSessionResponse,
+    TrainingSessionSummary,
+)
 from s112.api.student.training_history.schemas import StudentTrainingHistoryPage
-from s112.common.enums import UserRole
+from s112.common.enums import TrainingSessionStatus, UserRole
 from s112.domain.models import (
     AssignmentBatch,
     AssignmentParticipant,
@@ -92,6 +96,44 @@ async def get_own_training_history(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get(
+    "/student/training-sessions/{session_id}/result",
+    response_model=StudentTrainingHistoryItem,
+)
+async def get_own_training_result(
+    session_id: uuid.UUID,
+    response: Response,
+    student_id: uuid.UUID = Header(alias="X-User-Id"),
+    session: AsyncSession = Depends(get_read_session),
+) -> StudentTrainingHistoryItem:
+    student = await session.get(UserAccount, student_id)
+    if student is None or student.is_blocked:
+        raise HTTPException(status_code=404, detail="Student not found")
+    if student.role != UserRole.STUDENT.value:
+        raise HTTPException(status_code=403, detail="Student access required")
+
+    row = (
+        await session.execute(
+            select(TrainingSession, ScenarioAssignment, LearningGroup)
+            .join(ScenarioAssignment, ScenarioAssignment.id == TrainingSession.assignment_id)
+            .join(
+                AssignmentParticipant,
+                AssignmentParticipant.assignment_id == ScenarioAssignment.id,
+            )
+            .outerjoin(AssignmentBatch, AssignmentBatch.id == ScenarioAssignment.assignment_batch_id)
+            .outerjoin(LearningGroup, LearningGroup.id == AssignmentBatch.group_id)
+            .where(TrainingSession.id == session_id, AssignmentParticipant.user_id == student_id)
+        )
+    ).one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Training session not found")
+    training_session, assignment, group = row
+    if training_session.status != TrainingSessionStatus.COMPLETED.value:
+        raise HTTPException(status_code=409, detail="Training session is not completed")
+    response.headers["Cache-Control"] = "no-store"
+    return student_training_history_item(training_session, assignment, group)
 
 
 @router.get("/training-sessions", response_model=list[TrainingSessionSummary])

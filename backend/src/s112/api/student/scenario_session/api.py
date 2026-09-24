@@ -4,7 +4,7 @@ import json
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -40,6 +40,13 @@ from s112.domain.models import (
 
 
 router = APIRouter(prefix="/api/v1", tags=["student/scenario_session"])
+
+
+def _assert_request_identity(request: Request, user_id: uuid.UUID) -> None:
+    if request.app.state.auth_settings.enabled:
+        principal = getattr(request.state, "principal", None)
+        if principal is None or principal.user_id != user_id:
+            raise HTTPException(status_code=403, detail="User does not match token")
 
 
 def _encode_cards_cursor(card: CardListProjection) -> str:
@@ -81,10 +88,12 @@ def _decode_cards_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
 )
 async def get_completion_readiness(
     session_id: uuid.UUID,
+    request: Request,
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> dict:
+    _assert_request_identity(request, user_id)
     try:
         return await service.completion.get_for_user(session, session_id, user_id)
     except DomainError as exc:
@@ -98,9 +107,11 @@ async def get_completion_readiness(
 async def complete_training_session(
     session_id: uuid.UUID,
     request: SessionCompleteRequest,
+    http_request: Request,
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> TrainingSession:
+    _assert_request_identity(http_request, request.user_id)
     try:
         async with session.begin():
             return await service.complete_session(session, session_id, request.user_id)
@@ -114,11 +125,13 @@ async def complete_training_session(
 )
 async def list_workspace_cards(
     workspace_id: uuid.UUID,
+    request: Request,
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     limit: int = Query(default=100, ge=1, le=500),
     cursor: str | None = Query(default=None, max_length=1024),
     session: AsyncSession = Depends(get_read_session),
 ) -> CardListPage:
+    _assert_request_identity(request, user_id)
     member = await session.get(WorkspaceMember, (workspace_id, user_id))
     if member is None or member.left_at is not None:
         raise HTTPException(status_code=403, detail="Workspace access denied")
@@ -172,9 +185,11 @@ async def list_workspace_cards(
 async def get_workspace_card(
     workspace_id: uuid.UUID,
     card_id: uuid.UUID,
+    request: Request,
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_read_session),
 ) -> IncidentCard:
+    _assert_request_identity(request, user_id)
     member = await session.get(WorkspaceMember, (workspace_id, user_id))
     if member is None or member.left_at is not None:
         raise HTTPException(status_code=403, detail="Workspace access denied")
@@ -217,10 +232,12 @@ async def get_workspace_card(
 async def open_workspace_card(
     workspace_id: uuid.UUID,
     card_id: uuid.UUID,
+    request: Request,
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_write_session),
     service: CardApplicationService = Depends(application_service),
 ) -> CardService:
+    _assert_request_identity(request, user_id)
     try:
         async with session.begin():
             return await service.open_card_for_operator(
@@ -238,10 +255,12 @@ async def decide_workspace_card(
     workspace_id: uuid.UUID,
     card_id: uuid.UUID,
     body: CardDecisionRequest,
+    request: Request,
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_write_session),
     service: CardApplicationService = Depends(application_service),
 ) -> CardService:
+    _assert_request_identity(request, user_id)
     try:
         async with session.begin():
             return await service.decide_card_for_operator(
