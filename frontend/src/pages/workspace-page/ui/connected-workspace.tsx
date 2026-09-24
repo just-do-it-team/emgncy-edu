@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
+import axios from "axios";
 import {
   Alert,
   Badge,
   Button,
   Group,
   Loader,
+  Modal,
   Stack,
   Text,
 } from "@mantine/core";
@@ -13,7 +15,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useSessionStore } from "@/entities/session";
 import { WorkspaceHeader } from "@/widgets/workspace-header";
 import {
@@ -22,7 +24,6 @@ import {
   isUuid,
   statusLabels,
   trainingApi,
-  type ArmMode,
   type CardListItem,
   type LaunchContext,
 } from "@/entities/training";
@@ -30,6 +31,7 @@ import { IncidentList } from "./incident-list";
 import { listIncident } from "../model/api-card-adapter";
 import { ConnectedCard } from "./connected-card";
 import { IncomingCalls } from "./incoming-calls";
+import { useWorkspaceEvents } from "./use-workspace-events";
 import classes from "./workspace-page.module.scss";
 
 class PendingSessionError extends Error {}
@@ -39,11 +41,6 @@ export function ConnectedWorkspace() {
   const userId = useSessionStore((state) => state.profile?.userId);
   const sessionId = params.get("session") ?? "";
   const assignmentId = params.get("assignment") ?? "";
-  const requestedMode = params.get("mode");
-  const mode =
-    requestedMode === "DDS" || requestedMode === "ARM112"
-      ? requestedMode
-      : undefined;
   if (!userId) return <Navigate to="/login" replace />;
   if (!isUuid(sessionId) || (assignmentId && !isUuid(assignmentId)))
     return (
@@ -56,11 +53,10 @@ export function ConnectedWorkspace() {
     );
   return (
     <RestoredWorkspace
-      key={`${userId}:${assignmentId}:${sessionId}:${mode}`}
+      key={`${userId}:${assignmentId}:${sessionId}`}
       userId={userId}
       assignmentId={assignmentId}
       sessionId={sessionId}
-      mode={mode}
     />
   );
 }
@@ -68,12 +64,10 @@ function RestoredWorkspace({
   userId,
   assignmentId,
   sessionId,
-  mode,
 }: {
   userId: string;
   assignmentId: string;
   sessionId: string;
-  mode: ArmMode | undefined;
 }) {
   const context = useQuery({
     queryKey: [
@@ -82,7 +76,6 @@ function RestoredWorkspace({
       "launch-context",
       assignmentId,
       sessionId,
-      mode,
     ],
     queryFn: async ({ signal }) => {
       const assignment = assignmentId
@@ -91,7 +84,7 @@ function RestoredWorkspace({
             (item) => item.active_session?.session_id === sessionId,
           );
       const ctx = assignment
-        ? assignmentLaunchContext(assignment, userId, mode)
+        ? assignmentLaunchContext(assignment, userId)
         : null;
       if (!ctx || ctx.sessionId !== sessionId) {
         throw new PendingSessionError(
@@ -139,26 +132,29 @@ function RestoredWorkspace({
 }
 function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [exiting, setExiting] = useState(false);
+  const [finishOpen, setFinishOpen] = useState(false);
   const [callBusy, setCallBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const baseKey = ["student-api", ctx.userId, ctx.workspaceId];
   const readiness = useQuery({
     queryKey: [...baseKey, "readiness", ctx.sessionId],
     queryFn: ({ signal }) => trainingApi.readiness(ctx, signal),
-    refetchInterval: 5000,
+    refetchOnWindowFocus: false,
     meta: { showGlobalError: false },
   });
+  const connection = useWorkspaceEvents(ctx, readiness.isSuccess);
   const cards = useInfiniteQuery({
     queryKey: [...baseKey, "cards", "pages"],
     queryFn: ({ pageParam, signal }) =>
       trainingApi.cards(ctx, pageParam, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor,
-    // Infinite Query refreshes loaded pages from the beginning with fresh cursors.
-    refetchInterval: 5000,
+    refetchOnWindowFocus: false,
     meta: { showGlobalError: false },
   });
   const cardItems = useMemo(() => {
@@ -191,6 +187,8 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     meta: { showGlobalError: false },
   });
   const active = readiness.data?.status === "RUNNING" && !readiness.isError;
+  const requiresAbort =
+    !readiness.data || ["CREATED", "RUNNING"].includes(readiness.data.status);
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: baseKey });
   }
@@ -229,12 +227,73 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
       setCompleting(false);
     }
   }
+  async function finish() {
+    if (exiting) return;
+    if (requiresAbort) {
+      setExiting(true);
+      setActionError(null);
+      try {
+        await trainingApi.abort(ctx);
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: ["student-api", ctx.userId, "history"],
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ["student-api", ctx.userId, "assignments"],
+          }),
+        ]);
+      } catch (error) {
+        setActionError(
+          axios.isAxiosError(error) && error.response?.status === 404
+            ? "Не удалось завершить попытку: метод недоступен или попытка не найдена. Занятие остаётся активным."
+            : apiError(error),
+        );
+        setExiting(false);
+        setFinishOpen(false);
+        return;
+      }
+    }
+    navigate("/student");
+  }
   return (
     <div className={classes.page}>
+      <Modal
+        opened={finishOpen}
+        onClose={() => setFinishOpen(false)}
+        title="Завершить занятие?"
+        centered
+        closeOnClickOutside={!exiting}
+        closeOnEscape={!exiting}
+      >
+        <Stack gap="md">
+          <Text>
+            {requiresAbort
+              ? "Попытка будет завершена и засчитана как несданная."
+              : "Вы вернётесь к списку занятий."}
+          </Text>
+          <Group justify="flex-end">
+            <Button
+              variant="default"
+              disabled={exiting}
+              onClick={() => setFinishOpen(false)}
+            >
+              Отмена
+            </Button>
+            <Button color="red" loading={exiting} onClick={() => void finish()}>
+              Завершить
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
       <Group justify="space-between" className={classes.trainingBar}>
         <Group>
-          <Button component={Link} to="/student" variant="subtle">
-            К занятиям
+          <Button
+            size="lg"
+            color="red"
+            fw={700}
+            onClick={() => setFinishOpen(true)}
+          >
+            Завершить занятие
           </Button>
           <Text fw={600}>{ctx.title}</Text>
         </Group>
@@ -284,14 +343,6 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
                 )}
             </div>
             <Group>
-              <Button
-                size="xs"
-                variant="default"
-                loading={cards.isFetching}
-                onClick={() => void refresh()}
-              >
-                Обновить
-              </Button>
               {readiness.data.completion_policy === "STUDENT_CONFIRM" && (
                 <Button
                   size="xs"
@@ -304,7 +355,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
                   }
                   onClick={() => void complete()}
                 >
-                  Завершить занятие
+                  Сдать занятие
                 </Button>
               )}
               {!active && readiness.data.status === "COMPLETED" && (
@@ -314,6 +365,22 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
               )}
             </Group>
           </Group>
+        )}
+        <Group justify="center">
+          <Button
+            size="md"
+            variant="default"
+            loading={readiness.isFetching || cards.isFetching}
+            onClick={() => void refresh()}
+          >
+            Обновить данные
+          </Button>
+        </Group>
+        {connection === "disconnected" && (
+          <Alert color="yellow">
+            Связь с событиями прервана. Нажмите «Обновить данные», чтобы
+            загрузить актуальное состояние.
+          </Alert>
         )}
         {(cards.isPending || reference.isPending || opening) && (
           <Loader size="sm" />
@@ -367,8 +434,8 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
         )}
         {cards.isSuccess && cardItems.length === 0 && (
           <Text c="dimmed">
-            Доступных карточек пока нет. Список обновляется каждые 5 секунд по
-            мере поступления карточек сценария.
+            Доступных карточек пока нет. Новые карточки появятся при поступлении
+            событий сценария.
           </Text>
         )}
       </Stack>

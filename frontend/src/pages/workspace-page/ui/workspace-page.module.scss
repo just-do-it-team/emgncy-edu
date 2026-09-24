@@ -217,3 +217,19 @@
   border-bottom: 1px solid var(--pov-card-border);
   color: var(--pov-card-text);
 }
+
+.incomingCallModal {
+  border: 2px solid var(--mantine-color-white);
+  border-radius: 0;
+  background: #1d70ae;
+  color: var(--mantine-color-white);
+
+  button[aria-label="Close modal"] {
+    color: var(--mantine-color-white);
+  }
+}
+
+.incomingCallModalBody {
+  padding: 0 24px 24px;
+  text-align: center;
+}

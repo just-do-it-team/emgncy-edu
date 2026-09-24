@@ -22,7 +22,7 @@ export function CardAudio({
     queryKey: ["student-api", ctx.userId, ctx.workspaceId, "audio", cardId],
     queryFn: ({ signal }) => trainingApi.audioMessages(ctx, cardId, signal),
     enabled: opened !== null,
-    refetchInterval: opened ? 5000 : false,
+    refetchOnWindowFocus: false,
     meta: { showGlobalError: false },
   });
   return (

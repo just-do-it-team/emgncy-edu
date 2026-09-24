@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Badge,
   Button,
   Group,
   Loader,
+  Modal,
   Paper,
   Select,
   Stack,
@@ -21,6 +22,7 @@ import {
   type ReferenceOption,
 } from "@/entities/training";
 import { CreateServerCard } from "./create-server-card";
+import classes from "./workspace-page.module.scss";
 
 const callLabels: Record<string, string> = {
   PENDING: "Ожидается",
@@ -61,7 +63,7 @@ export function IncomingCalls({
   const calls = useQuery({
     queryKey,
     queryFn: ({ signal }) => trainingApi.incomingCalls(ctx, signal),
-    refetchInterval: 5000,
+    refetchOnWindowFocus: false,
     meta: { showGlobalError: false },
   });
   const [busy, setBusy] = useState(false);
@@ -71,7 +73,14 @@ export function IncomingCalls({
   );
   const [selected, setSelected] = useState<Record<string, string | null>>({});
   const [createdCards, setCreatedCards] = useState<ApiCard[]>([]);
+  const [ringDelayPassed, setRingDelayPassed] = useState(false);
+  const [dismissedCallId, setDismissedCallId] = useState<string | null>(null);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setRingDelayPassed(true), 2000);
+    return () => window.clearTimeout(timeout);
+  }, []);
   const disabled = !active || busy || calls.isError || !calls.data;
+  const ringingCall = calls.data?.find((call) => call.status === "RINGING");
   const linked = new Set(
     calls.data?.flatMap((call) =>
       call.incident_card_id ? [call.incident_card_id] : [],
@@ -118,7 +127,7 @@ export function IncomingCalls({
       setError(apiError(err));
       return false;
     } finally {
-      await onChanged();
+      void onChanged();
       setBusy(false);
       onBusyChange(false);
     }
@@ -127,6 +136,9 @@ export function IncomingCalls({
     setCreating({ callId });
     setError(null);
     onBusyChange(true);
+  }
+  async function answer(callId: string) {
+    if (await act(callId, "answer")) startCreate(callId);
   }
   async function created(card: ApiCard) {
     const callId = creating?.callId;
@@ -148,6 +160,41 @@ export function IncomingCalls({
   }
   return (
     <Stack gap="xs">
+      <Modal
+        opened={
+          ringDelayPassed &&
+          active &&
+          !!ringingCall &&
+          ringingCall.id !== dismissedCallId &&
+          !creating
+        }
+        onClose={() => setDismissedCallId(ringingCall?.id ?? null)}
+        centered
+        size="xl"
+        title=""
+        classNames={{
+          content: classes.incomingCallModal,
+          body: classes.incomingCallModalBody,
+        }}
+      >
+        <Stack align="center" gap="sm" py="lg">
+          <Text size="xl" fw={700}>
+            Входящий звонок
+          </Text>
+          <Text size="lg" fw={600}>
+            с номера {ringingCall?.caller_number ?? "не указан"}
+          </Text>
+          <Button
+            size="lg"
+            variant="outline"
+            color="white"
+            disabled={disabled || !canCreate}
+            onClick={() => ringingCall && void answer(ringingCall.id)}
+          >
+            Принять
+          </Button>
+        </Stack>
+      </Modal>
       <Group justify="space-between">
         <Text fw={600}>Учебные звонки</Text>
         <Button
@@ -192,7 +239,7 @@ export function IncomingCalls({
                   <Button
                     size="xs"
                     disabled={disabled}
-                    onClick={() => void act(call.id, "answer")}
+                    onClick={() => void answer(call.id)}
                   >
                     Принять звонок
                   </Button>
@@ -285,6 +332,7 @@ export function IncomingCalls({
           ctx={ctx}
           types={reference.types}
           kinds={reference.kinds}
+          incomingCall={!!creating.callId}
           readOnly={
             !active ||
             !canCreate ||

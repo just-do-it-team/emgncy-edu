@@ -53,7 +53,7 @@ export function ConnectedCard(props: Props) {
     ],
     queryFn: ({ signal }) => trainingApi.card(props.ctx, props.cardId, signal),
     refetchOnMount: "always",
-    refetchInterval: 5000,
+    refetchOnWindowFocus: false,
     meta: { showGlobalError: false },
   });
   if (!query.data)
