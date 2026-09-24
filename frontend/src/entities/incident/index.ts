@@ -14,5 +14,6 @@ export type {
   ClassifierRecord,
   RoutingFlags,
   RoutingFlag,
+  RoutedService,
 } from "./model/classifier";
 export { useServiceDirectory } from "./api/service-directory";

@@ -21,6 +21,7 @@ import type {
   ServiceHistory,
   StartedSession,
   TrainingSession,
+  TtsSegment,
 } from "../model/types";
 
 function requestConfig(userId?: string) {
@@ -39,7 +40,7 @@ export function apiError(error: unknown): string {
     const detail = error.response?.data?.detail;
     const messages: Record<string, string> = {
       "Assignment already has an active session":
-        "Занятие уже запущено. Обновите список занятий и нажмите «Продолжить».",
+        "Занятие уже запущено. Повторный запуск недоступен.",
       "Assignment is completed": "Назначение уже завершено.",
       "Maximum number of attempts has been reached":
         "Все доступные попытки использованы.",
@@ -59,7 +60,7 @@ export function apiError(error: unknown): string {
       "A pre-created scenario card cannot be linked to an incoming call":
         "Карточку из сценария нельзя привязать к звонку. Создайте свою карточку.",
       "Incoming call is already linked to another card":
-        "К звонку уже привязана другая карточка. Обновите список звонков.",
+        "К звонку уже привязана другая карточка. Обновите данные занятия.",
       "Incident card is already linked to another incoming call":
         "Эта карточка уже привязана к другому звонку.",
       "Create and link an incident card before completing the call":
@@ -73,7 +74,7 @@ export function apiError(error: unknown): string {
       (detail.startsWith("Incoming call cannot be answered from status") ||
         detail.startsWith("Incoming call cannot complete from status"))
     )
-      return "Состояние звонка изменилось. Обновите список звонков перед следующим действием.";
+      return "Состояние звонка изменилось. Обновите данные занятия перед следующим действием.";
     if (error.response?.status === 409)
       return "Данные изменились или действие уже выполнено. Обновите карточку перед повторной записью. Введённые данные сохранены в форме.";
     if (error.response?.status === 403)
@@ -156,6 +157,13 @@ export const trainingApi = {
         ...requestConfig(userId),
         signal,
       })
+    ).data,
+  session: async (ctx: LaunchContext) =>
+    (
+      await api.get<TrainingSession>(
+        `/training-sessions/${ctx.sessionId}`,
+        requestConfig(ctx.userId),
+      )
     ).data,
   start: async (userId: string, assignmentId: string, key: string) =>
     (
@@ -406,6 +414,64 @@ export const trainingApi = {
         `/workspaces/${ctx.workspaceId}/cards/${cardId}/audio-messages`,
         { ...requestConfig(ctx.userId), signal },
       )
+    ).data,
+  callAudioConfig: async (signal?: AbortSignal) =>
+    (
+      await api.get<{ vad_silence_ms: number }>("/call-audio-config", {
+        ...requestConfig(),
+        signal,
+      })
+    ).data,
+  uploadCallAudio: async (
+    ctx: LaunchContext,
+    callId: string,
+    audio: Blob,
+    key: string,
+  ) => {
+    const form = new FormData();
+    const extension =
+      audio.type === "audio/ogg"
+        ? "ogg"
+        : audio.type === "audio/mp4"
+          ? "m4a"
+          : "webm";
+    form.append("audio", audio, `operator-112.${extension}`);
+    form.append("client_sent_at", new Date().toISOString());
+    return (
+      await api.post<AudioMessage>(
+        `/workspaces/${ctx.workspaceId}/incoming-calls/${callId}/audio-messages`,
+        form,
+        {
+          ...requestConfig(ctx.userId),
+          timeout: 60000,
+          headers: { "X-User-Id": ctx.userId, "Idempotency-Key": key },
+        },
+      )
+    ).data;
+  },
+  callAudioMessages: async (
+    ctx: LaunchContext,
+    callId: string,
+    signal?: AbortSignal,
+  ) =>
+    (
+      await api.get<AudioMessage[]>(
+        `/workspaces/${ctx.workspaceId}/incoming-calls/${callId}/audio-messages`,
+        { ...requestConfig(ctx.userId), signal },
+      )
+    ).data,
+  ttsSegments: async (userId: string, messageId: string) =>
+    (
+      await api.get<TtsSegment[]>(`/audio-messages/${messageId}/tts-segments`, {
+        ...requestConfig(userId),
+      })
+    ).data,
+  ttsSegmentContent: async (userId: string, segmentId: string) =>
+    (
+      await api.get<Blob>(`/tts-segments/${segmentId}/content`, {
+        ...requestConfig(userId),
+        responseType: "blob",
+      })
     ).data,
   audioContent: async (userId: string, id: string, signal?: AbortSignal) =>
     (

@@ -5,6 +5,7 @@ import {
   Checkbox,
   Group,
   Modal,
+  MultiSelect,
   Select,
   Stack,
   Text,
@@ -26,6 +27,7 @@ import {
   useServiceDirectory,
 } from "@/entities/incident";
 import classes from "./operator-card.module.scss";
+import type { EmergencyService } from "@/entities/training";
 import {
   emptyAddress,
   type OperatorCardEntry,
@@ -76,6 +78,7 @@ export function OperatorCard({
   onSave,
   onClose,
   remote,
+  incomingCall,
 }: {
   entry: OperatorCardEntry;
   isNew: boolean;
@@ -85,6 +88,18 @@ export function OperatorCard({
     services: ReactNode;
     readOnly: boolean;
     canSave: boolean;
+    lockFields?: boolean;
+  };
+  incomingCall?: {
+    callerNumber?: string | null;
+    status: string;
+    error: string | null;
+    audioBusy: boolean;
+    onRetry: () => void;
+    ended: boolean;
+    onEnd: () => void;
+    warning?: string;
+    directory: EmergencyService[];
   };
   onClose: () => void;
 }) {
@@ -95,23 +110,31 @@ export function OperatorCard({
     initialValues: structuredClone(entry.draft),
     validate: {
       applicant: (value) =>
-        remote || value.trim() ? null : "Укажите ФИО заявителя",
+        (remote && !incomingCall) || value.trim()
+          ? null
+          : "Укажите ФИО заявителя",
       address: {
         street: (value, values) =>
-          remote || value.trim() || values.address.descriptive.trim()
+          (remote && !incomingCall) ||
+          value.trim() ||
+          values.address.descriptive.trim()
             ? null
             : "Укажите улицу или описательный адрес",
         house: (value, values) =>
-          remote || value.trim() || values.address.descriptive.trim()
+          (remote && !incomingCall) ||
+          value.trim() ||
+          values.address.descriptive.trim()
             ? null
             : "Укажите дом или описательный адрес",
         descriptive: (value) =>
-          remote && !value.trim() ? "Укажите адрес происшествия" : null,
+          remote && !incomingCall && !value.trim()
+            ? "Укажите адрес происшествия"
+            : null,
       },
       description: (value) =>
         value.trim() ? null : "Опишите происшествие со слов заявителя",
       group: (_, values) =>
-        remote ||
+        (remote && !incomingCall) ||
         resolveClassification(values.group, values.features, values.recordId)
           ? null
           : "Выберите тип и все определяющие признаки",
@@ -123,6 +146,7 @@ export function OperatorCard({
   }, [entry.draft, editing, setFormValues]);
   const [addingService, setAddingService] = useState(false);
   const [manualService, setManualService] = useState<string | null>(null);
+  const [manualServiceIds, setManualServiceIds] = useState<string[]>([]);
   const directory = useServiceDirectory(!remote);
   const values = form.values;
   const record = resolveClassification(
@@ -132,11 +156,30 @@ export function OperatorCard({
   );
   const matches = getClassificationMatches(values.group, values.features);
   const services = resolveServices(record, values.flags);
+  const unavailableServices = incomingCall
+    ? services.filter(
+        (routed) =>
+          !incomingCall.directory.some(
+            (service) => service.is_active && service.code === routed.code,
+          ),
+      )
+    : [];
   const allServices = [
     ...services.map((service) => ({ ...service, manual: false })),
     ...values.manualServices
-      .filter((name) => !services.some((service) => service.name === name))
-      .map((name) => ({ name, reasons: ["Добавлена вручную"], manual: true })),
+      .map((idOrName) => ({
+        idOrName,
+        name:
+          incomingCall?.directory.find((service) => service.id === idOrName)
+            ?.name ?? idOrName,
+      }))
+      .filter(({ name }) => !services.some((service) => service.name === name))
+      .map(({ idOrName, name }) => ({
+        idOrName,
+        name,
+        reasons: ["Добавлена вручную"],
+        manual: true,
+      })),
   ];
   const [search, setSearch] = useState("");
   const normalizedSearch = search
@@ -196,59 +239,111 @@ export function OperatorCard({
   }
 
   return (
-    <div className={classes.card}>
-      <Group justify="space-between" className={classes.cardToolbar}>
-        <Text size="sm" fw={600}>
-          Карточка {entry.incident.id} · {editing ? "Заполнение" : "Просмотр"}
-        </Text>
-        <Group gap="xs">
-          {!editing && !remote?.readOnly && (
+    <div
+      className={`${classes.card} ${incomingCall ? classes.incomingCard : ""}`}
+    >
+      {!incomingCall && (
+        <Group justify="space-between" className={classes.cardToolbar}>
+          <Text size="sm" fw={600}>
+            Карточка {entry.incident.id} · {editing ? "Заполнение" : "Просмотр"}
+          </Text>
+          <Group gap="xs">
+            {!editing && !remote?.readOnly && (
+              <Button
+                size="xs"
+                variant="default"
+                onClick={() => setEditing(true)}
+              >
+                Дополнить карточку
+              </Button>
+            )}
             <Button
               size="xs"
               variant="default"
-              onClick={() => setEditing(true)}
+              onClick={onClose}
+              disabled={saving}
+              leftSection={<X size={16} />}
             >
-              Дополнить карточку
+              К списку карточек
             </Button>
-          )}
-          <Button
-            size="xs"
-            variant="default"
-            onClick={onClose}
-            disabled={saving}
-            leftSection={<X size={16} />}
-          >
-            К списку карточек
-          </Button>
+          </Group>
         </Group>
-      </Group>
+      )}
       {saveError && (
         <Alert color="red" m="sm">
           {saveError}
         </Alert>
       )}
+      {incomingCall?.warning && (
+        <Alert color="yellow" m="sm">
+          {incomingCall.warning}
+        </Alert>
+      )}
+      {unavailableServices.length > 0 && (
+        <Alert color="red" m="sm">
+          В справочнике API нет служб:{" "}
+          {unavailableServices.map((item) => item.name).join(", ")}. Сохранение
+          карточки пока невозможно.
+        </Alert>
+      )}
       <fieldset
-        disabled={!editing || saving || remote?.readOnly}
+        disabled={!editing || saving || remote?.readOnly || remote?.lockFields}
         className={classes.cardFields}
       >
         <header
           className={classes.topbar}
-          data-remote={remote ? true : undefined}
+          data-remote={remote && !incomingCall ? true : undefined}
+          data-incoming={incomingCall ? true : undefined}
         >
           <div className={classes.callState}>
-            <Phone size={25} />
+            {incomingCall ? (
+              <Button
+                color={incomingCall.ended ? "gray" : "red"}
+                className={classes.hangup}
+                aria-label="Завершить разговор"
+                disabled={
+                  incomingCall.ended || saving || incomingCall.audioBusy
+                }
+                onClick={incomingCall.onEnd}
+              >
+                <Phone size={25} />
+              </Button>
+            ) : (
+              <Phone size={25} />
+            )}
             <div>
-              <strong>Учебный вызов</strong>
+              <strong>
+                {incomingCall?.ended ? "Разговор завершён" : "Учебный вызов"}
+              </strong>
               <Text size="xs" c="dimmed" mt={5}>
-                Голосовой диалог пока недоступен
+                {incomingCall
+                  ? incomingCall.ended
+                    ? "Карточку можно сохранить"
+                    : incomingCall.status
+                  : "Голосовой диалог пока недоступен"}
               </Text>
+              {incomingCall?.error && (
+                <>
+                  <Text size="xs" c="red" lineClamp={2}>
+                    {incomingCall.error}
+                  </Text>
+                  <Button
+                    size="compact-xs"
+                    variant="subtle"
+                    onClick={incomingCall.onRetry}
+                  >
+                    Повторить подключение
+                  </Button>
+                </>
+              )}
             </div>
           </div>
-          {!remote && (
+          {(!remote || incomingCall) && (
             <>
               <TextInput
                 label="АОН"
                 placeholder="+7 (___) ___-__-__"
+                readOnly={!!incomingCall}
                 {...form.getInputProps("aon")}
               />
               <TextInput
@@ -264,7 +359,9 @@ export function OperatorCard({
             </>
           )}
           <div className={classes.cardNumber}>
-            <strong>Карточка 112</strong>
+            <strong>
+              {incomingCall ? "Карточка входящего звонка" : "Карточка 112"}
+            </strong>
             <span>Происшествие {entry.incident.id}</span>
             <small>Оператор 112 · АРМ 4</small>
           </div>
@@ -276,7 +373,7 @@ export function OperatorCard({
         </header>
         <div className={classes.columns}>
           <div className={classes.leftColumn}>
-            {!remote && (
+            {(!remote || incomingCall) && (
               <section
                 className={classes.panel}
                 aria-label="Заявитель и пострадавший"
@@ -299,16 +396,25 @@ export function OperatorCard({
                     ]}
                     {...form.getInputProps("applicantStatus")}
                   />
+                  {incomingCall && (
+                    <TextInput
+                      label="ФИО пострадавшего"
+                      placeholder="Если отличается"
+                      {...form.getInputProps("victim")}
+                    />
+                  )}
                 </div>
-                <TextInput
-                  mt="xs"
-                  label="ФИО пострадавшего"
-                  placeholder="Если отличается от заявителя"
-                  {...form.getInputProps("victim")}
-                />
+                {!incomingCall && (
+                  <TextInput
+                    mt="xs"
+                    label="ФИО пострадавшего"
+                    placeholder="Если отличается от заявителя"
+                    {...form.getInputProps("victim")}
+                  />
+                )}
               </section>
             )}
-            {remote ? (
+            {remote && !incomingCall ? (
               <section
                 className={classes.panel}
                 aria-label="Адрес происшествия"
@@ -326,7 +432,9 @@ export function OperatorCard({
                 className={classes.panel}
                 aria-label="Адрес происшествия"
               >
-                <div className={classes.sectionTitle}>Адрес происшествия</div>
+                <div className={classes.sectionTitle}>
+                  {incomingCall ? "Адрес:" : "Адрес происшествия"}
+                </div>
                 <div className={classes.addressSummary}>
                   {[
                     values.address.subject,
@@ -384,7 +492,7 @@ export function OperatorCard({
                 {values.description.length} / 1999
               </Text>
             </section>
-            {remote && (
+            {remote && !incomingCall && (
               <section className={classes.panel} aria-label="Анкета">
                 <div className={classes.sectionTitle}>Анкета</div>
                 <Textarea
@@ -404,7 +512,7 @@ export function OperatorCard({
             )}
           </div>
           <div className={classes.rightColumn}>
-            {remote ? (
+            {remote && !incomingCall ? (
               remote.classification
             ) : (
               <>
@@ -464,6 +572,11 @@ export function OperatorCard({
                     </Group>
                   )}
                 </section>
+                {incomingCall && values.group && (
+                  <div className={classes.selectedIncidentType}>
+                    <span>{values.group}</span>
+                  </div>
+                )}
                 {values.group && (
                   <section
                     className={classes.criteria}
@@ -560,7 +673,7 @@ export function OperatorCard({
                     </div>
                   </section>
                 )}
-                {record && (
+                {record && !incomingCall && (
                   <section className={classes.panel} aria-live="polite">
                     <Text size="sm">
                       Класс.: <strong>{record.name}</strong>
@@ -572,12 +685,21 @@ export function OperatorCard({
                 )}
               </>
             )}
+            {remote && incomingCall && (
+              <details
+                className={`${classes.panel} ${classes.trainingClassification}`}
+                aria-label="Данные учебной карточки"
+              >
+                <summary>Данные учебной карточки</summary>
+                {remote.classification}
+              </details>
+            )}
           </div>
         </div>
       </fieldset>
       <footer className={classes.footer}>
         <strong>Службы:</strong>
-        {remote ? (
+        {remote && !incomingCall ? (
           remote.services
         ) : (
           <>
@@ -598,7 +720,7 @@ export function OperatorCard({
                           ? "Будет оповещена"
                           : "Добавлена"}
                     </small>
-                    {service.manual && editing && (
+                    {service.manual && editing && !remote?.lockFields && (
                       <button
                         type="button"
                         aria-label={`Убрать службу ${service.name}`}
@@ -606,7 +728,11 @@ export function OperatorCard({
                           form.setFieldValue(
                             "manualServices",
                             values.manualServices.filter(
-                              (name) => name !== service.name,
+                              (name) =>
+                                name !==
+                                ("idOrName" in service
+                                  ? service.idOrName
+                                  : service.name),
                             ),
                           )
                         }
@@ -630,8 +756,24 @@ export function OperatorCard({
               color="white"
               px={10}
               aria-label="Добавить службу"
-              disabled={!editing}
-              onClick={() => setAddingService(true)}
+              disabled={!editing || remote?.readOnly || remote?.lockFields}
+              onClick={() => {
+                setManualServiceIds(
+                  values.manualServices.filter(
+                    (id) =>
+                      !incomingCall ||
+                      incomingCall.directory.some(
+                        (service) =>
+                          service.id === id &&
+                          service.is_active &&
+                          !services.some(
+                            (routed) => routed.code === service.code,
+                          ),
+                      ),
+                  ),
+                );
+                setAddingService(true);
+              }}
             >
               <Plus size={20} />
             </Button>
@@ -643,10 +785,28 @@ export function OperatorCard({
           leftSection={<Save size={18} />}
           onClick={() => void save()}
           loading={saving}
-          disabled={!editing || remote?.readOnly || (remote && !remote.canSave)}
+          disabled={
+            !editing ||
+            remote?.readOnly ||
+            (remote && !remote.canSave) ||
+            (!!incomingCall && !incomingCall.ended)
+          }
         >
           Сохранить
         </Button>
+        {incomingCall && (
+          <Button
+            variant="outline"
+            color="white"
+            px={10}
+            aria-label="Закрыть карточку"
+            title="Вернуться к списку карточек"
+            disabled={saving}
+            onClick={onClose}
+          >
+            <X size={24} />
+          </Button>
+        )}
       </footer>
       <Modal
         opened={addingService}
@@ -655,7 +815,24 @@ export function OperatorCard({
         centered
       >
         <Stack>
-          {directory.isError ? (
+          {incomingCall ? (
+            <MultiSelect
+              label="Поиск служб"
+              searchable
+              clearable
+              placeholder="Введите название службы"
+              data={incomingCall.directory
+                .filter(
+                  (service) =>
+                    service.is_active &&
+                    !services.some((routed) => routed.code === service.code),
+                )
+                .map((service) => ({ value: service.id, label: service.name }))}
+              value={manualServiceIds}
+              onChange={setManualServiceIds}
+              nothingFoundMessage="Службы не найдены"
+            />
+          ) : directory.isError ? (
             <Alert color="red" title="Не удалось загрузить справочник служб">
               <Button variant="subtle" onClick={() => directory.refetch()}>
                 Повторить
@@ -678,18 +855,21 @@ export function OperatorCard({
             />
           )}
           <Button
-            disabled={!manualService || directory.isError}
+            disabled={!incomingCall && (!manualService || directory.isError)}
             onClick={() => {
-              if (manualService)
+              if (incomingCall) {
+                form.setFieldValue("manualServices", manualServiceIds);
+              } else if (manualService) {
                 form.setFieldValue("manualServices", [
                   ...values.manualServices,
                   manualService,
                 ]);
+              }
               setManualService(null);
               setAddingService(false);
             }}
           >
-            Добавить
+            {incomingCall ? "Сохранить и закрыть" : "Добавить"}
           </Button>
         </Stack>
       </Modal>

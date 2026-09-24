@@ -24,6 +24,7 @@ export function ServerClassification({
   schema,
   schemaError,
   schemaPending,
+  showServiceNote = true,
 }: {
   features: CardFeatures;
   onChange: (features: CardFeatures) => void;
@@ -31,6 +32,7 @@ export function ServerClassification({
   schema: FeatureSchema | null | undefined;
   schemaError: unknown;
   schemaPending: boolean;
+  showServiceNote?: boolean;
 }) {
   const fields = [
     "first_order_feature_id",
@@ -102,14 +104,16 @@ export function ServerClassification({
       ) : features.event_kind_id > 0 ? (
         <Alert color="yellow">
           Для этой комбинации в API нет схемы. Можно сохранить выбранные
-          признаки; автоматические службы определит сервер.
+          признаки.
         </Alert>
       ) : null}
-      <Text size="xs" c="dimmed">
-        Службы рассчитывает сервер после сохранения признаков. Внизу показаны
-        службы сохранённой карточки. После создания категорию карточки нельзя
-        изменить.
-      </Text>
+      {showServiceNote && (
+        <Text size="xs" c="dimmed">
+          Службы рассчитывает сервер после сохранения признаков. Внизу показаны
+          службы сохранённой карточки. После создания категорию карточки нельзя
+          изменить.
+        </Text>
+      )}
     </Stack>
   );
 }

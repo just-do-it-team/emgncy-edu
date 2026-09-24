@@ -5,6 +5,7 @@ import {
   type CompletionReadiness,
   type LaunchContext,
 } from "@/entities/training";
+import { publishCallAudioEvent } from "./call-audio-events";
 
 type ConnectionState = "connecting" | "connected" | "disconnected";
 
@@ -25,6 +26,10 @@ const audioEvents = [
   "training.audio_transcribed",
   "training.tts_completed",
   "training.audio_processing_failed",
+  "training.tts_segment_ready",
+  "training.tts_segment_failed",
+  "training.dialogue_finished",
+  "training.dialogue_failed",
 ];
 
 export function useWorkspaceEvents(ctx: LaunchContext, ready: boolean) {
@@ -44,11 +49,27 @@ export function useWorkspaceEvents(ctx: LaunchContext, ready: boolean) {
     };
     source.onopen = () => {
       setConnection("connected");
+      publishCallAudioEvent({
+        workspaceId: ctx.workspaceId,
+        type: "stream.open",
+      });
       // Recover changes between the initial REST snapshot and the SSE connection.
       resync();
     };
-    source.onerror = () => setConnection("disconnected");
-    source.addEventListener("stream.gap", resync);
+    source.onerror = () => {
+      setConnection("disconnected");
+      publishCallAudioEvent({
+        workspaceId: ctx.workspaceId,
+        type: "stream.error",
+      });
+    };
+    source.addEventListener("stream.gap", () => {
+      resync();
+      publishCallAudioEvent({
+        workspaceId: ctx.workspaceId,
+        type: "stream.gap",
+      });
+    });
     source.addEventListener(
       "training.session.completion-readiness-changed",
       (event) => {
@@ -75,8 +96,23 @@ export function useWorkspaceEvents(ctx: LaunchContext, ready: boolean) {
       });
     }
     for (const eventName of audioEvents) {
-      source.addEventListener(eventName, () => {
+      source.addEventListener(eventName, (event) => {
         void queryClient.invalidateQueries({ queryKey: [...baseKey, "audio"] });
+        try {
+          const payload = JSON.parse(event.data) as {
+            data?: Record<string, unknown>;
+          };
+          publishCallAudioEvent({
+            workspaceId: ctx.workspaceId,
+            type: eventName,
+            data: payload.data,
+          });
+        } catch {
+          publishCallAudioEvent({
+            workspaceId: ctx.workspaceId,
+            type: "stream.gap",
+          });
+        }
       });
     }
     for (const eventName of [

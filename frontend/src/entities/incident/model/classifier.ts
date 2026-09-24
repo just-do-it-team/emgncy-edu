@@ -169,15 +169,106 @@ export const classifierServiceNames = [
   ...new Set(reference.route_definitions.map(routeServiceName)),
 ];
 export interface RoutedService {
+  code: string;
   name: string;
   reasons: string[];
 }
+
+// route_id в JSON не содержит UUID службы. Эти коды связывают его с GET /services.
+const routeServiceCodes = [
+  "101",
+  "101",
+  "ODS_PSC",
+  "ODS_PSC",
+  "ODS_PSC",
+  "ODS_PSC",
+  "MGPSS",
+  "102",
+  "102",
+  "102",
+  "103",
+  "103",
+  "103",
+  "104",
+  "104",
+  "ZEMP",
+  "ZEMP",
+  "ZEMP",
+  "ZEMP",
+  "ZEMP",
+  "FSB",
+  "FSB",
+  "MOSOBLGAZ",
+  "AUTOROADS",
+  "MOSGORTRANS",
+  "MOSGORTRANS",
+  "MOSGORTRANS",
+  "GKH",
+  "GORMOST",
+  "GORMOST",
+  "GORMOST",
+  "GORMOST",
+  "MOSCOW_CANAL",
+  "MGTS",
+  "MGTS",
+  "METRO",
+  "MOSVODOCANAL",
+  "MOEK",
+  "MOESK",
+  "OEK",
+  "MOSLIFT",
+  "ZODD",
+  "DEP_GKH",
+  "DEP_RBIPK",
+  "DEP_RBIPK",
+  "MAYOR_OFFICE",
+  "MOSCOLLECTOR",
+  "RZD",
+  "DEP_EDUCATION",
+  "CENTERREGIONVODKHOZ",
+  "MILITARY_COMMANDANT",
+  "OATI",
+  "MOSVODOSTOK",
+  "DEP_PPIOOS",
+  "DEP_TSZN",
+  "RSVO",
+  "EVAZHD",
+  "MSPPN",
+  "DTU_R",
+  "DTU",
+  "ROSGVARDIA",
+  "TERRITORIAL_OIV",
+  "TERRITORIAL_OIV_TINAO",
+  "AUTOROADS_AO",
+  "DEP_CONSTRUCTION",
+  "DEP_CONSTRUCTION",
+  "VET_COMMITTEE",
+  "MOSZHILINSPEKTSIYA",
+  "DEP_CULTURE",
+  "CSA_GLINKA",
+  "GKU_NTU",
+  "FSO",
+  "GUP_MSR",
+  "GUP_MSR",
+  "DEP_TOURISM",
+  "DGP",
+  "DGP",
+  "CUKB_DEFENSE",
+  "CUKB_UAV_DEFENSE",
+  "TRANSPORT_ORGANIZER",
+  "TRANSPORT_ORGANIZER",
+  "MOSECOMONITORING",
+  "DEFENSE_RCB",
+  "DEFENSE_RCB",
+  "CITYENERGO",
+  "DEP_CIVIL_CONSTRUCTION",
+];
 
 export function resolveServices(
   record: ClassifierRecord | undefined,
   flags: RoutingFlags,
 ): RoutedService[] {
-  const services = new Map<string, Set<string>>();
+  const services = new Map<string, { name: string; reasons: Set<string> }>();
   for (const [id, value] of record?.routes ?? []) {
     if (
       !routeApplies(id, flags) ||
@@ -189,12 +280,17 @@ export function resolveServices(
     );
     if (!definition) continue;
     const name = routeServiceName(definition);
-    const reasons = services.get(name) ?? new Set<string>();
-    reasons.add(value);
-    services.set(name, reasons);
+    const code = routeServiceCodes[id] ?? "";
+    const service = services.get(code) ?? {
+      name,
+      reasons: new Set<string>(),
+    };
+    service.reasons.add(value);
+    services.set(code, service);
   }
-  return [...services].map(([name, reasons]) => ({
-    name,
-    reasons: [...reasons],
+  return [...services].map(([code, service]) => ({
+    code,
+    name: service.name,
+    reasons: [...service.reasons],
   }));
 }

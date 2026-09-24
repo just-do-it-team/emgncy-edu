@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
+import { notifications } from "@mantine/notifications";
 import {
   Alert,
   Badge,
@@ -26,6 +27,7 @@ import {
   trainingApi,
   type CardListItem,
   type LaunchContext,
+  type TrainingSession,
 } from "@/entities/training";
 import { IncidentList } from "./incident-list";
 import { listIncident } from "../model/api-card-adapter";
@@ -36,12 +38,35 @@ import classes from "./workspace-page.module.scss";
 
 class PendingSessionError extends Error {}
 
+const finishedSessionKey = (userId: string, sessionId: string) =>
+  `finished-training-session:${userId}:${sessionId}`;
+
+function wasFinishedHere(userId: string, sessionId: string) {
+  try {
+    return (
+      sessionStorage.getItem(finishedSessionKey(userId, sessionId)) === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function rememberFinished(userId: string, sessionId: string) {
+  try {
+    sessionStorage.setItem(finishedSessionKey(userId, sessionId), "1");
+  } catch {
+    // A successful server response still permits navigation when storage is unavailable.
+  }
+}
+
 export function ConnectedWorkspace() {
   const [params] = useSearchParams();
   const userId = useSessionStore((state) => state.profile?.userId);
   const sessionId = params.get("session") ?? "";
   const assignmentId = params.get("assignment") ?? "";
   if (!userId) return <Navigate to="/login" replace />;
+  if (wasFinishedHere(userId, sessionId))
+    return <Navigate to="/student" replace />;
   if (!isUuid(sessionId) || (assignmentId && !isUuid(assignmentId)))
     return (
       <Alert m="md" title="Сначала откройте назначенное занятие">
@@ -135,10 +160,11 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
   const navigate = useNavigate();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
-  const [completing, setCompleting] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [finishOpen, setFinishOpen] = useState(false);
   const [callBusy, setCallBusy] = useState(false);
+  const [finishAfterBusy, setFinishAfterBusy] = useState(false);
+  const backAction = useRef<() => void>(() => {});
   const [actionError, setActionError] = useState<string | null>(null);
   const baseKey = ["student-api", ctx.userId, ctx.workspaceId];
   const readiness = useQuery({
@@ -169,6 +195,23 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     }
     return [...byId.values()];
   }, [cards.data]);
+  const calls = useQuery({
+    queryKey: [...baseKey, "incoming-calls", ctx.sessionId],
+    queryFn: ({ signal }) => trainingApi.incomingCalls(ctx, signal),
+    enabled: ctx.mode === "ARM112",
+    refetchOnWindowFocus: false,
+    meta: { showGlobalError: false },
+  });
+  const visibleCards = useMemo(() => {
+    if (ctx.mode !== "ARM112") return cardItems;
+    const completedCardIds = new Set(
+      calls.data
+        ?.filter((call) => call.status === "COMPLETED")
+        .map((call) => call.incident_card_id)
+        .filter((id): id is string => !!id) ?? [],
+    );
+    return cardItems.filter((card) => completedCardIds.has(card.card_id));
+  }, [cardItems, calls.data, ctx.mode]);
   const reference = useQuery({
     queryKey: ["student-api", "reference"],
     queryFn: async ({ signal }) => {
@@ -187,8 +230,10 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     meta: { showGlobalError: false },
   });
   const active = readiness.data?.status === "RUNNING" && !readiness.isError;
-  const requiresAbort =
-    !readiness.data || ["CREATED", "RUNNING"].includes(readiness.data.status);
+  const canComplete = active && readiness.data?.can_complete === true;
+  const alreadyFinished = ["COMPLETED", "ABORTED"].includes(
+    readiness.data?.status ?? "",
+  );
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: baseKey });
   }
@@ -207,54 +252,93 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
       setOpening(false);
     }
   }
-  async function complete() {
-    if (completing || callBusy || !readiness.data?.can_complete || !active)
-      return;
-    setCompleting(true);
+  async function finish(action: "complete" | "abort" | "finished") {
+    if (exiting) return;
+    setExiting(true);
     setActionError(null);
+    setFinishOpen(false);
     try {
-      await trainingApi.complete(ctx);
-      await refresh();
-      await queryClient.invalidateQueries({
+      let session: TrainingSession;
+      try {
+        session =
+          action === "complete"
+            ? await trainingApi.complete(ctx)
+            : action === "abort"
+              ? await trainingApi.abort(ctx)
+              : await trainingApi.session(ctx);
+      } catch (error) {
+        if (!axios.isAxiosError(error) || error.response?.status !== 409)
+          throw error;
+        const current = await trainingApi.session(ctx);
+        if (!["COMPLETED", "ABORTED"].includes(current.status)) throw error;
+        session = current;
+      }
+      if (!["COMPLETED", "ABORTED"].includes(session.status))
+        throw new Error("Сервер не подтвердил завершение занятия.");
+      const score = session.score === null ? "" : ` · Оценка: ${session.score}`;
+      notifications.show({
+        color: session.passed ? "green" : "orange",
+        message: `Занятие ${session.passed ? "сдано" : "не сдано"}${score}`,
+      });
+      void queryClient.invalidateQueries({
         queryKey: ["student-api", ctx.userId, "history"],
       });
-      await queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["student-api", ctx.userId, "assignments"],
       });
+      rememberFinished(ctx.userId, ctx.sessionId);
+      navigate("/student", { replace: true });
     } catch (error) {
       setActionError(apiError(error));
-    } finally {
-      setCompleting(false);
+      setExiting(false);
+      void refresh();
     }
   }
-  async function finish() {
+  function requestFinish() {
     if (exiting) return;
-    if (requiresAbort) {
-      setExiting(true);
-      setActionError(null);
-      try {
-        await trainingApi.abort(ctx);
-        await Promise.all([
-          queryClient.invalidateQueries({
-            queryKey: ["student-api", ctx.userId, "history"],
-          }),
-          queryClient.invalidateQueries({
-            queryKey: ["student-api", ctx.userId, "assignments"],
-          }),
-        ]);
-      } catch (error) {
-        setActionError(
-          axios.isAxiosError(error) && error.response?.status === 404
-            ? "Не удалось завершить попытку: метод недоступен или попытка не найдена. Занятие остаётся активным."
-            : apiError(error),
-        );
-        setExiting(false);
-        setFinishOpen(false);
-        return;
-      }
+    if (callBusy || opening) {
+      setFinishAfterBusy(true);
+      return;
     }
-    navigate("/student");
+    if (alreadyFinished) {
+      void finish("finished");
+    } else if (canComplete) {
+      void finish(
+        readiness.data?.completion_policy === "STUDENT_CONFIRM"
+          ? "complete"
+          : "abort",
+      );
+    } else {
+      setFinishOpen(true);
+    }
   }
+  backAction.current = requestFinish;
+  useEffect(() => {
+    if (finishAfterBusy && !callBusy && !opening && !exiting) {
+      setFinishAfterBusy(false);
+      backAction.current();
+    }
+  }, [finishAfterBusy, callBusy, opening, exiting]);
+  useEffect(() => {
+    // Keep one same-URL entry so a browser Back goes through the finish flow.
+    const url = window.location.href;
+    const guard = () =>
+      window.history.pushState(
+        { ...window.history.state, trainingGuard: ctx.sessionId },
+        "",
+        url,
+      );
+    guard();
+    const onBack = () => {
+      guard();
+      backAction.current();
+    };
+    window.addEventListener("popstate", onBack);
+    return () => window.removeEventListener("popstate", onBack);
+  }, [ctx.sessionId]);
+  useEffect(() => {
+    if (canComplete) setFinishOpen(false);
+  }, [canComplete]);
   return (
     <div className={classes.page}>
       <Modal
@@ -262,14 +346,14 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
         onClose={() => setFinishOpen(false)}
         title="Завершить занятие?"
         centered
+        zIndex={1000}
         closeOnClickOutside={!exiting}
         closeOnEscape={!exiting}
       >
         <Stack gap="md">
           <Text>
-            {requiresAbort
-              ? "Попытка будет завершена и засчитана как несданная."
-              : "Вы вернётесь к списку занятий."}
+            Данное действие завершит прохождение обучения. Занятие будет
+            провалено.
           </Text>
           <Group justify="flex-end">
             <Button
@@ -279,7 +363,11 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
             >
               Отмена
             </Button>
-            <Button color="red" loading={exiting} onClick={() => void finish()}>
+            <Button
+              color="red"
+              loading={exiting}
+              onClick={() => void finish("abort")}
+            >
               Завершить
             </Button>
           </Group>
@@ -289,9 +377,20 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
         <Group>
           <Button
             size="lg"
-            color="red"
+            color={
+              canComplete || readiness.data?.status === "COMPLETED"
+                ? "orange"
+                : "gray"
+            }
+            variant={
+              canComplete || readiness.data?.status === "COMPLETED"
+                ? "filled"
+                : "light"
+            }
             fw={700}
-            onClick={() => setFinishOpen(true)}
+            disabled={exiting || callBusy || opening}
+            loading={exiting}
+            onClick={requestFinish}
           >
             Завершить занятие
           </Button>
@@ -342,28 +441,6 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
                   <Text size="xs">Занятие завершает преподаватель.</Text>
                 )}
             </div>
-            <Group>
-              {readiness.data.completion_policy === "STUDENT_CONFIRM" && (
-                <Button
-                  size="xs"
-                  loading={completing}
-                  disabled={
-                    !active ||
-                    !readiness.data.can_complete ||
-                    !!selectedId ||
-                    callBusy
-                  }
-                  onClick={() => void complete()}
-                >
-                  Сдать занятие
-                </Button>
-              )}
-              {!active && readiness.data.status === "COMPLETED" && (
-                <Button component={Link} to="/student/results" size="xs">
-                  Результаты
-                </Button>
-              )}
-            </Group>
           </Group>
         )}
         <Group justify="center">
@@ -423,25 +500,24 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
         {ctx.mode === "ARM112" && (
           <IncomingCalls
             ctx={ctx}
-            active={active && !completing}
-            cards={cardItems}
+            active={active && !exiting}
             reference={reference.data}
             canCreate={!!reference.data && !reference.isError}
             onChanged={refresh}
-            onOpenCard={(id) => void open(id)}
             onBusyChange={setCallBusy}
           />
         )}
-        {cards.isSuccess && cardItems.length === 0 && (
+        {cards.isSuccess && visibleCards.length === 0 && (
           <Text c="dimmed">
-            Доступных карточек пока нет. Новые карточки появятся при поступлении
-            событий сценария.
+            {ctx.mode === "ARM112"
+              ? "Список карточек пуст. Карточка появится здесь после обработки входящего звонка."
+              : "Доступных карточек пока нет. Новые карточки появятся при поступлении событий сценария."}
           </Text>
         )}
       </Stack>
       <div className={classes.content}>
         <IncidentList
-          incidents={cardItems.map((c) =>
+          incidents={visibleCards.map((c) =>
             listIncident(c, reference.data?.kinds ?? [], ctx.positionCode),
           )}
           operatorMode={ctx.mode === "ARM112"}
@@ -451,7 +527,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
           pagination={
             <Group justify="flex-end" className={classes.pagination}>
               <Text size="sm" aria-live="polite">
-                Загружено карточек: {cardItems.length}
+                Загружено карточек: {visibleCards.length}
               </Text>
               {cards.hasNextPage ? (
                 <Button
@@ -481,7 +557,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
           cardId={selectedId}
           kinds={reference.data.kinds}
           directory={reference.data.services}
-          readOnly={!active || completing || reference.isError}
+          readOnly={!active || exiting || reference.isError}
           onClose={() => setSelectedId(null)}
           onChanged={refresh}
         />
