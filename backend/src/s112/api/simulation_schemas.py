@@ -21,17 +21,18 @@ from s112.common.enums import (
     ServiceResponseStatus,
     WorkspaceMode,
 )
-from s112.semantic_evaluation.rules import OutboundCallRule, validate_evaluation_rules
+from s112.semantic_evaluation.rules import OutboundCallRule
+from s112.domain.rules import (
+    validate_service_status_comment,
+    validate_service_status_transition,
+)
 
 
 class ExpectedCardFeatures(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     event_kind_id: int
-    first_order_feature_id: int | None = None
-    second_order_feature_id: int | None = None
-    third_order_feature_id: int | None = None
-    additional_features: dict[str, JsonValue]
+    additional_features: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class ExpectedCardState(BaseModel):
@@ -44,11 +45,28 @@ class ExpectedCardState(BaseModel):
     questionnaire: CardQuestionnaire | None = None
     reported_address: str | None = None
     incident_address: str | None = None
-    victims_count: int | None = Field(ge=0)
+    victims_count: int | None = Field(default=None, ge=0)
     current_status: CardStatus
     features: ExpectedCardFeatures | None = None
     services: list[str]
     service_statuses: dict[str, ServiceResponseStatus]
+
+
+class ExpectedServiceStatusChange(BaseModel):
+    """One operator-authored service status change expected during training."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: ServiceResponseStatus
+    comment: str | None = Field(default=None, max_length=10_000)
+
+    @field_validator("comment")
+    @classmethod
+    def normalize_comment(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
 
 class ExpectedResult(BaseModel):
@@ -58,12 +76,37 @@ class ExpectedResult(BaseModel):
 
     card: ExpectedCardState | None = None
     outbound_call: OutboundCallRule | None = None
-    final_state: dict[str, Any] = Field(default_factory=dict, deprecated=True)
+    service_status_history: dict[str, list[ExpectedServiceStatusChange]] | None = None
 
     @model_validator(mode="after")
-    def validate_result(self) -> "ExpectedResult":
-        if self.card is not None and self.final_state:
-            raise ValueError("card cannot be combined with legacy final_state")
+    def validate_service_status_history(self) -> "ExpectedResult":
+        if self.service_status_history is None:
+            return self
+        if self.card is None:
+            raise ValueError("service_status_history requires expected_result.card")
+        if set(self.service_status_history) != set(self.card.services):
+            raise ValueError(
+                "service_status_history must contain every expected card service"
+            )
+        for service_code, changes in self.service_status_history.items():
+            if not changes:
+                raise ValueError(
+                    f"service_status_history[{service_code!r}] must not be empty"
+                )
+            current = ServiceResponseStatus.ADDED.value
+            for change in changes:
+                try:
+                    validate_service_status_transition(current, change.status)
+                    validate_service_status_comment(change.status, change.comment)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"Invalid service status history for {service_code}: {exc}"
+                    ) from exc
+                current = change.status.value
+            if self.card.service_statuses.get(service_code) != changes[-1].status:
+                raise ValueError(
+                    f"Final service status for {service_code} does not match its history"
+                )
         return self
 
 
@@ -107,14 +150,6 @@ class ScenarioCardDefinition(BaseModel):
     initial_card: CardCreate | None = None
     initial_call: InitialIncomingCall | None = None
     expected_result: ExpectedResult | None = None
-    evaluation_rules: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("evaluation_rules")
-    @classmethod
-    def validate_known_evaluation_rules(
-        cls, value: dict[str, Any]
-    ) -> dict[str, Any]:
-        return validate_evaluation_rules(value)
 
     @model_validator(mode="after")
     def validate_source_and_trigger(self) -> "ScenarioCardDefinition":
@@ -146,10 +181,19 @@ class ScenarioCardDefinition(BaseModel):
         elif self.item_type is ScenarioItemType.INCOMING_CALL:
             if self.initial_card is not None:
                 raise ValueError("INCOMING_CALL item must not contain initial_card")
-            if self.evaluation_rules:
-                raise ValueError(
-                    "INCOMING_CALL semantic reference belongs in expected_result"
-                )
+            if self.expected_result is not None:
+                if self.expected_result.card is None:
+                    raise ValueError(
+                        "INCOMING_CALL item requires expected_result.card"
+                    )
+                if self.expected_result.outbound_call is not None:
+                    raise ValueError(
+                        "INCOMING_CALL item cannot require an outbound call"
+                    )
+                if self.expected_result.service_status_history is not None:
+                    raise ValueError(
+                        "INCOMING_CALL item cannot require DDS service status history"
+                    )
 
         if self.trigger_type is ScenarioTriggerType.TIME_OFFSET:
             if not isinstance(self.trigger_config, TimeOffsetTriggerConfig):
@@ -276,7 +320,6 @@ class ResolvedScenarioItem(BaseModel):
     initial_card: CardCreate | None = None
     initial_call: InitialIncomingCall | None = None
     expected_result: ExpectedResult
-    evaluation_rules: dict[str, Any] = Field(default_factory=dict)
     assigned_operator_user_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
@@ -286,6 +329,8 @@ class ResolvedScenarioItem(BaseModel):
                 raise ValueError("Resolved card item requires initial_card only")
         elif self.initial_call is None or self.initial_card is not None:
             raise ValueError("Resolved incoming call requires initial_call only")
+        elif self.expected_result.card is None:
+            raise ValueError("Resolved incoming call requires expected_result.card")
         return self
 
 
@@ -298,7 +343,6 @@ class ResolvedProceduralCardTemplate(BaseModel):
     difficulty: int = Field(ge=1, le=5)
     initial_card: CardCreate
     expected_result: ExpectedResult
-    evaluation_rules: dict[str, Any] = Field(default_factory=dict)
 
 
 class ResolvedScenarioDefinition(BaseModel):
@@ -379,15 +423,7 @@ class CardTemplateCreate(BaseModel):
     difficulty: int = Field(default=1, ge=1, le=5)
     initial_card: CardCreate
     expected_result: ExpectedResult
-    evaluation_rules: dict[str, Any] = Field(default_factory=dict)
     created_by: uuid.UUID
-
-    @field_validator("evaluation_rules")
-    @classmethod
-    def validate_known_evaluation_rules(
-        cls, value: dict[str, Any]
-    ) -> dict[str, Any]:
-        return validate_evaluation_rules(value)
 
 
 class CardTemplateResponse(OrmModel):
@@ -399,7 +435,6 @@ class CardTemplateResponse(OrmModel):
     difficulty: int
     initial_card: dict[str, Any]
     expected_result: dict[str, Any]
-    evaluation_rules: dict[str, Any]
     is_active: bool
     created_by: uuid.UUID
     created_at: datetime
@@ -531,13 +566,6 @@ class TrainingScenarioResponse(OrmModel):
         return strip_scenario_card_runtime_fields(value)
 
 
-class ScenarioFeatureDetail(BaseModel):
-    level: int
-    feature_id: int
-    code: str | None
-    name: str | None
-
-
 class ScenarioServiceDetail(BaseModel):
     service_id: uuid.UUID | None
     code: str
@@ -556,9 +584,6 @@ class ScenarioItemDetail(BaseModel):
     expected_card: dict[str, Any] | None = None
     event_type_name: str | None = None
     event_kind_name: str | None = None
-    incident_type_name: str | None = None
-    ekp35_incident_type: str | None = None
-    features: list[ScenarioFeatureDetail] = Field(default_factory=list)
     main_service: ScenarioServiceDetail | None = None
     notification_list: list[ScenarioServiceDetail] = Field(default_factory=list)
 

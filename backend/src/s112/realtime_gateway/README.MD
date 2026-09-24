@@ -144,10 +144,6 @@ X-User-Id: <user-uuid>
 {
   "workspace_id": "workspace-uuid",
   "event_kind_id": 10,
-  "first_order_feature_id": 100,
-  "second_order_feature_id": 200,
-  "third_order_feature_id": null,
-  "incident_type_id": "incident-type-uuid",
   "feature_revision": 2
 }
 ```

@@ -33,7 +33,6 @@ Content-Type: application/json
     "victims_count": 0,
     "features": {
       "event_kind_id": 10,
-      "first_order_feature_id": 100,
       "additional_features": {}
     }
   },
@@ -48,16 +47,12 @@ Content-Type: application/json
       "current_status": "REGISTERED",
       "features": {
         "event_kind_id": 10,
-        "first_order_feature_id": 100,
-        "second_order_feature_id": null,
-        "third_order_feature_id": null,
         "additional_features": {}
       },
       "services": [],
       "service_statuses": {}
     }
   },
-  "evaluation_rules": {},
   "created_by": "teacher-uuid"
 }
 ```
@@ -69,9 +64,7 @@ Content-Type: application/json
 Для нового задания `expected_result.card` задаёт полное проверяемое состояние
 карточки. Поля в нём обязательны, допускают `null` там, где это допускает
 карточка; неизвестные поля дают `422`. По завершении сессии они сравниваются с
-фактической карточкой. Старые опубликованные задания с `final_state`
-продолжают оцениваться по итоговому состоянию; с новым `card` его совмещать
-нельзя. При создании новой версии шаблона используйте `card`.
+фактической карточкой.
 
 Для карточки с обязательным исходящим звонком эталонный текст и порог находятся
 в `expected_result` рядом с `card`:
@@ -82,6 +75,16 @@ Content-Type: application/json
   "outbound_call": {
     "expected_text": "Текст, смысл которого должен передать оператор",
     "minimum_similarity": 0.8
+  },
+  "service_status_history": {
+    "101": [
+      {"status": "RECEIVED", "comment": null},
+      {"status": "ACCEPTED", "comment": "Карточка принята. Пожарный расчёт направлен к месту происшествия."},
+      {"status": "RESPONSE_STARTED", "comment": "Пожарный расчёт выехал к месту происшествия."},
+      {"status": "ARRIVED", "comment": "Пожарный расчёт прибыл по указанному адресу."},
+      {"status": "WORK_IN_PROGRESS", "comment": "Пожарный расчёт приступил к работе на месте."},
+      {"status": "WORK_COMPLETED", "comment": "Работы службы 101 на месте происшествия завершены."}
+    ]
   }
 }
 ```
@@ -90,10 +93,14 @@ Content-Type: application/json
 `outbound_call` запрещены. Правило применяется только к распознанным
 аудиосообщениям с направлением `OUTBOUND`.
 
-Для исходящего звонка ожидаемый текст задаётся в
-`expected_result.outbound_call`; ранее сохранённые правила переносятся в этот
-формат миграцией. `evaluation_rules.outbound_call` остаётся допустимым для
-существующих заданий.
+`service_status_history` задаёт точную последовательность изменений статуса,
+которые должен выполнить оператор ДДС. Учитываются только записи, созданные
+участником с позицией соответствующей службы. При оценке отдельно проверяются
+порядок, статус и комментарий; итоговый статус должен совпадать с
+`card.service_statuses`.
+
+Для исходящего звонка ожидаемый текст задаётся только в
+`expected_result.outbound_call`.
 
 ```http
 DELETE /api/v1/card-templates/{templateId}
@@ -175,13 +182,9 @@ X-User-Id: <teacher-or-administrator-uuid>
 
 Детальная ручка дополнительно возвращает `items[]` для элементов статического
 плана. Каждый элемент содержит `key`, `item_type`, источник и имя шаблона,
-`initial_card` либо `initial_call`, а также `expected_card`. Для карточки с
-заданными признаками сервер добавляет `event_type_name`, `event_kind_name` и
-`features[]` с названиями выбранных признаков. `notification_list` и
-`main_service` вычисляются по действующим правилам маршрутизации ЕКП; если
-таких правил нет, список берётся из `expected_card.services` без признака
-главной службы. `incident_type_name` и `ekp35_incident_type` могут быть `null`:
-текущая схема эталона не хранит итоговый тип ЕКП. Для процедурного сценария
+`initial_card` либо `initial_call`, а также `expected_card`. Сервер добавляет
+`event_type_name` и `event_kind_name`. `notification_list` берётся из
+`expected_card.services`, а первый элемент считается `main_service`. Для процедурного сценария
 будущие карточки до генерации в `items[]` не перечисляются.
 
 Статусы: `DRAFT`, `PUBLISHED`, `ARCHIVED`. Без `status` архивные сценарии скрыты,

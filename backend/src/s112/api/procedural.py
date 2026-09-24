@@ -43,7 +43,7 @@ async def procedural_card_work_finished(
         return False
 
     expected = item.expected_result
-    expected_card = expected.get("card") or expected.get("final_state", {})
+    expected_card = expected.get("card") or {}
     state: dict[str, Any] = {
         "event_type_id": card.event_type_id,
         "description": card.description,
@@ -59,9 +59,6 @@ async def procedural_card_work_finished(
         state["features"] = (
             {
                 "event_kind_id": feature.event_kind_id,
-                "first_order_feature_id": feature.first_order_feature_id,
-                "second_order_feature_id": feature.second_order_feature_id,
-                "third_order_feature_id": feature.third_order_feature_id,
                 "additional_features": feature.additional_features,
             }
             if feature is not None
@@ -84,7 +81,7 @@ async def procedural_card_work_finished(
         return False
 
     try:
-        call_rule = outbound_call_rule(item.evaluation_rules, expected)
+        call_rule = outbound_call_rule(expected)
     except ValueError:
         return False
     if call_rule is None:

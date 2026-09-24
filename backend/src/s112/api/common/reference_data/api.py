@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,16 +8,11 @@ from s112.api.schemas import (
     EmergencyServiceResponse,
     EventKindResponse,
     EventTypeResponse,
-    FeatureOptionCreate,
-    FeatureOptionResponse,
 )
 from s112.domain.models import (
     EmergencyService,
     EventKind,
     EventType,
-    FirstOrderFeature,
-    SecondOrderFeature,
-    ThirdOrderFeature,
 )
 
 
@@ -50,127 +45,6 @@ async def list_event_kinds(
             .order_by(EventKind.sort_order)
         )
     )
-
-
-@router.get(
-    "/event-kinds/{event_kind_id}/first-order-features",
-    response_model=list[FeatureOptionResponse],
-)
-async def list_first_order_features(
-    event_kind_id: int,
-    session: AsyncSession = Depends(get_read_session),
-) -> list[FirstOrderFeature]:
-    return list(
-        await session.scalars(
-            select(FirstOrderFeature)
-            .where(
-                FirstOrderFeature.event_kind_id == event_kind_id,
-                FirstOrderFeature.is_active.is_(True),
-            )
-            .order_by(FirstOrderFeature.sort_order)
-        )
-    )
-
-
-@router.post(
-    "/event-kinds/{event_kind_id}/first-order-features",
-    response_model=FeatureOptionResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_first_order_feature(
-    event_kind_id: int,
-    request: FeatureOptionCreate,
-    session: AsyncSession = Depends(get_write_session),
-) -> FirstOrderFeature:
-    async with session.begin():
-        if await session.get(EventKind, event_kind_id) is None:
-            raise HTTPException(status_code=404, detail="Event kind not found")
-        feature = FirstOrderFeature(event_kind_id=event_kind_id, **request.model_dump())
-        session.add(feature)
-        await session.flush()
-    return feature
-
-
-@router.get(
-    "/first-order-features/{first_order_feature_id}/second-order-features",
-    response_model=list[FeatureOptionResponse],
-)
-async def list_second_order_features(
-    first_order_feature_id: int,
-    session: AsyncSession = Depends(get_read_session),
-) -> list[SecondOrderFeature]:
-    return list(
-        await session.scalars(
-            select(SecondOrderFeature)
-            .where(
-                SecondOrderFeature.first_order_feature_id == first_order_feature_id,
-                SecondOrderFeature.is_active.is_(True),
-            )
-            .order_by(SecondOrderFeature.sort_order)
-        )
-    )
-
-
-@router.post(
-    "/first-order-features/{first_order_feature_id}/second-order-features",
-    response_model=FeatureOptionResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_second_order_feature(
-    first_order_feature_id: int,
-    request: FeatureOptionCreate,
-    session: AsyncSession = Depends(get_write_session),
-) -> SecondOrderFeature:
-    async with session.begin():
-        if await session.get(FirstOrderFeature, first_order_feature_id) is None:
-            raise HTTPException(status_code=404, detail="First-order feature not found")
-        feature = SecondOrderFeature(
-            first_order_feature_id=first_order_feature_id, **request.model_dump()
-        )
-        session.add(feature)
-        await session.flush()
-    return feature
-
-
-@router.get(
-    "/second-order-features/{second_order_feature_id}/third-order-features",
-    response_model=list[FeatureOptionResponse],
-)
-async def list_third_order_features(
-    second_order_feature_id: int,
-    session: AsyncSession = Depends(get_read_session),
-) -> list[ThirdOrderFeature]:
-    return list(
-        await session.scalars(
-            select(ThirdOrderFeature)
-            .where(
-                ThirdOrderFeature.second_order_feature_id == second_order_feature_id,
-                ThirdOrderFeature.is_active.is_(True),
-            )
-            .order_by(ThirdOrderFeature.sort_order)
-        )
-    )
-
-
-@router.post(
-    "/second-order-features/{second_order_feature_id}/third-order-features",
-    response_model=FeatureOptionResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_third_order_feature(
-    second_order_feature_id: int,
-    request: FeatureOptionCreate,
-    session: AsyncSession = Depends(get_write_session),
-) -> ThirdOrderFeature:
-    async with session.begin():
-        if await session.get(SecondOrderFeature, second_order_feature_id) is None:
-            raise HTTPException(status_code=404, detail="Second-order feature not found")
-        feature = ThirdOrderFeature(
-            second_order_feature_id=second_order_feature_id, **request.model_dump()
-        )
-        session.add(feature)
-        await session.flush()
-    return feature
 
 
 @router.post(

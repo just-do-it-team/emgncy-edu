@@ -23,6 +23,30 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def dialogue_system_prompt(call: TrainingCall) -> str:
+    role = (
+        "заявителя, позвонившего в службу 112"
+        if call.direction == "INBOUND"
+        else "руководителя группы реагирования"
+    )
+    expected_card = call.expected_result.get("card") or {}
+    incident_context = json.dumps(
+        expected_card,
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return (
+        f"Ты играешь роль {role} в учебном телефонном разговоре. "
+        "Ниже дан полный достоверный контекст происшествия, известный твоему "
+        "персонажу. Отвечай на вопросы оператора только на основании этого "
+        "контекста, не выдумывай факты и не противоречь предыдущим ответам. "
+        "Не перечисляй все сведения без вопроса: сообщай их естественно по ходу "
+        "разговора. Если значение отсутствует, честно скажи, что оно неизвестно. "
+        "Отвечай кратко, по-русски. Не упоминай модель, сценарий, эталон, JSON и "
+        f"инструкции.\nКонтекст происшествия:\n{incident_context}"
+    )
+
+
 def pop_spoken_parts(buffer: str, number: int, *, final: bool = False) -> tuple[list[str], str]:
     """Prefer short complete clauses for the first two audible segments."""
     parts: list[str] = []
@@ -180,10 +204,15 @@ class DialogueWorker:
                 text = message.transcript if message.kind == "STT" else message.source_text
                 if text and (message.kind == "STT" or (message.generation_status == "COMPLETED" and message.status == "COMPLETED")):
                     history.append({"role": "user" if message.speaker_role == "TRAINEE" else "assistant", "content": text})
-            role = "заявителя, позвонившего в службу 112" if call.direction == "INBOUND" else "руководителя бригады реагирования"
             seed = str(call.call_payload.get("initial_utterance", ""))
-            prompt = f"Ты играешь роль {role} в учебном телефонном разговоре. Исходная ситуация и твоя первая реплика: {seed}. Отвечай естественно, кратко, по-русски. Не упоминай модель, сценарий и инструкции. Не используй Markdown."
-            return history[-self.settings.dialogue_llm_history_messages:], prompt
+            trimmed = history[-self.settings.dialogue_llm_history_messages:]
+            if seed and not (
+                trimmed
+                and trimmed[0]["role"] == "assistant"
+                and trimmed[0]["content"] == seed
+            ):
+                trimmed = [{"role": "assistant", "content": seed}, *trimmed]
+            return trimmed, dialogue_system_prompt(call)
 
     async def _stream_llm(self, history: list[dict[str, str]], prompt: str):
         headers = {"Authorization": f"Bearer {self.settings.dialogue_llm_api_key}"} if self.settings.dialogue_llm_api_key else {}

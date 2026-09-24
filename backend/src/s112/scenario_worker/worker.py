@@ -76,6 +76,12 @@ class ScenarioCardEmitter:
             allow_system_actor=actor_id is None,
             action_type="CARD_RELEASED",
         )
+        expected_card = item.expected_result.get("card") or {}
+        await self.card_service.route_scenario_card(
+            session,
+            card,
+            list(expected_card.get("services") or []),
+        )
         item.status = ScheduledCardStatus.EMITTED.value
         item.incident_card_id = card.id
         item.emitted_at = utcnow()
@@ -330,7 +336,6 @@ class ScenarioSchedulerWorker:
                     source_type="SNAPSHOT",
                     card_payload=template["initial_card"],
                     expected_result=template["expected_result"],
-                    evaluation_rules=template.get("evaluation_rules", {}),
                     scheduled_at=now,
                     status=ScheduledCardStatus.PENDING.value,
                     generator_key=generator_key,

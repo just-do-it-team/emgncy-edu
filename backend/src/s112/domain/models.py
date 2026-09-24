@@ -97,76 +97,6 @@ class EventKind(Base):
     event_type: Mapped[EventType] = relationship(back_populates="event_kinds")
 
 
-class FirstOrderFeature(Base):
-    __tablename__ = "first_order_feature"
-    __table_args__ = (
-        UniqueConstraint("event_kind_id", "code"),
-        UniqueConstraint("id", "event_kind_id"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    event_kind_id: Mapped[int] = mapped_column(
-        ForeignKey("event_kind.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
-    code: Mapped[str] = mapped_column(String(100), nullable=False)
-    name: Mapped[str] = mapped_column(String(500), nullable=False)
-    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-
-
-class SecondOrderFeature(Base):
-    __tablename__ = "second_order_feature"
-    __table_args__ = (
-        UniqueConstraint("first_order_feature_id", "code"),
-        UniqueConstraint("id", "first_order_feature_id"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    first_order_feature_id: Mapped[int] = mapped_column(
-        ForeignKey("first_order_feature.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
-    code: Mapped[str] = mapped_column(String(100), nullable=False)
-    name: Mapped[str] = mapped_column(String(500), nullable=False)
-    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-
-
-class ThirdOrderFeature(Base):
-    __tablename__ = "third_order_feature"
-    __table_args__ = (
-        UniqueConstraint("second_order_feature_id", "code"),
-        UniqueConstraint("id", "second_order_feature_id"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    second_order_feature_id: Mapped[int] = mapped_column(
-        ForeignKey("second_order_feature.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
-    code: Mapped[str] = mapped_column(String(100), nullable=False)
-    name: Mapped[str] = mapped_column(String(500), nullable=False)
-    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-
-
-class IncidentType(Base, TimestampMixin):
-    """Final incident type calculated from the selected feature hierarchy."""
-
-    __tablename__ = "incident_type"
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    classifier_code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
-    name: Mapped[str] = mapped_column(String(1000), nullable=False)
-    ekp_name: Mapped[str | None] = mapped_column(String(1000))
-    statistics_group_name: Mapped[str | None] = mapped_column(String(500))
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-
-
 class SourceSystem(Base, TimestampMixin):
     __tablename__ = "source_system"
 
@@ -185,38 +115,6 @@ class EmergencyService(Base, TimestampMixin):
     notification_method: Mapped[str] = mapped_column(
         String(32), nullable=False, default=NotificationMethod.ARM_112.value
     )
-    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-
-
-class ServiceRoutingRule(Base, TimestampMixin):
-    """A system rule that adds a service for an event kind."""
-
-    __tablename__ = "service_routing_rule"
-    __table_args__ = (
-        UniqueConstraint(
-            "event_kind_id", "service_id", "route_code",
-            name="uq_service_routing_rule_kind_service_route",
-        ),
-        Index("ix_service_routing_rule_kind_active", "event_kind_id", "is_active"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    event_kind_id: Mapped[int] = mapped_column(
-        ForeignKey("event_kind.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    service_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("emergency_service.id", ondelete="RESTRICT"),
-        nullable=False,
-    )
-    route_code: Mapped[str] = mapped_column(String(100), nullable=False)
-    condition: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
-    notification_method: Mapped[str] = mapped_column(
-        String(32), nullable=False, default=NotificationMethod.INTEGRATION.value
-    )
-    external_incident_type: Mapped[str | None] = mapped_column(Text)
-    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
@@ -318,48 +216,12 @@ class CardFeature(Base):
             ["event_kind.id", "event_kind.event_type_id"],
             ondelete="RESTRICT",
         ),
-        ForeignKeyConstraint(
-            ["first_order_feature_id", "event_kind_id"],
-            ["first_order_feature.id", "first_order_feature.event_kind_id"],
-            ondelete="RESTRICT",
-        ),
-        ForeignKeyConstraint(
-            ["second_order_feature_id", "first_order_feature_id"],
-            ["second_order_feature.id", "second_order_feature.first_order_feature_id"],
-            ondelete="RESTRICT",
-        ),
-        ForeignKeyConstraint(
-            ["third_order_feature_id", "second_order_feature_id"],
-            ["third_order_feature.id", "third_order_feature.second_order_feature_id"],
-            ondelete="RESTRICT",
-        ),
-        CheckConstraint(
-            "second_order_feature_id IS NULL OR first_order_feature_id IS NOT NULL",
-            name="second_requires_first",
-        ),
-        CheckConstraint(
-            "third_order_feature_id IS NULL OR second_order_feature_id IS NOT NULL",
-            name="third_requires_second",
-        ),
-        Index(
-            "ix_card_feature_classification",
-            "event_type_id",
-            "event_kind_id",
-            "first_order_feature_id",
-            "second_order_feature_id",
-            "third_order_feature_id",
-        ),
+        Index("ix_card_feature_classification", "event_type_id", "event_kind_id"),
     )
 
     card_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
     event_type_id: Mapped[int] = mapped_column(Integer, nullable=False)
     event_kind_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    first_order_feature_id: Mapped[int | None] = mapped_column(Integer)
-    second_order_feature_id: Mapped[int | None] = mapped_column(Integer)
-    third_order_feature_id: Mapped[int | None] = mapped_column(Integer)
-    incident_type_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("incident_type.id", ondelete="RESTRICT")
-    )
     additional_features: Mapped[dict[str, Any]] = mapped_column(
         JsonType,
         nullable=False,
@@ -390,10 +252,6 @@ class CardFeatureHistory(Base):
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
     event_type_id: Mapped[int] = mapped_column(Integer, nullable=False)
     event_kind_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    first_order_feature_id: Mapped[int | None] = mapped_column(Integer)
-    second_order_feature_id: Mapped[int | None] = mapped_column(Integer)
-    third_order_feature_id: Mapped[int | None] = mapped_column(Integer)
-    incident_type_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     additional_features: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
     changed_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     changed_at: Mapped[datetime] = mapped_column(
@@ -503,9 +361,6 @@ class CardServiceDispatch(Base):
         ForeignKey("card_service.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-    )
-    routing_rule_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("service_routing_rule.id", ondelete="RESTRICT")
     )
     route_code: Mapped[str] = mapped_column(String(100), nullable=False)
     notification_method: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -758,9 +613,6 @@ class CardTemplate(Base):
     difficulty: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     initial_card: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     expected_result: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
-    evaluation_rules: Mapped[dict[str, Any]] = mapped_column(
-        JsonType, nullable=False, default=dict
-    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_by: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("user_account.id", ondelete="RESTRICT"), nullable=False
@@ -1114,9 +966,6 @@ class SessionScheduledCard(Base):
     )
     card_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     expected_result: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
-    evaluation_rules: Mapped[dict[str, Any]] = mapped_column(
-        JsonType, nullable=False, default=dict
-    )
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=ScheduledCardStatus.PENDING.value

@@ -34,19 +34,6 @@ class EventKindResponse(OrmModel):
     name: str
 
 
-class FeatureOptionResponse(OrmModel):
-    id: int
-    code: str
-    name: str
-    sort_order: int
-
-
-class FeatureOptionCreate(BaseModel):
-    code: str = Field(min_length=1, max_length=100)
-    name: str = Field(min_length=1, max_length=500)
-    sort_order: int = 0
-
-
 class AdditionalFeatureProperty(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -114,18 +101,7 @@ class CardQuestionnaire(BaseModel):
 
 class CardFeatureInput(BaseModel):
     event_kind_id: int
-    first_order_feature_id: int | None = None
-    second_order_feature_id: int | None = None
-    third_order_feature_id: int | None = None
     additional_features: dict[str, JsonValue] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def validate_hierarchy(self) -> "CardFeatureInput":
-        if self.second_order_feature_id is not None and self.first_order_feature_id is None:
-            raise ValueError("second_order_feature_id requires first_order_feature_id")
-        if self.third_order_feature_id is not None and self.second_order_feature_id is None:
-            raise ValueError("third_order_feature_id requires second_order_feature_id")
-        return self
 
 
 class CardCreate(BaseModel):
@@ -170,10 +146,6 @@ class CardFeatureUpdate(CardFeatureInput):
 class CardFeatureResponse(OrmModel):
     event_type_id: int
     event_kind_id: int
-    first_order_feature_id: int | None
-    second_order_feature_id: int | None
-    third_order_feature_id: int | None
-    incident_type_id: uuid.UUID | None
     additional_features: dict[str, JsonValue]
     revision: int
     updated_by: uuid.UUID | None
@@ -190,10 +162,6 @@ class CardServiceSummary(BaseModel):
 
 class CardFeaturesSummary(BaseModel):
     event_kind_id: int | None = None
-    first_order_feature_id: int | None = None
-    second_order_feature_id: int | None = None
-    third_order_feature_id: int | None = None
-    incident_type_id: uuid.UUID | None = None
     additional_features: dict[str, JsonValue] = Field(default_factory=dict)
     revision: int | None = None
 
@@ -244,10 +212,6 @@ class CardFeatureHistoryResponse(OrmModel):
     revision: int
     event_type_id: int
     event_kind_id: int
-    first_order_feature_id: int | None
-    second_order_feature_id: int | None
-    third_order_feature_id: int | None
-    incident_type_id: uuid.UUID | None
     additional_features: dict[str, JsonValue]
     changed_by: uuid.UUID | None
     changed_at: datetime

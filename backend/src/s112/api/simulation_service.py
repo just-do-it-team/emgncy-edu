@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -72,6 +72,7 @@ from s112.domain.models import (
     LearningGroupMember,
     OutboxEvent,
     ScenarioAssignment,
+    ServiceStatusHistory,
     SessionScheduledCard,
     SimulationWorkspace,
     TrainingAction,
@@ -139,7 +140,6 @@ class SimulationApplicationService:
             difficulty=request.difficulty,
             initial_card=card_payload,
             expected_result=request.expected_result.model_dump(mode="json"),
-            evaluation_rules=request.evaluation_rules,
             created_by=request.created_by,
         )
         session.add(template)
@@ -714,10 +714,6 @@ class SimulationApplicationService:
                     raw["template_version"] = template.version
                     raw["initial_card"] = dict(template.initial_card)
                     raw["expected_result"] = dict(template.expected_result)
-                    raw["evaluation_rules"] = {
-                        **template.evaluation_rules,
-                        **item.evaluation_rules,
-                    }
             else:
                 raw["source_type"] = ScenarioCardSourceType.SNAPSHOT.value
             if item.item_type is ScenarioItemType.INCIDENT_CARD:
@@ -742,7 +738,6 @@ class SimulationApplicationService:
                         "difficulty": template.difficulty,
                         "initial_card": initial_card,
                         "expected_result": dict(template.expected_result),
-                        "evaluation_rules": dict(template.evaluation_rules),
                     }
                 )
 
@@ -1899,11 +1894,37 @@ class SimulationApplicationService:
         expected = item.expected_result
         discrepancies: list[dict[str, Any]] = []
         checks = self._compare_expected(
-            expected.get("card") or expected.get("final_state", {}),
+            expected.get("card") or {},
             state,
-            "card" if expected.get("card") else "",
+            "card",
             discrepancies,
         )
+        expected_status_history = expected.get("service_status_history")
+        if expected_status_history is not None:
+            actual_status_history = await self._service_status_history(
+                session,
+                card.id,
+                set(expected_status_history),
+            )
+            for service_code, expected_changes in expected_status_history.items():
+                actual_changes = actual_status_history.get(service_code, [])
+                checks += 1
+                if len(expected_changes) != len(actual_changes):
+                    discrepancies.append(
+                        {
+                            "path": f"service_status_history.{service_code}.length",
+                            "expected": len(expected_changes),
+                            "actual": len(actual_changes),
+                            "reason": "value_mismatch",
+                        }
+                    )
+                for index, expected_change in enumerate(expected_changes):
+                    checks += self._compare_expected(
+                        expected_change,
+                        actual_changes[index] if index < len(actual_changes) else None,
+                        f"service_status_history.{service_code}.{index}",
+                        discrepancies,
+                    )
 
         actions = list(
             await session.scalars(
@@ -1916,19 +1937,14 @@ class SimulationApplicationService:
             )
         )
         try:
-            call_rule = outbound_call_rule(item.evaluation_rules, expected)
+            call_rule = outbound_call_rule(expected)
         except ValueError as exc:
             checks += 1
-            rule_path = (
-                "expected_result.outbound_call"
-                if expected.get("outbound_call") is not None
-                else "evaluation_rules.outbound_call"
-            )
             discrepancies.append(
                 {
-                    "path": rule_path,
+                    "path": "expected_result.outbound_call",
                     "expected": "VALID_RULE",
-                    "actual": expected.get("outbound_call") or item.evaluation_rules.get("outbound_call"),
+                    "actual": expected.get("outbound_call"),
                     "reason": f"invalid_semantic_evaluation_rule: {exc}",
                 }
             )
@@ -1949,11 +1965,7 @@ class SimulationApplicationService:
                     latest = evaluations[-1] if evaluations else None
                     discrepancies.append(
                         {
-                            "path": (
-                                "expected_result.outbound_call"
-                                if expected.get("outbound_call") is not None
-                                else "evaluation_rules.outbound_call"
-                            ),
+                            "path": "expected_result.outbound_call",
                             "expected": {
                                 "minimum_similarity": call_rule.minimum_similarity,
                             },
@@ -2065,9 +2077,9 @@ class SimulationApplicationService:
         expected = item.expected_result
         discrepancies: list[dict[str, Any]] = []
         checks = self._compare_expected(
-            expected.get("card") or expected.get("final_state", {}),
+            expected.get("card") or {},
             state,
-            "card" if expected.get("card") else "",
+            "card",
             discrepancies,
         )
         matched = max(0, checks - len(discrepancies))
@@ -2232,9 +2244,6 @@ class SimulationApplicationService:
             "features": (
                 {
                     "event_kind_id": feature.event_kind_id,
-                    "first_order_feature_id": feature.first_order_feature_id,
-                    "second_order_feature_id": feature.second_order_feature_id,
-                    "third_order_feature_id": feature.third_order_feature_id,
                     "additional_features": feature.additional_features,
                 }
                 if feature
@@ -2246,6 +2255,57 @@ class SimulationApplicationService:
                 for card_service, service in services
             },
         }
+
+    @staticmethod
+    async def _service_status_history(
+        session: AsyncSession,
+        card_id: uuid.UUID,
+        service_codes: set[str],
+    ) -> dict[str, list[dict[str, Any]]]:
+        rows = (
+            await session.execute(
+                select(ServiceStatusHistory, EmergencyService.code)
+                .join(
+                    CardService,
+                    CardService.id == ServiceStatusHistory.card_service_id,
+                )
+                .join(
+                    EmergencyService,
+                    EmergencyService.id == CardService.service_id,
+                )
+                .join(IncidentCard, IncidentCard.id == CardService.card_id)
+                .join(
+                    WorkspaceMember,
+                    and_(
+                        WorkspaceMember.workspace_id == IncidentCard.workspace_id,
+                        WorkspaceMember.user_id == ServiceStatusHistory.author_id,
+                        WorkspaceMember.member_role
+                        == WorkspaceMemberRole.PARTICIPANT.value,
+                        WorkspaceMember.position_code == EmergencyService.code,
+                    ),
+                )
+                .where(
+                    CardService.card_id == card_id,
+                    EmergencyService.code.in_(service_codes),
+                    ServiceStatusHistory.author_id.is_not(None),
+                )
+                .order_by(
+                    ServiceStatusHistory.occurred_at,
+                    ServiceStatusHistory.id,
+                )
+            )
+        ).all()
+        result: dict[str, list[dict[str, Any]]] = {
+            code: [] for code in service_codes
+        }
+        for history, service_code in rows:
+            result[service_code].append(
+                {
+                    "status": history.status_code,
+                    "comment": history.comment,
+                }
+            )
+        return result
 
     @classmethod
     def _compare_expected(
@@ -2485,7 +2545,6 @@ class SimulationApplicationService:
                     source_type=ScenarioCardSourceType.SNAPSHOT.value,
                     card_payload=item["initial_card"],
                     expected_result=item["expected_result"],
-                    evaluation_rules=item.get("evaluation_rules", {}),
                     scheduled_at=scheduled_at,
                     status=ScheduledCardStatus.PENDING.value,
                 )

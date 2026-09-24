@@ -107,7 +107,7 @@ X-User-Id: <user-uuid>
 
 ## Семантическая проверка исходящего звонка
 
-Для карточки правило задаётся в `evaluation_rules`:
+Для карточки правило задаётся в `expected_result.outbound_call`:
 
 ```json
 {

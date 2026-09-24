@@ -43,10 +43,6 @@ X-User-Id: <student-uuid>
       "services_summary": [],
       "features_summary": {
         "event_kind_id": null,
-        "first_order_feature_id": null,
-        "second_order_feature_id": null,
-        "third_order_feature_id": null,
-        "incident_type_id": null,
         "additional_features": {},
         "revision": null
       },

@@ -6,7 +6,6 @@ from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from s112.api.schemas import (
     CardCreate,
@@ -19,7 +18,6 @@ from s112.api.schemas import (
 )
 from s112.common.enums import (
     CardStatus,
-    NotificationMethod,
     ServiceAddedReason,
     ServiceResponseStatus,
     TrainingActionResult,
@@ -32,19 +30,14 @@ from s112.domain.models import (
     CardEventTypeHistory,
     CardListProjection,
     CardService,
-    CardServiceDispatch,
     CardStatusHistory,
     EmergencyService,
     EventKind,
     EventType,
-    FirstOrderFeature,
     IncidentCard,
     OutboxEvent,
-    SecondOrderFeature,
-    ServiceRoutingRule,
     ServiceStatusHistory,
     SimulationWorkspace,
-    ThirdOrderFeature,
     TrainingAction,
     UserAccount,
     WorkspaceMember,
@@ -170,11 +163,6 @@ class CardApplicationService:
             session.add(feature_model)
             session.add(self._feature_history(feature_model, request.operator_id))
             await session.flush()
-            await self._sync_automatic_services(
-                session,
-                card,
-                feature_model,
-            )
 
         projection = CardListProjection(
             card_id=card.id,
@@ -215,6 +203,56 @@ class CardApplicationService:
         )
         await session.flush()
         return card
+
+    async def route_scenario_card(
+        self,
+        session: AsyncSession,
+        card: IncidentCard,
+        service_codes: list[str],
+    ) -> None:
+        """Create the initial service notifications declared by a scenario."""
+
+        if not service_codes:
+            return
+        services = list(
+            await session.scalars(
+                select(EmergencyService).where(
+                    EmergencyService.code.in_(service_codes),
+                    EmergencyService.is_active.is_(True),
+                )
+            )
+        )
+        services_by_code = {service.code: service for service in services}
+        missing = sorted(set(service_codes) - set(services_by_code))
+        if missing:
+            raise ValidationError(
+                f"Unknown or inactive scenario services: {', '.join(missing)}"
+            )
+
+        now = utcnow()
+        for code in service_codes:
+            service = services_by_code[code]
+            card_service = CardService(
+                card_id=card.id,
+                service_id=service.id,
+                added_reason=ServiceAddedReason.CLASSIFIER.value,
+                notification_method=service.notification_method,
+                current_status=ServiceResponseStatus.ADDED.value,
+                added_at=now,
+                sent_at=now,
+                acceptance_deadline_at=now
+                + timedelta(seconds=CARD_OPEN_DEADLINE_SECONDS),
+            )
+            session.add(card_service)
+            await session.flush()
+            session.add(
+                ServiceStatusHistory(
+                    card_service_id=card_service.id,
+                    status_code=ServiceResponseStatus.ADDED.value,
+                    occurred_at=now,
+                )
+            )
+        await self._refresh_projection(session, card)
 
     async def update_card(
         self, session: AsyncSession, card_id: uuid.UUID, request: CardUpdate
@@ -262,9 +300,6 @@ class CardApplicationService:
             session.add(feature)
         else:
             feature.event_kind_id = request.event_kind_id
-            feature.first_order_feature_id = request.first_order_feature_id
-            feature.second_order_feature_id = request.second_order_feature_id
-            feature.third_order_feature_id = request.third_order_feature_id
             feature.additional_features = request.additional_features
             feature.updated_by = request.actor_id
             feature.updated_at = utcnow()
@@ -273,7 +308,6 @@ class CardApplicationService:
         card.version += 1
         await session.flush()
         session.add(self._feature_history(feature, request.actor_id))
-        await self._sync_automatic_services(session, card, feature)
         await self._refresh_projection(session, card, feature=feature)
         self._add_outbox(
             session,
@@ -281,12 +315,6 @@ class CardApplicationService:
             "card.features.updated",
             {
                 "event_kind_id": feature.event_kind_id,
-                "first_order_feature_id": feature.first_order_feature_id,
-                "second_order_feature_id": feature.second_order_feature_id,
-                "third_order_feature_id": feature.third_order_feature_id,
-                "incident_type_id": (
-                    str(feature.incident_type_id) if feature.incident_type_id else None
-                ),
                 "feature_revision": feature.revision,
             },
         )
@@ -948,152 +976,6 @@ class CardApplicationService:
             )
         return card
 
-    async def _sync_automatic_services(
-        self,
-        session: AsyncSession,
-        card: IncidentCard,
-        feature: CardFeature,
-    ) -> None:
-        rules = list(
-            await session.scalars(
-                select(ServiceRoutingRule)
-                .where(
-                    ServiceRoutingRule.event_kind_id == feature.event_kind_id,
-                    ServiceRoutingRule.is_active.is_(True),
-                )
-                .order_by(ServiceRoutingRule.sort_order, ServiceRoutingRule.route_code)
-            )
-        )
-        matched_rules = [
-            rule
-            for rule in rules
-            if self._condition_matches(rule.condition, feature.additional_features)
-        ]
-        rules_by_service: dict[uuid.UUID, list[ServiceRoutingRule]] = {}
-        for rule in matched_rules:
-            rules_by_service.setdefault(rule.service_id, []).append(rule)
-
-        existing_services = list(
-            await session.scalars(
-                select(CardService)
-                .options(selectinload(CardService.dispatches))
-                .where(CardService.card_id == card.id)
-            )
-        )
-        services_by_id = {item.service_id: item for item in existing_services}
-        now = utcnow()
-
-        for item in existing_services:
-            if (
-                item.added_reason == ServiceAddedReason.EKP.value
-                and item.service_id not in rules_by_service
-                and item.is_active
-            ):
-                item.is_active = False
-                item.removed_at = now
-                for dispatch in item.dispatches:
-                    dispatch.is_active = False
-
-        for service_id, service_rules in rules_by_service.items():
-            card_service = services_by_id.get(service_id)
-            is_new_or_reactivated = card_service is None or not card_service.is_active
-            if card_service is None:
-                card_service = CardService(
-                    card_id=card.id,
-                    service_id=service_id,
-                    added_reason=ServiceAddedReason.EKP.value,
-                    added_at=now,
-                    dispatches=[],
-                )
-                session.add(card_service)
-                await session.flush()
-                services_by_id[service_id] = card_service
-            elif card_service.added_reason == ServiceAddedReason.EKP.value:
-                card_service.added_at = now if is_new_or_reactivated else card_service.added_at
-
-            methods = {rule.notification_method for rule in service_rules}
-            card_service.notification_method = (
-                next(iter(methods))
-                if len(methods) == 1
-                else NotificationMethod.COMBINED.value
-            )
-            card_service.is_active = True
-            card_service.is_visible = True
-            card_service.removed_at = None
-            if is_new_or_reactivated:
-                card_service.current_status = ServiceResponseStatus.ADDED.value
-                card_service.sent_at = now
-                card_service.acceptance_deadline_at = now + timedelta(
-                    seconds=CARD_OPEN_DEADLINE_SECONDS
-                )
-                card_service.received_at = None
-                card_service.decision_deadline_at = None
-                card_service.decided_at = None
-                card_service.open_deadline_missed_at = None
-                card_service.decision_deadline_missed_at = None
-                card_service.closed_at = None
-                session.add(
-                    ServiceStatusHistory(
-                        card_service_id=card_service.id,
-                        status_code=ServiceResponseStatus.ADDED.value,
-                        occurred_at=now,
-                    )
-                )
-
-            dispatches_by_code = {item.route_code: item for item in card_service.dispatches}
-            active_route_codes = {rule.route_code for rule in service_rules}
-            for dispatch in card_service.dispatches:
-                if dispatch.route_code not in active_route_codes:
-                    dispatch.is_active = False
-            for rule in service_rules:
-                dispatch = dispatches_by_code.get(rule.route_code)
-                if dispatch is None:
-                    dispatch = CardServiceDispatch(
-                        card_service_id=card_service.id,
-                        route_code=rule.route_code,
-                    )
-                    session.add(dispatch)
-                dispatch.routing_rule_id = rule.id
-                dispatch.notification_method = rule.notification_method
-                dispatch.external_incident_type = rule.external_incident_type
-                dispatch.payload = {}
-                dispatch.is_active = True
-
-    @classmethod
-    def _condition_matches(cls, condition: dict[str, Any], values: dict[str, Any]) -> bool:
-        if "$and" in condition:
-            return all(cls._condition_matches(item, values) for item in condition["$and"])
-        if "$or" in condition:
-            return any(cls._condition_matches(item, values) for item in condition["$or"])
-        for key, expected in condition.items():
-            if isinstance(expected, dict) and "$exists" in expected:
-                exists = key in values
-                if exists != bool(expected["$exists"]):
-                    return False
-                if not exists:
-                    continue
-            if key not in values:
-                return False
-            actual = values[key]
-            if isinstance(expected, dict):
-                if "$eq" in expected and actual != expected["$eq"]:
-                    return False
-                if "$ne" in expected and actual == expected["$ne"]:
-                    return False
-                if "$in" in expected and actual not in expected["$in"]:
-                    return False
-                nested = {key: value for key, value in expected.items() if not key.startswith("$")}
-                if nested and (
-                    not isinstance(actual, dict) or not cls._condition_matches(nested, actual)
-                ):
-                    return False
-            elif isinstance(expected, list):
-                if actual not in expected:
-                    return False
-            elif actual != expected:
-                return False
-        return True
-
     async def _validate_features(
         self,
         session: AsyncSession,
@@ -1106,27 +988,6 @@ class CardApplicationService:
         if event_kind.event_type_id != event_type_id:
             raise ValidationError("event_kind_id does not belong to card event_type_id")
 
-        if features.first_order_feature_id is not None:
-            first = await session.get(FirstOrderFeature, features.first_order_feature_id)
-            if first is None or not first.is_active:
-                raise ValidationError("Unknown or inactive first_order_feature_id")
-            if first.event_kind_id != event_kind.id:
-                raise ValidationError("First-order feature does not belong to event kind")
-
-        if features.second_order_feature_id is not None:
-            second = await session.get(SecondOrderFeature, features.second_order_feature_id)
-            if second is None or not second.is_active:
-                raise ValidationError("Unknown or inactive second_order_feature_id")
-            if second.first_order_feature_id != features.first_order_feature_id:
-                raise ValidationError("Second-order feature does not belong to first-order feature")
-
-        if features.third_order_feature_id is not None:
-            third = await session.get(ThirdOrderFeature, features.third_order_feature_id)
-            if third is None or not third.is_active:
-                raise ValidationError("Unknown or inactive third_order_feature_id")
-            if third.second_order_feature_id != features.second_order_feature_id:
-                raise ValidationError("Third-order feature does not belong to second-order feature")
-
     def _make_feature(
         self,
         card: IncidentCard,
@@ -1137,10 +998,6 @@ class CardApplicationService:
             card_id=card.id,
             event_type_id=card.event_type_id,
             event_kind_id=request.event_kind_id,
-            first_order_feature_id=request.first_order_feature_id,
-            second_order_feature_id=request.second_order_feature_id,
-            third_order_feature_id=request.third_order_feature_id,
-            incident_type_id=None,
             additional_features=request.additional_features,
             revision=1,
             updated_by=actor_id,
@@ -1155,10 +1012,6 @@ class CardApplicationService:
             revision=feature.revision,
             event_type_id=feature.event_type_id,
             event_kind_id=feature.event_kind_id,
-            first_order_feature_id=feature.first_order_feature_id,
-            second_order_feature_id=feature.second_order_feature_id,
-            third_order_feature_id=feature.third_order_feature_id,
-            incident_type_id=feature.incident_type_id,
             additional_features=feature.additional_features,
             changed_by=actor_id,
         )
@@ -1215,10 +1068,6 @@ class CardApplicationService:
             return {}
         return {
             "event_kind_id": feature.event_kind_id,
-            "first_order_feature_id": feature.first_order_feature_id,
-            "second_order_feature_id": feature.second_order_feature_id,
-            "third_order_feature_id": feature.third_order_feature_id,
-            "incident_type_id": str(feature.incident_type_id) if feature.incident_type_id else None,
             "additional_features": feature.additional_features,
             "revision": feature.revision,
         }
