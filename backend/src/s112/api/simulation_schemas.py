@@ -531,6 +531,42 @@ class TrainingScenarioResponse(OrmModel):
         return strip_scenario_card_runtime_fields(value)
 
 
+class ScenarioFeatureDetail(BaseModel):
+    level: int
+    feature_id: int
+    code: str | None
+    name: str | None
+
+
+class ScenarioServiceDetail(BaseModel):
+    service_id: uuid.UUID | None
+    code: str
+    name: str | None
+    is_main: bool
+
+
+class ScenarioItemDetail(BaseModel):
+    key: str
+    item_type: str
+    source_type: str
+    template_id: uuid.UUID | None = None
+    template_name: str | None = None
+    initial_card: dict[str, Any] | None = None
+    initial_call: dict[str, Any] | None = None
+    expected_card: dict[str, Any] | None = None
+    event_type_name: str | None = None
+    event_kind_name: str | None = None
+    incident_type_name: str | None = None
+    ekp35_incident_type: str | None = None
+    features: list[ScenarioFeatureDetail] = Field(default_factory=list)
+    main_service: ScenarioServiceDetail | None = None
+    notification_list: list[ScenarioServiceDetail] = Field(default_factory=list)
+
+
+class TrainingScenarioDetailResponse(TrainingScenarioResponse):
+    items: list[ScenarioItemDetail] = Field(default_factory=list)
+
+
 class ScenarioAssignmentCreate(BaseModel):
     scenario_id: uuid.UUID
     participant_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)

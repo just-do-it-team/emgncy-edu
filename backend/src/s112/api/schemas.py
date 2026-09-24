@@ -137,6 +137,7 @@ class CardCreate(BaseModel):
     event_type_id: int
     description: str = ""
     questionnaire: CardQuestionnaire | None = None
+    applicant_full_name: str | None = Field(default=None, max_length=255)
     reported_address: str | None = None
     incident_address: str | None = None
     latitude: Decimal | None = Field(default=None, ge=-90, le=90)
@@ -151,6 +152,7 @@ class CardUpdate(BaseModel):
     expected_version: int = Field(ge=1)
     description: str | None = None
     questionnaire: CardQuestionnaire | None = None
+    applicant_full_name: str | None = Field(default=None, max_length=255)
     reported_address: str | None = None
     incident_address: str | None = None
     victims_count: int | None = Field(default=None, ge=0)
@@ -200,6 +202,7 @@ class CardListItem(OrmModel):
     card_number: str
     event_type_id: int
     event_kind_id: int | None
+    applicant_full_name: str | None
     incident_address: str | None
     victims_count: int | None
     current_status: str
@@ -322,6 +325,7 @@ class CardResponse(OrmModel):
     event_type_id: int
     description: str
     questionnaire: CardQuestionnaire | None
+    applicant_full_name: str | None
     reported_address: str | None
     incident_address: str | None
     latitude: Decimal | None

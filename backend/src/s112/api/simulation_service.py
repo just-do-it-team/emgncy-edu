@@ -2121,8 +2121,11 @@ class SimulationApplicationService:
         item, training_session = await self._training_call_context(
             session, call_id, request.user_id
         )
-        if item.status != TrainingCallStatus.ACTIVE.value:
-            raise ConflictError("Only an active incoming call can be linked to a card")
+        if item.status not in {
+            TrainingCallStatus.ACTIVE.value,
+            TrainingCallStatus.COMPLETED.value,
+        }:
+            raise ConflictError("Only an answered incoming call can be linked to a card")
         card = await session.scalar(
             select(IncidentCard).where(
                 IncidentCard.id == request.incident_card_id,
@@ -2191,8 +2194,6 @@ class SimulationApplicationService:
             raise ConflictError("Incoming call belongs to another operator")
         if item.status != TrainingCallStatus.ACTIVE.value:
             raise ConflictError(f"Incoming call cannot complete from status {item.status}")
-        if item.incident_card_id is None:
-            raise ConflictError("Create and link an incident card before completing the call")
         now = utcnow()
         item.status = TrainingCallStatus.COMPLETED.value
         item.completed_at = now
@@ -2223,6 +2224,7 @@ class SimulationApplicationService:
             "event_type_id": card.event_type_id,
             "description": card.description,
             "questionnaire": card.questionnaire,
+            "applicant_full_name": card.applicant_full_name,
             "reported_address": card.reported_address,
             "incident_address": card.incident_address,
             "victims_count": card.victims_count,

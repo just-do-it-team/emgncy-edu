@@ -16,10 +16,12 @@ from s112.api.simulation_schemas import (
     IncomingCallTemplateResponse,
     ScenarioDeleteRequest,
     TrainingScenarioCreate,
+    TrainingScenarioDetailResponse,
     TrainingScenarioResponse,
     TrainingScenarioUpdate,
 )
 from s112.api.simulation_service import SimulationApplicationService
+from s112.api.teacher.training_content.scenario_details import scenario_detail_response
 from s112.common.enums import UserRole
 from s112.domain.models import (
     CardTemplate,
@@ -217,18 +219,18 @@ async def list_training_scenarios(
 
 
 @router.get(
-    "/training-scenarios/{scenario_id}", response_model=TrainingScenarioResponse
+    "/training-scenarios/{scenario_id}", response_model=TrainingScenarioDetailResponse
 )
 async def get_training_scenario(
     scenario_id: uuid.UUID,
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_read_session),
-) -> TrainingScenario:
+) -> TrainingScenarioDetailResponse:
     await _require_teacher_or_administrator(session, user_id)
     scenario = await session.get(TrainingScenario, scenario_id)
     if scenario is None:
         raise HTTPException(status_code=404, detail="Training scenario not found")
-    return scenario
+    return await scenario_detail_response(session, scenario)
 
 
 @router.patch(

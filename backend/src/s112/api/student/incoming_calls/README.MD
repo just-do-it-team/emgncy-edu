@@ -40,17 +40,24 @@ X-User-Id: <user-uuid>
 POST /api/v1/incoming-calls/{callId}/answer
 {"user_id":"student-uuid"}
 
-POST /api/v1/incoming-calls/{callId}/incident-card
-{"user_id":"student-uuid","incident_card_id":"created-card-uuid"}
-
 POST /api/v1/incoming-calls/{callId}/complete
 {"user_id":"student-uuid"}
+
+POST /api/v1/cards
+{"workspace_id":"workspace-uuid","operator_id":"student-uuid","event_type_id":1,"applicant_full_name":"Иванов Иван Иванович"}
+
+POST /api/v1/incoming-calls/{callId}/incident-card
+{"user_id":"student-uuid","incident_card_id":"created-card-uuid"}
 ```
 
 Карточка создаётся существующим `POST /api/v1/cards` в workspace текущей
 сессии с `operator_id`, равным `user_id` отвечающего обучаемого, а затем
-привязывается ко звонку. Завершить звонок без карточки нельзя; уже выпущенную
-сценарную карточку использовать вместо созданной оператором нельзя.
+привязывается ко звонку. `POST /complete` фиксирует `completed_at` на сервере
+при завершении разговора; карточку можно создать и привязать после этого.
+Пока карточка не привязана, завершение учебной сессии блокируется. Уже
+выпущенную сценарную карточку использовать вместо созданной оператором нельзя.
+ФИО заявителя сохраняется в необязательном поле карточки
+`applicant_full_name` (до 255 символов).
 
 Полный цикл статусов: `PENDING → RINGING → ACTIVE → COMPLETED`. Незавершённый,
 ошибочный или отменённый звонок блокирует завершение сессии. При итоговой оценке
@@ -130,13 +137,13 @@ sequenceDiagram
         SSE-->>UI: training.dialogue_finished {final_segment_count}
         Note over UI: После последнего воспроизведённого сегмента снова слушает микрофон
     end
+    Student->>UI: Завершить звонок
+    UI->>API: POST /api/v1/incoming-calls/{callId}/complete
+    API-->>UI: Вызов со статусом COMPLETED и completed_at
     UI->>API: POST /api/v1/cards (создать карточку)
     API-->>UI: Созданная карточка с id
     UI->>API: POST /api/v1/incoming-calls/{callId}/incident-card
     API-->>UI: Вызов с incident_card_id
-    Student->>UI: Завершить звонок
-    UI->>API: POST /api/v1/incoming-calls/{callId}/complete
-    API-->>UI: Вызов со статусом COMPLETED
 ```
 
 Для обнаружения звонка клиент передаёт `X-User-Id` в запросе списка, выбирает

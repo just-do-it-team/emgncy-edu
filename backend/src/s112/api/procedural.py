@@ -48,6 +48,7 @@ async def procedural_card_work_finished(
         "event_type_id": card.event_type_id,
         "description": card.description,
         "questionnaire": card.questionnaire,
+        "applicant_full_name": card.applicant_full_name,
         "reported_address": card.reported_address,
         "incident_address": card.incident_address,
         "victims_count": card.victims_count,

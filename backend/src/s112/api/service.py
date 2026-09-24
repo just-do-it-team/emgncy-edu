@@ -131,6 +131,7 @@ class CardApplicationService:
                 if request.questionnaire is not None
                 else None
             ),
+            applicant_full_name=request.applicant_full_name,
             reported_address=request.reported_address,
             incident_address=request.incident_address,
             latitude=request.latitude,
@@ -181,6 +182,7 @@ class CardApplicationService:
             card_number=card.card_number,
             event_type_id=card.event_type_id,
             event_kind_id=feature_model.event_kind_id if feature_model else None,
+            applicant_full_name=card.applicant_full_name,
             incident_address=card.incident_address,
             victims_count=card.victims_count,
             current_status=card.current_status,
@@ -1187,6 +1189,7 @@ class CardApplicationService:
         projection.event_type_id = card.event_type_id
         projection.workspace_id = card.workspace_id
         projection.event_kind_id = feature.event_kind_id if feature else None
+        projection.applicant_full_name = card.applicant_full_name
         projection.incident_address = card.incident_address
         projection.victims_count = card.victims_count
         projection.current_status = card.current_status
@@ -1474,6 +1477,7 @@ class CardApplicationService:
             "event_type_id": card.event_type_id,
             "description": card.description,
             "questionnaire": card.questionnaire,
+            "applicant_full_name": card.applicant_full_name,
             "reported_address": card.reported_address,
             "incident_address": card.incident_address,
             "victims_count": card.victims_count,
