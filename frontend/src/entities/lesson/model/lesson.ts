@@ -24,6 +24,9 @@ export interface Lesson {
   finished_at: string | null;
   status: LessonStatus;
   participants_count: number;
+  assigned_at?: string;
+  due_at?: string;
+  attempts_allowed?: number;
 }
 
 export interface LessonCriterionSummary {
@@ -56,6 +59,9 @@ export interface LessonListItem {
   average_total: number | null;
   status: LessonStatus;
   started_at: string;
+  assigned_at?: string;
+  due_at?: string;
+  attempts_allowed?: number;
 }
 
 export const lessonStatusLabels: Record<LessonStatus, string> = {
