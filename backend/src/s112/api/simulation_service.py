@@ -38,6 +38,8 @@ from s112.api.simulation_schemas import (
 )
 from s112.common.enums import (
     AssignmentStatus,
+    AudioMessageKind,
+    AudioMessageStatus,
     LaunchPolicy,
     ParticipantStatus,
     ProceduralGenerationStatus,
@@ -1765,6 +1767,45 @@ class SimulationApplicationService:
                 .order_by(TrainingAction.occurred_at, TrainingAction.id)
             )
         )
+        call_messages = list(
+            await session.scalars(
+                select(AudioMessage)
+                .where(
+                    AudioMessage.training_session_id == training_session.id,
+                    AudioMessage.training_call_id.is_not(None),
+                    AudioMessage.status == AudioMessageStatus.COMPLETED.value,
+                )
+                .order_by(AudioMessage.sequence_no, AudioMessage.id)
+            )
+        )
+        call_utterances = []
+        for message in call_messages:
+            text = (
+                message.transcript
+                if message.kind == AudioMessageKind.STT.value
+                else message.source_text
+            )
+            if not text:
+                continue
+            call_utterances.append(
+                {
+                    "id": message.id,
+                    "call_id": message.training_call_id,
+                    "speaker": (
+                        "OPERATOR" if message.speaker_role == "TRAINEE"
+                        else "RESPONSE_LEAD" if message.speaker_role == "COMMANDER"
+                        else "CALLER"
+                    ),
+                    "input_mode": (
+                        "VOICE" if message.kind == AudioMessageKind.STT.value
+                        else "TEXT" if message.speaker_role == "TRAINEE"
+                        else "GENERATED"
+                    ),
+                    "sequence_no": message.sequence_no,
+                    "created_at": message.created_at,
+                    "text": text,
+                }
+            )
         scheduled_cards = list(
             await session.scalars(
                 select(SessionScheduledCard)
@@ -1826,6 +1867,9 @@ class SimulationApplicationService:
                     "training_call_id": item.id,
                     "incident_card_id": item.incident_card_id,
                     "status": item.status,
+                    "ringing_at": item.ringing_at,
+                    "answered_at": item.answered_at,
+                    "completed_at": item.completed_at,
                     "expected_result": item.expected_result,
                     "current_state": current_state,
                     "automatic_result": stored_call_results.get(str(item.id)),
@@ -1837,6 +1881,7 @@ class SimulationApplicationService:
             "participant_ids": participant_ids,
             "cards": cards,
             "incoming_calls": incoming_calls,
+            "call_utterances": call_utterances,
             "actions": actions,
         }
 

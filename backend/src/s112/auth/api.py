@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from s112.auth.dependencies import get_current_principal
+from s112.auth.dependencies import get_current_principal, get_logout_principal
 from s112.auth.passwords import verify_password
 from s112.auth.principal import Principal
 from s112.auth.schemas import AuthenticatedUser, LoginRequest, LoginResponse
@@ -144,7 +144,7 @@ async def refresh(
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
-    principal: Principal = Depends(get_current_principal),
+    principal: Principal = Depends(get_logout_principal),
     session: AsyncSession = Depends(get_auth_session),
 ) -> None:
     async with session.begin():
@@ -154,7 +154,7 @@ async def logout(
             .with_for_update()
         )
         if await session.get(RevokedAccessToken, principal.token_id) is not None:
-            raise HTTPException(status_code=401, detail="Access token has been revoked")
+            return
         session.add(
             RevokedAccessToken(
                 token_id=principal.token_id,

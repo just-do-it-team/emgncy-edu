@@ -30,6 +30,8 @@ def _unauthorized(detail: str = "Authentication required") -> HTTPException:
 async def _load_principal(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None,
+    *,
+    allow_revoked: bool = False,
 ) -> Principal:
     cached = getattr(request.state, "principal", None)
     if isinstance(cached, Principal):
@@ -65,11 +67,11 @@ async def _load_principal(
         session: AsyncSession
         user = await session.get(UserAccount, user_id)
         revoked = await session.get(RevokedAccessToken, token_id)
-    if revoked is not None:
+    if revoked is not None and not allow_revoked:
         raise _unauthorized("Access token has been revoked")
     if user is None:
         raise _unauthorized("User account no longer exists")
-    if user.is_blocked:
+    if user.is_blocked and not allow_revoked:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is blocked",
@@ -89,6 +91,13 @@ async def get_current_principal(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> Principal:
     return await _load_principal(request, credentials)
+
+
+async def get_logout_principal(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> Principal:
+    return await _load_principal(request, credentials, allow_revoked=True)
 
 
 async def require_auth_if_enabled(

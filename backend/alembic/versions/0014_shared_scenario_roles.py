@@ -29,17 +29,6 @@ def upgrade() -> None:
         raise RuntimeError(
             "Resolve duplicate DDS positions in scenario assignments before migration 0014"
         )
-    duplicate_active_user = connection.execute(
-        sa.text(
-            "SELECT user_id FROM assignment_participant WHERE status = 'RUNNING' "
-            "GROUP BY user_id HAVING count(*) > 1 LIMIT 1"
-        )
-    ).first()
-    if duplicate_active_user is not None:
-        raise RuntimeError(
-            "Resolve overlapping active training sessions before migration 0014"
-        )
-
     op.add_column(
         "training_call",
         sa.Column("assigned_operator_user_id", sa.Uuid(), nullable=True),
@@ -60,18 +49,13 @@ def upgrade() -> None:
         postgresql_where=sa.text("position_code IS NOT NULL"),
         sqlite_where=sa.text("position_code IS NOT NULL"),
     )
-    op.create_index(
-        "uq_assignment_participant_one_running_user",
-        "assignment_participant",
-        ["user_id"],
-        unique=True,
-        postgresql_where=sa.text("status = 'RUNNING'"),
-        sqlite_where=sa.text("status = 'RUNNING'"),
-    )
+    # Existing test sessions can leave the same user RUNNING in several
+    # assignments. New starts are serialized by locking user_account rows in
+    # SimulationService._assert_participants_not_running; do not add a unique
+    # index that would reject otherwise valid deployments with historical data.
 
 
 def downgrade() -> None:
-    op.drop_index("uq_assignment_participant_one_running_user", table_name="assignment_participant")
     op.drop_index("uq_assignment_participant_dds_position", table_name="assignment_participant")
     op.drop_constraint(
         "fk_training_call_assigned_operator_user_id",

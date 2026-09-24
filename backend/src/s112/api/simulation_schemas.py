@@ -926,6 +926,9 @@ class ExpertReviewCallResponse(BaseModel):
     training_call_id: uuid.UUID
     incident_card_id: uuid.UUID | None
     status: str
+    ringing_at: datetime | None
+    answered_at: datetime | None
+    completed_at: datetime | None
     expected_result: dict[str, Any]
     current_state: dict[str, Any] | None
     automatic_result: dict[str, Any] | None
@@ -947,12 +950,23 @@ class TrainingActionResponse(OrmModel):
     details: dict[str, Any]
 
 
+class ExpertReviewCallUtterance(BaseModel):
+    id: uuid.UUID
+    call_id: uuid.UUID
+    speaker: str
+    input_mode: Literal["VOICE", "TEXT", "GENERATED"]
+    sequence_no: int
+    created_at: datetime
+    text: str
+
+
 class ExpertReviewContextResponse(BaseModel):
     session: TrainingSessionResponse
     scenario_snapshot: dict[str, Any]
     participant_ids: list[uuid.UUID]
     cards: list[ExpertReviewCardResponse]
     incoming_calls: list[ExpertReviewCallResponse] = Field(default_factory=list)
+    call_utterances: list[ExpertReviewCallUtterance] = Field(default_factory=list)
     actions: list[TrainingActionResponse]
 
 
@@ -1061,6 +1075,24 @@ class TrainingCallResponse(OrmModel):
     completed_at: datetime | None
     attempts: int
     last_error: str | None
+
+
+class CallTranscriptUtterance(BaseModel):
+    id: uuid.UUID
+    speaker: Literal["OPERATOR", "CALLER", "RESPONSE_LEAD"]
+    input_mode: Literal["VOICE", "TEXT", "GENERATED"]
+    sequence_no: int
+    created_at: datetime
+    text: str
+    audio_urls: list[str] = Field(default_factory=list)
+
+
+class CallTranscriptResponse(BaseModel):
+    call_id: uuid.UUID
+    training_session_id: uuid.UUID
+    answered_at: datetime | None
+    completed_at: datetime | None
+    utterances: list[CallTranscriptUtterance]
 
 
 class TrainingCallActionRequest(BaseModel):

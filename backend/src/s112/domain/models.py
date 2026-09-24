@@ -917,13 +917,6 @@ class AssignmentParticipant(Base):
             postgresql_where=text("position_code IS NOT NULL"),
             sqlite_where=text("position_code IS NOT NULL"),
         ),
-        Index(
-            "uq_assignment_participant_one_running_user",
-            "user_id",
-            unique=True,
-            postgresql_where=text("status = 'RUNNING'"),
-            sqlite_where=text("status = 'RUNNING'"),
-        ),
     )
 
     assignment_id: Mapped[uuid.UUID] = mapped_column(

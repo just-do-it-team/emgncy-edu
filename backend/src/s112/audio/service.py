@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from s112.api.service import ConflictError, NotFoundError, ValidationError
 from s112.api.scenario_completion import ScenarioCompletionService
+from s112.audio.access import can_access_training_call
 from s112.audio.storage import StoredAudioObject
 from s112.common.config import Settings
 from s112.common.enums import (
@@ -458,6 +459,11 @@ class AudioMessageService:
         message = await session.get(AudioMessage, message_id)
         if message is None:
             raise NotFoundError("Audio message not found")
+        if message.training_call_id is not None:
+            call = await session.get(TrainingCall, message.training_call_id)
+            if call is None or not await can_access_training_call(session, call, user_id):
+                raise NotFoundError("Audio message not found")
+            return message
         member = await session.get(
             WorkspaceMember, (message.workspace_id, user_id)
         )

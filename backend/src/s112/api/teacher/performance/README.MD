@@ -52,6 +52,10 @@ GET /api/v1/students/{studentId}/training-history?teacher_id={teacherId}&limit=1
 GET /api/v1/training-sessions/{sessionId}/expert-review-context?teacher_id={teacherId}
 ```
 
+Для отдельного звонка доступен также
+`GET /api/v1/training-calls/{callId}/transcript` с `X-User-Id: <teacherId>`:
+он возвращает текст обеих сторон и ссылки на доступное аудио.
+
 Ответ содержит:
 
 - `session` — базовые результаты попытки;
@@ -60,6 +64,16 @@ GET /api/v1/training-sessions/{sessionId}/expert-review-context?teacher_id={teac
 - `cards[]` — ожидаемое состояние, фактическое состояние и автоматический
   результат каждой карточки;
 - `actions[]` — полная хронология действий.
+- `call_utterances[]` — текст реплик завершённых учебных звонков в порядке
+  `sequence_no`: `call_id`, `speaker`, `input_mode`, `created_at`, `text`.
+  `speaker=OPERATOR` обозначает обучаемого; у другой стороны сохраняется роль
+  звонка (`CALLER` или `RESPONSE_LEAD`). `input_mode=VOICE` означает STT речи
+  обучаемого, `TEXT` — введённый им текст, `GENERATED` — ответ модели.
+  `created_at` — время записи сообщения на сервере, не время фактического
+  воспроизведения звука у обучаемого. У действий в `actions[]` есть `occurred_at`,
+  `before_state`, `after_state` и `details` для сопоставления с репликами.
+- `incoming_calls[]` — в том числе `ringing_at`, `answered_at` и `completed_at`;
+  `answered_at` можно использовать как начало относительной шкалы времени.
 
 Элемент `cards[].automatic_result`:
 
