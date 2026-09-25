@@ -1403,6 +1403,8 @@ class SimulationApplicationService:
         session: AsyncSession,
         session_id: uuid.UUID,
         user_id: uuid.UUID,
+        *,
+        reason: str | None = None,
     ) -> TrainingSession:
         training_session = await session.scalar(
             select(TrainingSession)
@@ -1454,6 +1456,8 @@ class SimulationApplicationService:
         score, work_passed, result = await self._evaluate_session_work(
             session, scheduled_cards, training_calls
         )
+        if reason is not None:
+            result["abort_reason"] = reason
         passed = readiness["can_complete"] and work_passed
         now = utcnow()
         training_session.status = TrainingSessionStatus.ABORTED.value
@@ -1512,7 +1516,7 @@ class SimulationApplicationService:
                 id=action_id,
                 training_session_id=session_id,
                 workspace_id=workspace.id,
-                actor_user_id=user_id,
+                actor_user_id=None if reason is not None else user_id,
                 action_type="SESSION_ABORTED",
                 entity_type="training_session",
                 entity_id=str(session_id),
@@ -1522,6 +1526,7 @@ class SimulationApplicationService:
                 details={
                     "score": float(training_session.score),
                     "passed": passed,
+                    **({"reason": reason} if reason is not None else {}),
                 },
             )
         )
@@ -1532,7 +1537,11 @@ class SimulationApplicationService:
             training_session=training_session,
             workspace_id=workspace.id,
             teacher_id=assignment.assigned_by,
-            data={"score": float(training_session.score), "passed": passed},
+            data={
+                "score": float(training_session.score),
+                "passed": passed,
+                **({"reason": reason} if reason is not None else {}),
+            },
         )
         await session.flush()
         return training_session
@@ -1543,6 +1552,8 @@ class SimulationApplicationService:
         session_id: uuid.UUID,
         teacher_id: uuid.UUID,
         reason: str,
+        *,
+        system_initiated: bool = False,
     ) -> TrainingSession:
         training_session = await session.scalar(
             select(TrainingSession)
@@ -1627,7 +1638,7 @@ class SimulationApplicationService:
                 id=action_id,
                 training_session_id=session_id,
                 workspace_id=workspace.id,
-                actor_user_id=teacher_id,
+                actor_user_id=None if system_initiated else teacher_id,
                 action_type="SESSION_ABORTED",
                 entity_type="training_session",
                 entity_id=str(session_id),

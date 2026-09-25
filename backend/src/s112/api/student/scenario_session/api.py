@@ -2,9 +2,10 @@ import base64
 import binascii
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi.responses import Response
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -28,12 +29,13 @@ from s112.api.simulation_schemas import (
     TrainingSessionResponse,
 )
 from s112.api.simulation_service import SimulationApplicationService
-from s112.common.enums import WorkspaceMemberRole
+from s112.common.enums import TrainingSessionStatus, WorkspaceMemberRole
 from s112.domain.models import (
     CardListProjection,
     CardService,
     EmergencyService,
     IncidentCard,
+    SimulationWorkspace,
     TrainingSession,
     WorkspaceMember,
 )
@@ -80,6 +82,42 @@ def _decode_cards_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
     ):
         raise HTTPException(status_code=422, detail="Invalid cards cursor") from None
     return registered_at, card_id
+
+
+@router.post("/training-sessions/{session_id}/presence", status_code=204)
+async def record_session_presence(
+    session_id: uuid.UUID,
+    request: Request,
+    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    session: AsyncSession = Depends(get_write_session),
+) -> Response:
+    _assert_request_identity(request, user_id)
+    async with session.begin():
+        training_session = await session.scalar(
+            select(TrainingSession)
+            .where(TrainingSession.id == session_id)
+            .with_for_update()
+        )
+        if training_session is None:
+            raise HTTPException(status_code=404, detail="Training session not found")
+        workspace = await session.scalar(
+            select(SimulationWorkspace).where(
+                SimulationWorkspace.training_session_id == session_id
+            )
+        )
+        if workspace is None:
+            raise HTTPException(status_code=404, detail="Training session workspace not found")
+        member = await session.get(WorkspaceMember, (workspace.id, user_id))
+        if (
+            member is None
+            or member.left_at is not None
+            or member.member_role != WorkspaceMemberRole.PARTICIPANT.value
+        ):
+            raise HTTPException(status_code=403, detail="Session participant access required")
+        if training_session.status != TrainingSessionStatus.RUNNING.value:
+            raise HTTPException(status_code=409, detail="Training session is not running")
+        member.last_presence_at = datetime.now(timezone.utc)
+    return Response(status_code=204)
 
 
 @router.get(

@@ -3,6 +3,7 @@ import logging
 
 from s112.common.config import get_settings
 from s112.common.database import Database
+from s112.scenario_worker.presence import PresenceSweepWorker
 from s112.scenario_worker.worker import ScenarioSchedulerWorker
 
 
@@ -15,8 +16,16 @@ async def run() -> None:
         batch_size=settings.scenario_worker_batch_size,
         retry_limit=settings.scenario_worker_retry_limit,
     )
+    presence_worker = PresenceSweepWorker(
+        database,
+        timeout_seconds=settings.presence_timeout_seconds,
+        batch_size=settings.scenario_worker_batch_size,
+    )
     try:
-        await worker.run_forever(settings.scenario_worker_poll_interval_seconds)
+        await asyncio.gather(
+            worker.run_forever(settings.scenario_worker_poll_interval_seconds),
+            presence_worker.run_forever(settings.presence_sweep_interval_seconds),
+        )
     finally:
         await database.dispose()
 

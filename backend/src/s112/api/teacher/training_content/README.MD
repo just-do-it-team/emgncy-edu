@@ -3,6 +3,405 @@
 Вкладка состоит из конструктора шаблонов карточек и конструктора сценариев.
 Изменение опубликованного сценария запрещено: редактируется только `DRAFT`.
 
+## Контракт шаблонов для frontend
+
+Backend хранит два разных вида шаблонов. Их нельзя смешивать в одной форме или
+отправлять в одну ручку:
+
+| Назначение | Сущность | Создание | Начальные данные |
+|---|---|---|---|
+| Готовая карточка для оператора ДДС, в том числе с исходящим звонком | `card_template` | `POST /api/v1/card-templates` | `initial_card` |
+| Входящий звонок заявителя оператору 112, по итогам которого обучаемый создаёт карточку | `incoming_call_template` | `POST /api/v1/incoming-call-templates` | `initial_call` |
+
+При включённой авторизации frontend передаёт обычный `Authorization: Bearer
+<token>`. В поле `created_by` всегда передаётся `id` текущего преподавателя из
+его профиля. Для `GET`-методов шаблонов дополнительно обязателен заголовок
+`X-User-Id` с тем же идентификатором преподавателя.
+
+Шаблоны неизменяемы. Для первой версии `template_key` можно не передавать или
+передать `null`: backend создаст ключ. Новая версия создаётся новым `POST` с тем
+же `template_key` и увеличенным `version`. Физического редактирования шаблона
+нет; `DELETE` деактивирует конкретную версию.
+
+### Общие типы данных
+
+Ниже приведены TypeScript-типы, повторяющие JSON-контракт API. Имена полей
+нужно отправлять именно в `snake_case`.
+
+```ts
+type UUID = string;
+type JsonValue = null | boolean | number | string | JsonValue[] | {
+  [key: string]: JsonValue;
+};
+
+type CardStatus =
+  | "REGISTERED"
+  | "PROCESSED"
+  | "CHECKED"
+  | "NOT_NOTIFIED"
+  | "REFUSAL"
+  | "NOT_COMPLETED"
+  | "COMPLETED";
+
+type ServiceResponseStatus =
+  | "ADDED"
+  | "NOT_NOTIFIED"
+  | "RECEIVED"
+  | "ACCEPTED"
+  | "REJECTED"
+  | "RESPONSE_STARTED"
+  | "ARRIVED"
+  | "WORK_IN_PROGRESS"
+  | "WORK_COMPLETED"
+  | "WORK_REFUSED";
+
+type Questionnaire = {
+  questions: string;
+  answers: string;
+};
+
+type CardFeatures = {
+  event_kind_id: number;
+  additional_features: Record<string, JsonValue>;
+};
+
+type InitialCard = {
+  event_type_id: number;
+  source_type?: "CALL" | "SMS" | "VIS" | "ERA_GLONASS" | "REGIONAL_112" | "MANUAL";
+  description?: string;
+  questionnaire?: Questionnaire | null;
+  applicant_full_name?: string | null;
+  reported_address?: string | null;
+  incident_address?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  victims_count?: number | null;
+  features?: CardFeatures | null;
+};
+
+type ExpectedCard = {
+  event_type_id: number;
+  description: string;
+  questionnaire: Questionnaire | null;
+  reported_address: string | null;
+  incident_address: string | null;
+  victims_count: number | null;
+  current_status: CardStatus;
+  features: CardFeatures | null;
+  services: string[];
+  service_statuses: Record<string, ServiceResponseStatus>;
+};
+
+type OutboundCall = {
+  expected_text: string;
+  minimum_similarity?: number; // 0..1, по умолчанию 0.8
+};
+
+type ExpectedServiceStatusChange = {
+  status: ServiceResponseStatus;
+  comment: string | null;
+};
+
+type ExpectedResult = {
+  card: ExpectedCard;
+  outbound_call?: OutboundCall | null;
+  service_status_history?: Record<string, ExpectedServiceStatusChange[]> | null;
+};
+```
+
+В `InitialCard` frontend не должен отправлять runtime-поля `workspace_id` и
+`request_id`. Даже если они будут переданы, при сохранении шаблона backend их
+удалит. Для конструктора достаточно полей, перечисленных выше.
+
+`ExpectedCard` — полное эталонное состояние карточки после действий
+обучаемого. Для предсказуемого состояния формы frontend должен явно отправлять
+все его поля, включая значения `null`, пустые `services: []` и
+`service_statuses: {}`. Backend сравнивает итоговую карточку с этим объектом.
+
+Правила общих полей:
+
+- `event_type_id` и `features.event_kind_id` — числовые идентификаторы из
+  справочников типов и видов происшествий;
+- `victims_count` — целое число `>= 0` либо `null`;
+- `latitude` находится в диапазоне `-90..90`, `longitude` — `-180..180`;
+- `additional_features` содержит JSON-значения, допустимые схемой выбранного
+  вида происшествия;
+- `services` содержит коды служб, например `"101"`, а не UUID служб;
+- ключи `service_statuses` также являются кодами служб;
+- `questionnaire` либо `null`, либо объект строго с двумя строками
+  `questions` и `answers`;
+- неизвестные поля в `ExpectedCard`, `OutboundCall`, `CardFeatures` и элементах
+  истории статусов дают `422`.
+
+### Шаблон входящего звонка оператору 112
+
+Запрос создания:
+
+```ts
+type IncomingCallTemplateCreate = {
+  template_key?: UUID | null;
+  version?: number; // целое >= 1, по умолчанию 1
+  name: string; // 1..255 символов
+  description?: string | null;
+  difficulty?: number; // целое 1..5, по умолчанию 1
+  initial_call: {
+    initial_utterance: string; // 1..10000 символов после trim
+  };
+  expected_result: ExpectedResult;
+  created_by: UUID;
+};
+```
+
+Для входящего звонка действуют дополнительные правила:
+
+- `expected_result.card` обязателен;
+- `initial_call.initial_utterance` — первая фраза заявителя, которую обучаемый
+  слышит после ответа на звонок;
+- все достоверные сведения, которые заявитель должен сообщать по уточняющим
+  вопросам, задаются в `expected_result.card`; dialogue worker передаёт этот
+  объект LLM как контекст происшествия;
+- разговор и формулировки вопросов обучаемого не оцениваются — оценивается
+  только созданная по итогам разговора карточка;
+- `outbound_call` для входящего звонка не передаётся: используйте `null` или
+  не включайте поле;
+- `service_status_history` для оператора 112 не передаётся: используйте `null`
+  или не включайте поле;
+- обычно новая карточка остаётся в состоянии `REGISTERED`; состав `services` и
+  `service_statuses` задаётся ровно таким, каким он должен быть после её
+  сохранения в конкретном учебном сценарии.
+
+Канонический запрос:
+
+```http
+POST /api/v1/incoming-call-templates
+Content-Type: application/json
+
+{
+  "template_key": null,
+  "version": 1,
+  "name": "Оператор 112: дым в подъезде",
+  "description": "Заявитель сообщает о дыме; оператор должен уточнить адрес и пострадавших",
+  "difficulty": 2,
+  "initial_call": {
+    "initial_utterance": "Алло, помогите, в подъезде сильный запах дыма!"
+  },
+  "expected_result": {
+    "card": {
+      "event_type_id": 1,
+      "description": "В подъезде жилого дома сильный запах дыма, на втором этаже горит электрощит.",
+      "questionnaire": null,
+      "reported_address": "г. Москва, ул. Учебная, д. 12, подъезд 2",
+      "incident_address": "г. Москва, ул. Учебная, д. 12, подъезд 2",
+      "victims_count": 1,
+      "current_status": "REGISTERED",
+      "features": null,
+      "services": [],
+      "service_statuses": {}
+    },
+    "outbound_call": null,
+    "service_status_history": null
+  },
+  "created_by": "teacher-uuid"
+}
+```
+
+### Шаблон карточки ДДС с исходящим звонком и статусами
+
+Запрос создания:
+
+```ts
+type CardTemplateCreate = {
+  template_key?: UUID | null;
+  version?: number; // целое >= 1, по умолчанию 1
+  name: string; // 1..255 символов
+  description?: string | null;
+  difficulty?: number; // целое 1..5, по умолчанию 1
+  initial_card: InitialCard;
+  expected_result: ExpectedResult;
+  created_by: UUID;
+};
+```
+
+Для учебной карточки ДДС с телефонным оповещением:
+
+- `initial_card` задаёт состояние карточки в момент её получения обучаемым;
+- `expected_result.card` задаёт состояние после исправления карточки и
+  завершения работы;
+- `expected_result.outbound_call.expected_text` содержит смысловой эталон
+  сообщения руководителю группы реагирования; обычно это краткая суть
+  происшествия и полный адрес;
+- `minimum_similarity` — число `0..1`, рекомендуемое значение `0.8`;
+- длина `expected_text` — `1..10000` символов после удаления пробелов по краям;
+- длина каждого комментария — не более `10000` символов; пустая строка после
+  `trim` сохраняется как `null`;
+- `service_status_history` задаёт точный ожидаемый порядок изменений статуса и
+  комментарии оператора;
+- множество ключей `service_status_history` должно в точности совпадать с
+  множеством кодов в `expected_result.card.services`;
+- история каждой службы должна быть непустой;
+- последний статус истории службы должен совпадать со значением
+  `expected_result.card.service_statuses[serviceCode]`;
+- при оценке сравниваются порядок, статус и точный текст комментария;
+- для сценария одной ДДС в `services`, `service_statuses` и
+  `service_status_history` должен присутствовать только код этой ДДС.
+
+Статус `ADDED` является внутренним начальным состоянием назначения службы и в
+историю действий обучаемого обычно не включается. Допустимые переходы:
+
+```text
+ADDED -> NOT_NOTIFIED | RECEIVED | ACCEPTED | REJECTED
+NOT_NOTIFIED -> RECEIVED | ACCEPTED | REJECTED
+RECEIVED -> ACCEPTED | REJECTED
+REJECTED -> ACCEPTED
+ACCEPTED -> RESPONSE_STARTED | WORK_REFUSED
+RESPONSE_STARTED -> ARRIVED | WORK_REFUSED
+ARRIVED -> WORK_IN_PROGRESS | WORK_REFUSED
+WORK_IN_PROGRESS -> WORK_COMPLETED | WORK_REFUSED
+WORK_COMPLETED -> конец
+WORK_REFUSED -> конец
+```
+
+Комментарий обязателен backend-ом для `REJECTED` и `WORK_REFUSED`. Для
+актуальных учебных шаблонов frontend должен также требовать непустой комментарий
+для всех действий после `RECEIVED`, поскольку комментарии входят в эталон и
+сравниваются дословно.
+
+Каноническая успешная последовательность для текущих шаблонов ДДС:
+
+```text
+RECEIVED -> ACCEPTED -> RESPONSE_STARTED -> ARRIVED
+-> WORK_IN_PROGRESS -> WORK_COMPLETED
+```
+
+Канонический запрос:
+
+```http
+POST /api/v1/card-templates
+Content-Type: application/json
+
+{
+  "template_key": null,
+  "version": 1,
+  "name": "ДДС-101: горение мусора и доклад пожарной бригаде",
+  "description": "Исправить число пострадавших, выполнить звонок и провести статусы службы",
+  "difficulty": 2,
+  "initial_card": {
+    "source_type": "CALL",
+    "event_type_id": 1,
+    "description": "Во дворе у контейнерной площадки горит мусор открытым пламенем. Люди не пострадали.",
+    "questionnaire": null,
+    "reported_address": "г. Москва, ул. Учебная, д. 10",
+    "incident_address": "г. Москва, ул. Учебная, д. 10, контейнерная площадка",
+    "victims_count": 1,
+    "features": {
+      "event_kind_id": 9,
+      "additional_features": {}
+    }
+  },
+  "expected_result": {
+    "card": {
+      "event_type_id": 1,
+      "description": "Во дворе у контейнерной площадки горит мусор открытым пламенем. Люди не пострадали.",
+      "questionnaire": null,
+      "reported_address": "г. Москва, ул. Учебная, д. 10",
+      "incident_address": "г. Москва, ул. Учебная, д. 10, контейнерная площадка",
+      "victims_count": 0,
+      "current_status": "COMPLETED",
+      "features": {
+        "event_kind_id": 9,
+        "additional_features": {}
+      },
+      "services": ["101"],
+      "service_statuses": {
+        "101": "WORK_COMPLETED"
+      }
+    },
+    "outbound_call": {
+      "expected_text": "Горение мусора на контейнерной площадке по адресу: г. Москва, ул. Учебная, д. 10, контейнерная площадка.",
+      "minimum_similarity": 0.8
+    },
+    "service_status_history": {
+      "101": [
+        {
+          "status": "RECEIVED",
+          "comment": null
+        },
+        {
+          "status": "ACCEPTED",
+          "comment": "Карточка принята. Пожарный расчёт направлен к месту происшествия."
+        },
+        {
+          "status": "RESPONSE_STARTED",
+          "comment": "Пожарный расчёт выехал к месту происшествия."
+        },
+        {
+          "status": "ARRIVED",
+          "comment": "Пожарный расчёт прибыл по указанному адресу."
+        },
+        {
+          "status": "WORK_IN_PROGRESS",
+          "comment": "Пожарный расчёт приступил к работе на месте."
+        },
+        {
+          "status": "WORK_COMPLETED",
+          "comment": "Работы службы 101 на месте происшествия завершены."
+        }
+      ]
+    }
+  },
+  "created_by": "teacher-uuid"
+}
+```
+
+### Ответы API и загрузка шаблона в форму
+
+Обе ручки создания возвращают `201` и сохранённый объект:
+
+```ts
+type TemplateResponse<TInitial> = {
+  id: UUID;             // UUID конкретной версии, используется в scenario.template_id
+  template_key: UUID;   // стабильный ключ семейства версий
+  version: number;
+  name: string;
+  description: string | null;
+  difficulty: number;
+  initial_card?: TInitial;
+  initial_call?: { initial_utterance: string };
+  expected_result: ExpectedResult;
+  is_active: boolean;
+  created_by: UUID;
+  created_at: string;   // ISO 8601
+};
+```
+
+Для заполнения формы существующими данными используйте:
+
+```http
+GET /api/v1/card-templates?active_only=true
+X-User-Id: <teacher-uuid>
+
+GET /api/v1/card-templates/{templateId}
+X-User-Id: <teacher-uuid>
+
+GET /api/v1/incoming-call-templates?active_only=true
+X-User-Id: <teacher-uuid>
+
+GET /api/v1/incoming-call-templates/{templateId}
+X-User-Id: <teacher-uuid>
+```
+
+В сценарий передаётся поле `id` конкретной версии шаблона, а не
+`template_key`. Для входящего звонка элемент сценария имеет
+`item_type: "INCOMING_CALL"`; для карточки ДДС —
+`item_type: "INCIDENT_CARD"`.
+
+Основные ошибки сохранения:
+
+- `422` — структура не соответствует схеме, нарушена последовательность
+  статусов, не совпадают службы или финальный статус, неверна роль автора;
+- `409` — такая пара `template_key + version` уже существует;
+- `404` — запрошенная версия шаблона не найдена.
+
 ## Шаблоны карточек
 
 ```http

@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     scenario_worker_poll_interval_seconds: float = Field(default=0.5, ge=0.05)
     scenario_worker_batch_size: int = Field(default=100, ge=1, le=1000)
     scenario_worker_retry_limit: int = Field(default=5, ge=1, le=100)
+    presence_timeout_seconds: int = Field(default=30, ge=10, le=3600)
+    presence_sweep_interval_seconds: float = Field(default=5.0, ge=1.0)
     sse_heartbeat_seconds: float = Field(default=15.0, ge=1.0)
     sse_client_queue_size: int = Field(default=200, ge=10)
 

@@ -823,6 +823,7 @@ class TrainingSession(Base):
             name="expert_score_range",
         ),
         Index("ix_training_session_assignment_status", "assignment_id", "status"),
+        Index("ix_training_session_status_started", "status", "started_at"),
         Index(
             "uq_training_session_one_active_assignment",
             "assignment_id",
@@ -922,6 +923,7 @@ class WorkspaceMember(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_presence_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class SessionScheduledCard(Base):
