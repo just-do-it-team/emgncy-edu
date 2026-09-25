@@ -315,7 +315,6 @@ function CardEditor({
       closeOnEscape={!busy}
       transitionProps={{ duration: 0 }}
     >
-      {info}
       <OperatorCard
         entry={operatorEntry}
         isNew={false}
@@ -345,6 +344,10 @@ function CardEditor({
           ),
         }}
       />
+      <details>
+        <summary>Состояние учебной карточки и запись звонка</summary>
+        {info}
+      </details>
     </Modal>
   );
 }

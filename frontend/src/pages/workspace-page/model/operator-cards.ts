@@ -7,7 +7,7 @@ import {
 } from "@/entities/incident";
 
 export const emptyAddress = {
-  country: "Россия",
+  country: "",
   subject: "Москва",
   settlement: "",
   object: "",

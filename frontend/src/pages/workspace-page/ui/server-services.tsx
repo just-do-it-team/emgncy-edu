@@ -10,6 +10,7 @@ import {
   Textarea,
 } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
+import { Plus } from "lucide-react";
 import {
   allowedServiceStatuses,
   apiError,
@@ -44,6 +45,17 @@ export function ServerServices({
 }) {
   return (
     <Group gap="xs" align="start">
+      {onAdd && (
+        <AddService
+          directory={directory.filter(
+            (d) =>
+              d.is_active &&
+              !card.services.some((s) => s.is_active && s.service_id === d.id),
+          )}
+          readOnly={readOnly}
+          onAdd={onAdd}
+        />
+      )}
       {card.services
         .filter((s) => s.is_active && s.is_visible)
         .map((s) => (
@@ -56,20 +68,10 @@ export function ServerServices({
             onStatus={onStatus}
           />
         ))}
-      {!card.services.some((s) => s.is_active && s.is_visible) && (
-        <Text size="sm">Службы не назначены</Text>
-      )}
-      {onAdd && (
-        <AddService
-          directory={directory.filter(
-            (d) =>
-              d.is_active &&
-              !card.services.some((s) => s.is_active && s.service_id === d.id),
-          )}
-          readOnly={readOnly}
-          onAdd={onAdd}
-        />
-      )}
+      {ctx.mode !== "ARM112" &&
+        !card.services.some((s) => s.is_active && s.is_visible) && (
+          <Text size="sm">Службы не назначены</Text>
+        )}
     </Group>
   );
 }
@@ -148,7 +150,9 @@ function ServerService({
     >
       <Popover.Target>
         <Button
-          className={classes.service}
+          className={
+            ctx.mode === "ARM112" ? classes.operatorService : classes.service
+          }
           onClick={() => setOpened(!opened)}
           aria-expanded={opened}
         >
@@ -156,9 +160,11 @@ function ServerService({
             <span className={classes.serviceName}>
               {info?.name ?? "Служба"}
             </span>
-            <span className={classes.serviceStatus}>
-              {statusLabels[service.current_status] ?? service.current_status}
-            </span>
+            {ctx.mode !== "ARM112" && (
+              <span className={classes.serviceStatus}>
+                {statusLabels[service.current_status] ?? service.current_status}
+              </span>
+            )}
           </span>
         </Button>
       </Popover.Target>
@@ -262,8 +268,15 @@ function AddService({
   return (
     <Popover position="top" withinPortal width={350}>
       <Popover.Target>
-        <Button variant="white" disabled={readOnly}>
-          Добавить службу
+        <Button
+          variant="outline"
+          color="white"
+          disabled={readOnly}
+          aria-label="Добавить службу"
+          title="Добавить службу"
+          className={classes.addServiceButton}
+        >
+          <Plus size={24} />
         </Button>
       </Popover.Target>
       <Popover.Dropdown>

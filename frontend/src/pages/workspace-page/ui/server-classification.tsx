@@ -8,6 +8,7 @@ import {
   TextInput,
 } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
+import classes from "./server-classification.module.scss";
 import {
   apiError,
   trainingApi,
@@ -40,12 +41,12 @@ export function ServerClassification({
     "third_order_feature_id",
   ] as const;
   return (
-    <Stack p="sm" gap="sm">
+    <Stack className={classes.root} gap="sm">
       <Select
         searchable
         clearable
-        label="Тип происшествия"
-        placeholder="Начните вводить название"
+        label="Введите тип происшествия"
+        placeholder="ЧТО СЛУЧИЛОСЬ?"
         nothingFoundMessage="Тип не найден"
         data={kinds.map((k) => ({ value: String(k.id), label: k.name }))}
         value={features.event_kind_id ? String(features.event_kind_id) : null}
@@ -60,6 +61,12 @@ export function ServerClassification({
           })
         }
       />
+      {features.event_kind_id > 0 && (
+        <div className={classes.selectedKind}>
+          {kinds.find((kind) => kind.id === features.event_kind_id)?.name ??
+            "Тип происшествия"}
+        </div>
+      )}
       {fields.map((field, level) => {
         const parentId =
           level === 0 ? features.event_kind_id : features[fields[level - 1]];
@@ -144,25 +151,40 @@ function FeatureLevel({
         </button>
       </Alert>
     );
-  if (query.data?.length === 0) return null;
-  const options =
-    query.data?.map((v) => ({ value: String(v.id), label: v.name })) ?? [];
-  if (value && !options.some((o) => o.value === String(value)))
-    options.push({
-      value: String(value),
-      label: "Сохранённый признак (нет в справочнике)",
-    });
+  if (query.data?.length === 0 && !value) return null;
+  const options = query.data ?? [];
   return (
-    <Select
-      searchable
-      clearable
-      label={`Определяющий признак ${level + 1}`}
-      placeholder={query.isPending ? "Загрузка…" : "Выберите признак"}
-      disabled={query.isPending}
-      data={options}
-      value={value === null ? null : String(value)}
-      onChange={(id) => onChange(id ? Number(id) : null)}
-    />
+    <div className={classes.featureRow}>
+      <span>Определяющий признак {level + 1}</span>
+      <div className={classes.options}>
+        {query.isPending ? (
+          <Text size="xs">Загрузка…</Text>
+        ) : (
+          options.map((option) => (
+            <Button
+              key={option.id}
+              size="xs"
+              variant={value === option.id ? "filled" : "default"}
+              color="povBlue"
+              aria-pressed={value === option.id}
+              onClick={() => onChange(value === option.id ? null : option.id)}
+            >
+              {option.name}
+            </Button>
+          ))
+        )}
+        {value && !options.some((option) => option.id === value) && (
+          <Button
+            size="xs"
+            variant="filled"
+            color="povBlue"
+            onClick={() => onChange(null)}
+          >
+            Сохранённый признак (нет в справочнике)
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }
 function AdditionalFeatures({
@@ -193,26 +215,32 @@ function AdditionalFeatures({
           rule.enum ?? (rule.type === "boolean" ? [true, false] : null);
         if (options)
           return (
-            <Select
-              key={key}
-              label={label}
-              required={required.includes(key)}
-              clearable
-              data={options.map((v, index) => ({
-                value: String(index),
-                label: typeof v === "boolean" ? (v ? "Да" : "Нет") : String(v),
-              }))}
-              value={
-                options.includes(values[key] as string | number | boolean)
-                  ? String(
-                      options.indexOf(values[key] as string | number | boolean),
-                    )
-                  : null
-              }
-              onChange={(v) =>
-                change(v === null ? undefined : options[Number(v)])
-              }
-            />
+            <div className={classes.featureRow} key={key}>
+              <span>
+                {label}
+                {required.includes(key) ? " *" : ""}
+              </span>
+              <div className={classes.options}>
+                {options.map((option, index) => (
+                  <Button
+                    key={index}
+                    size="xs"
+                    variant={values[key] === option ? "filled" : "default"}
+                    color="povBlue"
+                    aria-pressed={values[key] === option}
+                    onClick={() =>
+                      change(values[key] === option ? undefined : option)
+                    }
+                  >
+                    {typeof option === "boolean"
+                      ? option
+                        ? "Да"
+                        : "Нет"
+                      : String(option)}
+                  </Button>
+                ))}
+              </div>
+            </div>
           );
         if (rule.type === "number" || rule.type === "integer")
           return (

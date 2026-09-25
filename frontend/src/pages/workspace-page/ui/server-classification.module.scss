@@ -1,0 +1,70 @@
+.root {
+  padding: 8px 0;
+  gap: 10px;
+  background: #f8f9fa;
+
+  :global(.mantine-InputWrapper-label) {
+    color: #59646a;
+    font-size: 13px;
+    font-weight: 400;
+  }
+
+  :global(.mantine-Select-input) {
+    height: 32px;
+    min-height: 32px;
+    padding: 0;
+    border: 0;
+    border-bottom: 1px solid #c7ced1;
+    border-radius: 0;
+    background: transparent;
+    font-size: 20px;
+  }
+}
+
+.selectedKind {
+  align-self: flex-start;
+  margin: 0 0 5px;
+  padding: 6px 12px;
+  border: 1px solid #b7c0c5;
+  background: white;
+  font-size: 12px;
+}
+
+.featureRow {
+  display: grid;
+  grid-template-columns: minmax(190px, 29%) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 7px 0;
+  background: white;
+
+  > span {
+    padding-top: 7px;
+    color: #6f7b82;
+    font-size: 13px;
+  }
+}
+
+.options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  :global(.mantine-Button-root) {
+    min-height: 32px;
+    height: auto;
+    border-radius: 0;
+    padding: 5px 12px;
+  }
+
+  :global(.mantine-Button-label) {
+    white-space: normal;
+    text-align: left;
+  }
+}
+
+@media (max-width: 850px) {
+  .featureRow {
+    grid-template-columns: 1fr;
+  }
+}
