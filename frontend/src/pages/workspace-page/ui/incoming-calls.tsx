@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
-import { Alert, Button, Modal, Stack, Text } from "@mantine/core";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Alert, Button, Group, Modal, Stack, Text } from "@mantine/core";
+import { PhoneOff } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   apiError,
@@ -11,6 +13,12 @@ import {
   type ReferenceOption,
 } from "@/entities/training";
 import { CreateServerCard } from "./create-server-card";
+import { useIncomingCallAudio } from "./use-incoming-call-audio";
+import {
+  createOperatorCard,
+  type OperatorCardDraft,
+  type OperatorCardEntry,
+} from "../model/operator-cards";
 import classes from "./workspace-page.module.scss";
 
 export function IncomingCalls({
@@ -20,6 +28,9 @@ export function IncomingCalls({
   canCreate,
   onChanged,
   onBusyChange,
+  onDraftChange,
+  onCardOpenChange,
+  openCardRequest,
 }: {
   ctx: LaunchContext;
   active: boolean;
@@ -31,6 +42,9 @@ export function IncomingCalls({
   canCreate: boolean;
   onChanged: () => Promise<void>;
   onBusyChange: (busy: boolean) => void;
+  onDraftChange: (draft: OperatorCardEntry | null) => void;
+  onCardOpenChange: (open: boolean) => void;
+  openCardRequest: number;
 }) {
   const queryClient = useQueryClient();
   const queryKey = [
@@ -50,6 +64,11 @@ export function IncomingCalls({
   const [error, setError] = useState<string | null>(null);
   const [creatingCallId, setCreatingCallId] = useState<string | null>(null);
   const [cardOpen, setCardOpen] = useState(false);
+  const [draftEntry, setDraftEntry] = useState<OperatorCardEntry | null>(null);
+  const [callEnded, setCallEnded] = useState(false);
+  const [draftVisited, setDraftVisited] = useState(false);
+  const [controlTarget, setControlTarget] = useState<HTMLElement | null>(null);
+  const lastOpenRequest = useRef(openCardRequest);
   const [ringNotBefore, setRingNotBefore] = useState(() => Date.now() + 2000);
   const [ringDelayPassed, setRingDelayPassed] = useState(false);
   useEffect(() => {
@@ -61,18 +80,69 @@ export function IncomingCalls({
   }, [ringNotBefore]);
 
   const ringingCall = calls.data?.find((call) => call.status === "RINGING");
-  const activeCall = calls.data?.find(
-    (call) => call.status === "ACTIVE" && !call.incident_card_id,
+  const unfinishedCall = calls.data?.find(
+    (call) =>
+      (call.status === "ACTIVE" || call.status === "COMPLETED") &&
+      !call.incident_card_id,
   );
   const linkedActiveCall = calls.data?.find(
     (call) => call.status === "ACTIVE" && !!call.incident_card_id,
   );
+  const currentCall = calls.data?.find((call) => call.id === creatingCallId);
   useEffect(() => {
-    if (active && activeCall && !creatingCallId) {
-      setCreatingCallId(activeCall.id);
-      setCardOpen(true);
+    if (currentCall?.status === "COMPLETED") setCallEnded(true);
+  }, [currentCall?.status]);
+  const callAudio = useIncomingCallAudio(
+    ctx,
+    creatingCallId,
+    active && currentCall?.status === "ACTIVE" && !callEnded,
+  );
+  useEffect(() => {
+    setControlTarget(document.getElementById("workspace-call-controls"));
+  }, []);
+  useEffect(() => {
+    onDraftChange(draftVisited ? draftEntry : null);
+  }, [draftEntry, draftVisited, onDraftChange]);
+  useEffect(() => {
+    onCardOpenChange(cardOpen);
+  }, [cardOpen, onCardOpenChange]);
+  useEffect(() => {
+    if (active && unfinishedCall && !creatingCallId && !busy) {
+      setCreatingCallId(unfinishedCall.id);
+      const next = createOperatorCard();
+      next.draft.aon = unfinishedCall.caller_number ?? "";
+      next.incident.serviceStatus = "Черновик";
+      setDraftEntry(next);
+      setDraftVisited(false);
+      setCallEnded(unfinishedCall.status === "COMPLETED");
     }
-  }, [active, activeCall, creatingCallId]);
+  }, [active, unfinishedCall, creatingCallId, busy]);
+  useEffect(() => {
+    if (lastOpenRequest.current === openCardRequest) return;
+    if (!creatingCallId || !draftEntry || !reference || !canCreate) return;
+    lastOpenRequest.current = openCardRequest;
+    setDraftVisited(true);
+    setCardOpen(true);
+  }, [openCardRequest, creatingCallId, draftEntry, reference, canCreate]);
+
+  const updateDraft = useCallback((draft: OperatorCardDraft) => {
+    setDraftEntry((entry) =>
+      entry
+        ? {
+            draft: structuredClone(draft),
+            incident: {
+              ...entry.incident,
+              description: draft.description,
+              address:
+                draft.address.descriptive ||
+                [draft.address.street, draft.address.house]
+                  .filter(Boolean)
+                  .join(", "),
+            },
+          }
+        : entry,
+    );
+  }, []);
 
   async function act(
     callId: string,
@@ -94,9 +164,34 @@ export function IncomingCalls({
     try {
       await act(callId, "answer");
       setCreatingCallId(callId);
-      setCardOpen(true);
+      const next = createOperatorCard();
+      next.draft.aon =
+        calls.data.find((call) => call.id === callId)?.caller_number ?? "";
+      next.incident.serviceStatus = "Черновик";
+      setDraftEntry(next);
+      setCallEnded(false);
+      setDraftVisited(false);
     } catch (reason) {
       setError(apiError(reason));
+      void calls.refetch();
+    } finally {
+      setBusy(false);
+      onBusyChange(false);
+    }
+  }
+
+  async function hangUp() {
+    if (!creatingCallId || busy || callEnded) return;
+    setBusy(true);
+    onBusyChange(true);
+    setError(null);
+    try {
+      await act(creatingCallId, "complete");
+      setCallEnded(true);
+      await onChanged();
+    } catch (reason) {
+      setError(apiError(reason));
+      void calls.refetch();
     } finally {
       setBusy(false);
       onBusyChange(false);
@@ -113,20 +208,21 @@ export function IncomingCalls({
       if (!current) throw new Error("Входящий звонок больше недоступен.");
       if (current.incident_card_id && current.incident_card_id !== card.id)
         throw new Error("К звонку привязана другая карточка.");
-      if (current.status !== "COMPLETED") {
-        if (current.status !== "ACTIVE")
-          throw new Error("Звонок больше не активен.");
-        if (!current.incident_card_id)
-          await act(callId, "incident-card", card.id);
-        await act(callId, "complete");
-      }
+      if (current.status !== "ACTIVE" && current.status !== "COMPLETED")
+        throw new Error("Звонок больше недоступен.");
+      if (!current.incident_card_id)
+        await act(callId, "incident-card", card.id);
+      if (current.status === "ACTIVE") await act(callId, "complete");
     } catch (reason) {
-      const message = `Карточка № ${card.card_number} сохранена. Не удалось завершить звонок; повторите сохранение. ${apiError(reason)}`;
+      const message = `Карточка № ${card.card_number} сохранена. Не удалось связать её со звонком или подтвердить его завершение; повторите сохранение. ${apiError(reason)}`;
       setError(message);
       throw new Error(message);
     }
     setCreatingCallId(null);
+    setDraftEntry(null);
+    setDraftVisited(false);
     setCardOpen(false);
+    setCallEnded(false);
     setRingDelayPassed(false);
     setRingNotBefore(Date.now() + 5000);
     setError(null);
@@ -159,6 +255,49 @@ export function IncomingCalls({
 
   return (
     <>
+      {controlTarget &&
+        creatingCallId &&
+        currentCall &&
+        createPortal(
+          <Group gap="xs" wrap="nowrap" className={classes.callControls}>
+            <div className={classes.callControlMessage}>
+              <Text size="sm" fw={600}>
+                {callEnded || currentCall.status === "COMPLETED"
+                  ? "Разговор завершён"
+                  : callAudio.status}
+              </Text>
+              {callAudio.error && !callEnded && (
+                <Text size="xs" c="red" role="alert">
+                  {callAudio.error}
+                </Text>
+              )}
+              {error && (
+                <Text size="xs" c="red" role="alert">
+                  {error}
+                </Text>
+              )}
+            </div>
+            {callAudio.error && !callEnded && (
+              <Button
+                size="compact-xs"
+                variant="subtle"
+                onClick={callAudio.retry}
+              >
+                Повторить подключение
+              </Button>
+            )}
+            <Button
+              size="compact-sm"
+              color="red"
+              leftSection={<PhoneOff size={16} />}
+              disabled={callEnded || busy || currentCall.status !== "ACTIVE"}
+              onClick={() => void hangUp()}
+            >
+              Положить трубку
+            </Button>
+          </Group>,
+          controlTarget,
+        )}
       {calls.isError && (
         <Alert color="red">
           Не удалось обновить входящие звонки. {apiError(calls.error)}{" "}
@@ -171,7 +310,7 @@ export function IncomingCalls({
           </Button>
         </Alert>
       )}
-      {error && <Alert color="red">{error}</Alert>}
+      {error && !currentCall && <Alert color="red">{error}</Alert>}
       {linkedActiveCall && !creatingCallId && (
         <Alert color="yellow">
           Карточка звонка сохранена, но завершение звонка не подтверждено.{" "}
@@ -182,14 +321,6 @@ export function IncomingCalls({
             onClick={() => void completeLinkedCall()}
           >
             Повторить завершение
-          </Button>
-        </Alert>
-      )}
-      {creatingCallId && !cardOpen && (
-        <Alert color="blue">
-          Работа со звонком не завершена.{" "}
-          <Button variant="subtle" size="xs" onClick={() => setCardOpen(true)}>
-            Вернуться к карточке
           </Button>
         </Alert>
       )}
@@ -227,9 +358,10 @@ export function IncomingCalls({
           </Button>
         </Stack>
       </Modal>
-      {creatingCallId && reference && (
+      {creatingCallId && reference && draftEntry && (
         <CreateServerCard
           opened={cardOpen}
+          entry={draftEntry}
           ctx={ctx}
           types={reference.types}
           kinds={reference.kinds}
@@ -239,12 +371,16 @@ export function IncomingCalls({
             calls.data?.find((call) => call.id === creatingCallId)
               ?.caller_number
           }
+          callEnded={callEnded}
+          onHangUp={() => void hangUp()}
           readOnly={
             !active ||
             !canCreate ||
             calls.isError ||
             !calls.data?.some(
-              (call) => call.id === creatingCallId && call.status === "ACTIVE",
+              (call) =>
+                call.id === creatingCallId &&
+                (call.status === "ACTIVE" || call.status === "COMPLETED"),
             )
           }
           onClose={() => {
@@ -252,6 +388,7 @@ export function IncomingCalls({
             onBusyChange(false);
             void onChanged();
           }}
+          onDraftChange={updateDraft}
           onCreated={created}
           onBusyChange={onBusyChange}
         />

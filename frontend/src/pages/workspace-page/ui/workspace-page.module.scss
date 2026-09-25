@@ -216,6 +216,52 @@
   background: var(--mantine-color-white);
   border-bottom: 1px solid var(--pov-card-border);
   color: var(--pov-card-text);
+  position: sticky;
+  top: 0;
+  z-index: 200;
+}
+
+.callControlSlot {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+
+.callControls {
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--mantine-color-povLight-6);
+
+  :global(.mantine-Text-root) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.callControlMessage {
+  min-width: 0;
+  max-width: 560px;
+
+  :global(.mantine-Text-root) {
+    white-space: normal;
+    overflow: visible;
+    overflow-wrap: anywhere;
+  }
+}
+
+.page[data-operator-editing] {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+
+  .trainingBar {
+    flex-shrink: 0;
+  }
 }
 
 .incomingCallModal {

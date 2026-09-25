@@ -1,6 +1,6 @@
 import { useState } from "react";
 import axios from "axios";
-import { Modal, NumberInput, Select, Stack } from "@mantine/core";
+import { NumberInput, Select, Stack } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
 import { resolveClassification, resolveServices } from "@/entities/incident";
 import {
@@ -14,13 +14,12 @@ import {
   type ReferenceOption,
 } from "@/entities/training";
 import {
-  createOperatorCard,
+  type OperatorCardEntry,
   type OperatorCardDraft,
 } from "../model/operator-cards";
 import { validateAdditionalFeatures } from "../model/additional-features";
 import { OperatorCard } from "./operator-card";
 import { ServerClassification } from "./server-classification";
-import { useIncomingCallAudio } from "./use-incoming-call-audio";
 
 const emptyFeatures: CardFeatures = {
   event_kind_id: 0,
@@ -51,7 +50,8 @@ function incidentAddress(draft: OperatorCardDraft) {
 }
 
 export function CreateServerCard({
-  opened = true,
+  opened,
+  entry,
   ctx,
   types,
   kinds,
@@ -59,11 +59,15 @@ export function CreateServerCard({
   readOnly,
   callId = null,
   callerNumber,
+  callEnded,
+  onHangUp,
   onClose,
+  onDraftChange,
   onCreated,
   onBusyChange,
 }: {
-  opened?: boolean;
+  opened: boolean;
+  entry: OperatorCardEntry;
   ctx: LaunchContext;
   types: ReferenceOption[];
   kinds: EventKind[];
@@ -71,28 +75,19 @@ export function CreateServerCard({
   readOnly: boolean;
   callId?: string | null;
   callerNumber?: string | null;
+  callEnded: boolean;
+  onHangUp: () => void;
   onClose: () => void;
+  onDraftChange: (draft: OperatorCardDraft) => void;
   onCreated: (card: ApiCard) => Promise<void> | void;
   onBusyChange: (busy: boolean) => void;
 }) {
-  const [entry] = useState(() => {
-    const next = createOperatorCard();
-    next.incident.id = "новая";
-    next.draft.aon = callerNumber ?? "";
-    return next;
-  });
   const [typeId, setTypeId] = useState<string | null>(null);
   const [features, setFeatures] = useState<CardFeatures>(emptyFeatures);
   const [victims, setVictims] = useState<string | number>("");
   const [busy, setBusy] = useState(false);
   const [uncertain, setUncertain] = useState(false);
   const [persistedCard, setPersistedCard] = useState<ApiCard | null>(null);
-  const [callEnded, setCallEnded] = useState(false);
-  const callAudio = useIncomingCallAudio(
-    ctx,
-    callId,
-    opened && !!callId && !callEnded && !readOnly,
-  );
   const schema = useQuery({
     queryKey: [
       "student-api",
@@ -139,7 +134,9 @@ export function CreateServerCard({
     )
       throw new Error("Количество пострадавших должно быть целым числом.");
 
-    const routed = resolveServices(record, draft.flags);
+    const routed = resolveServices(record, draft.flags).filter(
+      (service) => !draft.excludedServices.includes(service.code),
+    );
     const byCode = new Map(
       directory
         .filter((service) => service.is_active)
@@ -220,92 +217,77 @@ export function CreateServerCard({
     }
   }
 
+  if (!opened) return null;
   return (
-    <Modal
-      opened={opened}
-      keepMounted
-      fullScreen={!!callId}
-      size="xl"
-      padding={0}
-      withCloseButton={false}
-      closeOnEscape={false}
-      closeOnClickOutside={false}
-      onClose={() => {
-        if (!busy) onClose();
+    <OperatorCard
+      entry={entry}
+      isNew
+      embedded
+      onSave={create}
+      onClose={onClose}
+      onDraftChange={onDraftChange}
+      remote={{
+        readOnly: readOnly || uncertain,
+        lockFields: busy || !!persistedCard,
+        canSave:
+          !busy &&
+          (!callId || callEnded) &&
+          !!typeId &&
+          !!features.event_kind_id &&
+          !schema.isFetching &&
+          !schema.isError,
+        services: null,
+        classification: (
+          <Stack gap="sm">
+            <Select
+              label="Категория учебной карточки"
+              required
+              data={types.map((type) => ({
+                value: String(type.id),
+                label: type.name,
+              }))}
+              value={typeId}
+              onChange={(id) => {
+                setTypeId(id);
+                setFeatures(emptyFeatures);
+              }}
+            />
+            <NumberInput
+              label="Количество пострадавших"
+              min={0}
+              allowDecimal={false}
+              value={victims}
+              onChange={setVictims}
+            />
+            {typeId && (
+              <ServerClassification
+                features={features}
+                onChange={setFeatures}
+                kinds={kinds.filter(
+                  (kind) => kind.event_type_id === Number(typeId),
+                )}
+                schema={schema.data}
+                schemaError={schema.error}
+                schemaPending={schema.isFetching}
+                showServiceNote={false}
+              />
+            )}
+          </Stack>
+        ),
       }}
-    >
-      <OperatorCard
-        entry={entry}
-        isNew
-        onSave={create}
-        onClose={onClose}
-        remote={{
-          readOnly: readOnly || uncertain,
-          lockFields: busy || !!persistedCard,
-          canSave:
-            !busy &&
-            (!callId || callEnded) &&
-            !!typeId &&
-            !!features.event_kind_id &&
-            !schema.isFetching &&
-            !schema.isError,
-          services: null,
-          classification: (
-            <Stack gap="sm">
-              <Select
-                label="Категория учебной карточки"
-                required
-                data={types.map((type) => ({
-                  value: String(type.id),
-                  label: type.name,
-                }))}
-                value={typeId}
-                onChange={(id) => {
-                  setTypeId(id);
-                  setFeatures(emptyFeatures);
-                }}
-              />
-              <NumberInput
-                label="Количество пострадавших"
-                min={0}
-                allowDecimal={false}
-                value={victims}
-                onChange={setVictims}
-              />
-              {typeId && (
-                <ServerClassification
-                  features={features}
-                  onChange={setFeatures}
-                  kinds={kinds.filter(
-                    (kind) => kind.event_type_id === Number(typeId),
-                  )}
-                  schema={schema.data}
-                  schemaError={schema.error}
-                  schemaPending={schema.isFetching}
-                  showServiceNote={false}
-                />
-              )}
-            </Stack>
-          ),
-        }}
-        incomingCall={
-          callId
-            ? {
-                callerNumber,
-                status: callAudio.status,
-                error: callAudio.error,
-                audioBusy: callAudio.busy,
-                onRetry: callAudio.retry,
-                ended: callEnded,
-                onEnd: () => setCallEnded(true),
-                warning: uncertain
-                  ? "Результат создания неизвестен. Закройте карточку и проверьте список перед повторным созданием."
-                  : undefined,
-                directory,
-              }
-            : undefined
-        }
-      />
-    </Modal>
+      incomingCall={
+        callId
+          ? {
+              callerNumber,
+              ended: callEnded,
+              onEnd: onHangUp,
+              warning: uncertain
+                ? "Результат создания неизвестен. Закройте карточку и проверьте список перед повторным созданием."
+                : undefined,
+              directory,
+            }
+          : undefined
+      }
+    />
   );
 }

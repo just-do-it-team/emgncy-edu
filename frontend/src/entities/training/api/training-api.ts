@@ -158,13 +158,19 @@ export const trainingApi = {
         signal,
       })
     ).data,
-  session: async (ctx: LaunchContext) =>
+  session: async (ctx: LaunchContext, signal?: AbortSignal) =>
     (
-      await api.get<TrainingSession>(
-        `/training-sessions/${ctx.sessionId}`,
-        requestConfig(ctx.userId),
-      )
+      await api.get<TrainingSession>(`/training-sessions/${ctx.sessionId}`, {
+        ...requestConfig(ctx.userId),
+        signal,
+      })
     ).data,
+  presence: async (ctx: LaunchContext, signal?: AbortSignal) => {
+    await api.post(`/training-sessions/${ctx.sessionId}/presence`, null, {
+      ...requestConfig(ctx.userId),
+      signal,
+    });
+  },
   start: async (userId: string, assignmentId: string, key: string) =>
     (
       await api.post<StartedSession>(

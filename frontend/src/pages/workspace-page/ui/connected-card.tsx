@@ -56,6 +56,22 @@ export function ConnectedCard(props: Props) {
     refetchOnWindowFocus: false,
     meta: { showGlobalError: false },
   });
+  if (!query.data && props.ctx.mode === "ARM112")
+    return (
+      <Stack p="md">
+        {query.isPending ? (
+          <Loader size="sm" />
+        ) : (
+          <Alert color="red">
+            {apiError(query.error)}{" "}
+            <Button onClick={() => void query.refetch()}>Повторить</Button>
+          </Alert>
+        )}
+        <Button variant="default" onClick={props.onClose}>
+          К списку карточек
+        </Button>
+      </Stack>
+    );
   if (!query.data)
     return (
       <Modal opened onClose={props.onClose} title="Загрузка карточки">
@@ -207,7 +223,7 @@ function CardEditor({
       setBusy(false);
     }
   }
-  const services = (
+  const services = (expanded = true) => (
     <ServerServices
       ctx={ctx}
       card={card}
@@ -215,6 +231,7 @@ function CardEditor({
       readOnly={disabled}
       onStatus={status}
       onAdd={ctx.mode === "ARM112" ? addService : undefined}
+      expanded={expanded}
     />
   );
   const info = (
@@ -299,25 +316,16 @@ function CardEditor({
           if (!busy) onClose();
         }}
         onServiceChange={() => {}}
-        serverServices={services}
+        serverServices={services()}
         extraContent={info}
       />
     );
   return (
-    <Modal
-      opened
-      onClose={() => {
-        if (!busy) onClose();
-      }}
-      fullScreen
-      padding={0}
-      withCloseButton={false}
-      closeOnEscape={!busy}
-      transitionProps={{ duration: 0 }}
-    >
+    <>
       <OperatorCard
         entry={operatorEntry}
         isNew={false}
+        embedded
         onSave={save}
         onClose={() => {
           if (!busy) onClose();
@@ -330,6 +338,9 @@ function CardEditor({
             !schema.isFetching &&
             !schema.isError,
           services,
+          serviceCount: card.services.filter(
+            (service) => service.is_active && service.is_visible,
+          ).length,
           classification: (
             <ServerClassification
               features={features}
@@ -348,6 +359,6 @@ function CardEditor({
         <summary>Состояние учебной карточки и запись звонка</summary>
         {info}
       </details>
-    </Modal>
+    </>
   );
 }
