@@ -24,6 +24,10 @@ export function draftFromCard(card: ApiCard): OperatorCardDraft {
   draft.address.descriptive =
     card.incident_address ?? card.reported_address ?? "";
   draft.description = card.description;
+  draft.applicant = card.applicant_full_name ?? "";
+  draft.aon = card.automatic_phone_number ?? "";
+  draft.providedPhone = card.provided_phone_number ?? "";
+  draft.locationPhone = card.location_phone_number ?? "";
   draft.questions = card.questionnaire?.questions ?? "";
   draft.answers = card.questionnaire?.answers ?? "";
   const record = classifierRecords.find(
@@ -91,6 +95,10 @@ export function patchFromDraft(
   ].filter(Boolean);
   return {
     description: draft.description,
+    applicant_full_name: draft.applicant.trim() || null,
+    automatic_phone_number: draft.aon.trim() || null,
+    provided_phone_number: draft.providedPhone.trim() || null,
+    location_phone_number: draft.locationPhone.trim() || null,
     incident_address: [...addressParts, draft.address.descriptive]
       .filter(Boolean)
       .join(", "),

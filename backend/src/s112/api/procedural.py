@@ -6,7 +6,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from s112.domain.models import (
-    CardFeature,
     CardService,
     EmergencyService,
     IncidentCard,
@@ -20,7 +19,21 @@ def _dict_contains(actual: dict[str, Any], expected: dict[str, Any]) -> bool:
     for key, value in expected.items():
         if key not in actual:
             return False
-        if isinstance(value, dict):
+        if key == "classification":
+            actual_classification = actual[key]
+            if not isinstance(actual_classification, dict) or not isinstance(value, dict):
+                return False
+            if {
+                **actual_classification,
+                "excluded_service_codes": sorted(
+                    actual_classification.get("excluded_service_codes", [])
+                ),
+            } != {
+                **value,
+                "excluded_service_codes": sorted(value.get("excluded_service_codes", [])),
+            }:
+                return False
+        elif isinstance(value, dict):
             if not isinstance(actual[key], dict) or not _dict_contains(actual[key], value):
                 return False
         elif key == "services" and isinstance(value, list):
@@ -45,25 +58,18 @@ async def procedural_card_work_finished(
     expected = item.expected_result
     expected_card = expected.get("card") or {}
     state: dict[str, Any] = {
-        "event_type_id": card.event_type_id,
+        "classification": card.classification,
         "description": card.description,
         "questionnaire": card.questionnaire,
         "applicant_full_name": card.applicant_full_name,
+        "automatic_phone_number": card.automatic_phone_number,
+        "provided_phone_number": card.provided_phone_number,
+        "location_phone_number": card.location_phone_number,
         "reported_address": card.reported_address,
         "incident_address": card.incident_address,
         "victims_count": card.victims_count,
         "current_status": card.current_status,
     }
-    if "features" in expected_card:
-        feature = await session.get(CardFeature, card.id)
-        state["features"] = (
-            {
-                "event_kind_id": feature.event_kind_id,
-                "additional_features": feature.additional_features,
-            }
-            if feature is not None
-            else None
-        )
     if "services" in expected_card or "service_statuses" in expected_card:
         service_rows = (
             await session.execute(

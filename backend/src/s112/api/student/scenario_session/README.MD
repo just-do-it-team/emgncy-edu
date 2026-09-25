@@ -55,17 +55,14 @@ X-User-Id: <student-uuid>
       "card_id": "card-uuid",
       "workspace_id": "workspace-uuid",
       "card_number": "112-000001",
-      "event_type_id": 1,
+      "event_type_id": null,
+      "classification": {"record_id": 1010101, "group_code": 1, "feature_1_code": 1, "feature_2_code": 1, "feature_3_code": 1, "final_incident_type": "пожар: мусор", "routing_flags": {}, "excluded_service_codes": []},
       "event_kind_id": null,
       "incident_address": "г. Москва, ул. Учебная, д. 10",
       "victims_count": 0,
       "current_status": "REGISTERED",
       "services_summary": [],
-      "features_summary": {
-        "event_kind_id": null,
-        "additional_features": {},
-        "revision": null
-      },
+      "features_summary": {},
       "registered_at": "2026-09-21T10:00:00Z",
       "last_updated_at": "2026-09-21T10:00:00Z",
       "version": 1
@@ -77,8 +74,8 @@ X-User-Id: <student-uuid>
 
 Для участника с ролью `DDS` backend оставляет только карточки его службы.
 Оператор 112 (`position_code: null`) видит все карточки своей учебной сессии.
-Основные поля строки: `card_id`, `card_number`, `event_type_id`, адрес,
-`current_status`, `services_summary`, `features_summary`, `version`.
+Основные поля строки: `card_id`, `card_number`, `classification`, адрес,
+`current_status`, `services_summary`, `version`.
 
 Если `next_cursor` не равен `null`, следующая страница запрашивается без
 изменения `limit`:

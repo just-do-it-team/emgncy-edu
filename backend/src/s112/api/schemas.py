@@ -118,17 +118,21 @@ class OperatorClassification(BaseModel):
 
 
 class CardCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     workspace_id: uuid.UUID = SYSTEM_WORKSPACE_ID
     card_number: str | None = Field(default=None, max_length=64)
     source_type: SourceType = SourceType.MANUAL
     source_system_id: uuid.UUID | None = None
     external_card_id: str | None = Field(default=None, max_length=255)
     parent_card_id: uuid.UUID | None = None
-    event_type_id: int | None = None
-    classification: OperatorClassification | None = None
+    classification: OperatorClassification
     description: str = ""
     questionnaire: CardQuestionnaire | None = None
     applicant_full_name: str | None = Field(default=None, max_length=255)
+    automatic_phone_number: str | None = Field(default=None, max_length=64)
+    provided_phone_number: str | None = Field(default=None, max_length=64)
+    location_phone_number: str | None = Field(default=None, max_length=64)
     reported_address: str | None = None
     incident_address: str | None = None
     latitude: Decimal | None = Field(default=None, ge=-90, le=90)
@@ -136,15 +140,6 @@ class CardCreate(BaseModel):
     victims_count: int | None = Field(default=None, ge=0)
     operator_id: uuid.UUID | None = None
     request_id: str | None = Field(default=None, max_length=128)
-    features: CardFeatureInput | None = None
-
-    @model_validator(mode="after")
-    def validate_classification_source(self) -> "CardCreate":
-        if (self.classification is None) == (self.event_type_id is None):
-            raise ValueError("Provide either classification or event_type_id")
-        if self.classification is not None and self.features is not None:
-            raise ValueError("Legacy features cannot accompany classification")
-        return self
 
 
 class CardUpdate(BaseModel):
@@ -152,6 +147,9 @@ class CardUpdate(BaseModel):
     description: str | None = None
     questionnaire: CardQuestionnaire | None = None
     applicant_full_name: str | None = Field(default=None, max_length=255)
+    automatic_phone_number: str | None = Field(default=None, max_length=64)
+    provided_phone_number: str | None = Field(default=None, max_length=64)
+    location_phone_number: str | None = Field(default=None, max_length=64)
     reported_address: str | None = None
     incident_address: str | None = None
     victims_count: int | None = Field(default=None, ge=0)
@@ -320,6 +318,9 @@ class CardResponse(OrmModel):
     description: str
     questionnaire: CardQuestionnaire | None
     applicant_full_name: str | None
+    automatic_phone_number: str | None
+    provided_phone_number: str | None
+    location_phone_number: str | None
     reported_address: str | None
     incident_address: str | None
     latitude: Decimal | None

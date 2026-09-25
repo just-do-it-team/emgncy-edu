@@ -109,6 +109,10 @@ export function CreateServerCard({
         : await trainingApi.createCard(ctx, {
             classification: classificationFromDraft(draft),
             description: draft.description,
+            applicant_full_name: draft.applicant.trim() || null,
+            automatic_phone_number: draft.aon.trim() || null,
+            provided_phone_number: draft.providedPhone.trim() || null,
+            location_phone_number: draft.locationPhone.trim() || null,
             incident_address: incidentAddress(draft),
             questionnaire:
               draft.questions || draft.answers

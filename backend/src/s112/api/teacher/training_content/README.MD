@@ -60,34 +60,41 @@ type Questionnaire = {
   answers: string;
 };
 
-type CardFeatures = {
-  event_kind_id: number;
-  additional_features: Record<string, JsonValue>;
+type Classification = {
+  record_id: number;
+  group_code: number;
+  feature_1_code: number;
+  feature_2_code: number;
+  feature_3_code: number;
+  final_incident_type: string;
+  routing_flags: Record<string, boolean>;
+  excluded_service_codes: string[];
 };
 
 type InitialCard = {
-  event_type_id: number;
+  classification: Classification;
   source_type?: "CALL" | "SMS" | "VIS" | "ERA_GLONASS" | "REGIONAL_112" | "MANUAL";
   description?: string;
   questionnaire?: Questionnaire | null;
   applicant_full_name?: string | null;
+  automatic_phone_number?: string | null;
+  provided_phone_number?: string | null;
+  location_phone_number?: string | null;
   reported_address?: string | null;
   incident_address?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   victims_count?: number | null;
-  features?: CardFeatures | null;
 };
 
 type ExpectedCard = {
-  event_type_id: number;
+  classification: Classification;
   description: string;
   questionnaire: Questionnaire | null;
   reported_address: string | null;
   incident_address: string | null;
   victims_count: number | null;
   current_status: CardStatus;
-  features: CardFeatures | null;
   services: string[];
   service_statuses: Record<string, ServiceResponseStatus>;
 };
@@ -120,17 +127,16 @@ type ExpectedResult = {
 
 Правила общих полей:
 
-- `event_type_id` и `features.event_kind_id` — числовые идентификаторы из
-  справочников типов и видов происшествий;
+- `classification` содержит номер записи, коды группы и трёх признаков,
+  итоговый тип, флаги маршрутизации и исключённые службы утверждённого
+  классификатора; клиент проверяет соответствие записи файлу классификатора;
 - `victims_count` — целое число `>= 0` либо `null`;
 - `latitude` находится в диапазоне `-90..90`, `longitude` — `-180..180`;
-- `additional_features` содержит JSON-значения, допустимые схемой выбранного
-  вида происшествия;
 - `services` содержит коды служб, например `"101"`, а не UUID служб;
 - ключи `service_statuses` также являются кодами служб;
 - `questionnaire` либо `null`, либо объект строго с двумя строками
   `questions` и `answers`;
-- неизвестные поля в `ExpectedCard`, `OutboundCall`, `CardFeatures` и элементах
+- неизвестные поля в `ExpectedCard`, `Classification`, `OutboundCall` и элементах
   истории статусов дают `422`.
 
 ### Шаблон входящего звонка оператору 112
@@ -187,14 +193,13 @@ Content-Type: application/json
   },
   "expected_result": {
     "card": {
-      "event_type_id": 1,
+      "classification": {"record_id": 1050102, "group_code": 1, "feature_1_code": 5, "feature_2_code": 1, "feature_3_code": 2, "final_incident_type": "задымление: квартира", "routing_flags": {}, "excluded_service_codes": []},
       "description": "В подъезде жилого дома сильный запах дыма, на втором этаже горит электрощит.",
       "questionnaire": null,
       "reported_address": "г. Москва, ул. Учебная, д. 12, подъезд 2",
       "incident_address": "г. Москва, ул. Учебная, д. 12, подъезд 2",
       "victims_count": 1,
       "current_status": "REGISTERED",
-      "features": null,
       "services": [],
       "service_statuses": {}
     },
@@ -287,30 +292,22 @@ Content-Type: application/json
   "difficulty": 2,
   "initial_card": {
     "source_type": "CALL",
-    "event_type_id": 1,
+    "classification": {"record_id": 1010101, "group_code": 1, "feature_1_code": 1, "feature_2_code": 1, "feature_3_code": 1, "final_incident_type": "пожар: мусор", "routing_flags": {}, "excluded_service_codes": []},
     "description": "Во дворе у контейнерной площадки горит мусор открытым пламенем. Люди не пострадали.",
     "questionnaire": null,
     "reported_address": "г. Москва, ул. Учебная, д. 10",
     "incident_address": "г. Москва, ул. Учебная, д. 10, контейнерная площадка",
-    "victims_count": 1,
-    "features": {
-      "event_kind_id": 9,
-      "additional_features": {}
-    }
+    "victims_count": 1
   },
   "expected_result": {
     "card": {
-      "event_type_id": 1,
+      "classification": {"record_id": 1010101, "group_code": 1, "feature_1_code": 1, "feature_2_code": 1, "feature_3_code": 1, "final_incident_type": "пожар: мусор", "routing_flags": {}, "excluded_service_codes": []},
       "description": "Во дворе у контейнерной площадки горит мусор открытым пламенем. Люди не пострадали.",
       "questionnaire": null,
       "reported_address": "г. Москва, ул. Учебная, д. 10",
       "incident_address": "г. Москва, ул. Учебная, д. 10, контейнерная площадка",
       "victims_count": 0,
       "current_status": "COMPLETED",
-      "features": {
-        "event_kind_id": 9,
-        "additional_features": {}
-      },
       "services": ["101"],
       "service_statuses": {
         "101": "WORK_COMPLETED"
@@ -425,29 +422,21 @@ Content-Type: application/json
   "description": "Базовая карточка",
   "difficulty": 2,
   "initial_card": {
-    "event_type_id": 1,
+    "classification": {"record_id": 1050102, "group_code": 1, "feature_1_code": 5, "feature_2_code": 1, "feature_3_code": 2, "final_incident_type": "задымление: квартира", "routing_flags": {}, "excluded_service_codes": []},
     "source_type": "CALL",
     "description": "Дым из окна",
     "incident_address": "Учебный адрес",
-    "victims_count": 0,
-    "features": {
-      "event_kind_id": 10,
-      "additional_features": {}
-    }
+    "victims_count": 0
   },
   "expected_result": {
     "card": {
-      "event_type_id": 1,
+      "classification": {"record_id": 1050101, "group_code": 1, "feature_1_code": 5, "feature_2_code": 1, "feature_3_code": 1, "final_incident_type": "пожар: квартира", "routing_flags": {}, "excluded_service_codes": []},
       "description": "Пожар в жилом доме",
       "questionnaire": null,
       "reported_address": null,
       "incident_address": "Учебный адрес",
       "victims_count": 0,
       "current_status": "REGISTERED",
-      "features": {
-        "event_kind_id": 10,
-        "additional_features": {}
-      },
       "services": [],
       "service_statuses": {}
     }
@@ -533,14 +522,13 @@ DELETE /api/v1/incoming-call-templates/{templateId}
   },
   "expected_result": {
     "card": {
-      "event_type_id": 1,
+      "classification": {"record_id": 1050101, "group_code": 1, "feature_1_code": 5, "feature_2_code": 1, "feature_3_code": 1, "final_incident_type": "пожар: квартира", "routing_flags": {}, "excluded_service_codes": []},
       "description": "Пожар в квартире",
       "questionnaire": null,
       "reported_address": null,
       "incident_address": "г. Москва, ул. Лесная, д. 12, кв. 45",
       "victims_count": 0,
       "current_status": "REGISTERED",
-      "features": null,
       "services": [],
       "service_statuses": {}
     }
@@ -710,7 +698,7 @@ backend установит подходящее значение по умолч
     "target_count": 6,
     "template_pool": {
       "template_ids": null,
-      "event_type_ids": [1, 2, 3, 4]
+      "classification_group_codes": [1, 2, 3, 4]
     }
   }
 }
@@ -724,7 +712,7 @@ backend установит подходящее значение по умолч
   `card_template`;
 - пустой список, повтор UUID, неизвестный, неактивный или более сложный, чем
   сценарий, шаблон дают `422`;
-- `event_type_ids` работает как дополнительный фильтр и также должен быть
+- `classification_group_codes` работает как дополнительный фильтр и также должен быть
   непустым списком уникальных положительных целых чисел либо `null`;
 - офсеты времени в `template_ids` не задаются: шаблон с фиксированным временем
   является статическим элементом `cards`.

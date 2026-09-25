@@ -85,9 +85,9 @@ GET /api/v1/training-sessions/{sessionId}/expert-review-context?teacher_id={teac
   "passed": false,
   "discrepancies": [
     {
-      "path": "card.features.event_kind_id",
-      "expected": 10,
-      "actual": 20,
+      "path": "card.classification.record_id",
+      "expected": 1050101,
+      "actual": 1050102,
       "reason": "value_mismatch"
     }
   ],
@@ -104,7 +104,7 @@ Frontend должен показывать `path`, ожидаемое и фак�
 
 | Критерий | Возможные `path` |
 | --- | --- |
-| C1 Классификация | `card.event_type_id`, `card.features`, `card.features.event_kind_id`, `card.features.additional_features.<key>` |
+| C1 Классификация | `card.classification.record_id`, `card.classification.group_code`, `card.classification.feature_1_code`, `card.classification.feature_2_code`, `card.classification.feature_3_code`, `card.classification.final_incident_type`, `card.classification.routing_flags.<key>`, `card.classification.excluded_service_codes` |
 | C2 Службы | `card.services` |
 | C3 Полнота | `card.description`, `card.questionnaire`, `card.questionnaire.questions`, `card.questionnaire.answers`, `card.victims_count` |
 | C4 Адрес | `card.reported_address`, `card.incident_address` |
@@ -116,8 +116,8 @@ Frontend должен показывать `path`, ожидаемое и фак�
 `path` сейчас нет. Это соответствие полей критериям предназначено для показа
 результата: сервер пока не возвращает `criterion_code` и не выставляет отдельные
 оценки по C1–C7. Поля C3 сравниваются по значению, без семантической проверки
-полноты текста. При `card.features.additional_features` путь может продолжаться
-вложенными ключами, если их задаёт ожидаемое значение.
+полноты текста. Для `card.classification.routing_flags` сравниваются все ключи
+эталона и сохранённой карточки.
 
 Согласованное направление следующей версии оценки: C1, C4 и C6 относятся к
 оператору 112; C5 и C7 — к ДДС; C2 и C3 применимы обеим позициям. C6 проверяет

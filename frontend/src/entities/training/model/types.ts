@@ -177,6 +177,10 @@ export interface ApiCard {
   event_type_id: number | null;
   description: string;
   questionnaire: CardQuestionnaire | null;
+  applicant_full_name: string | null;
+  automatic_phone_number: string | null;
+  provided_phone_number: string | null;
+  location_phone_number: string | null;
   reported_address: string | null;
   incident_address: string | null;
   victims_count: number | null;
@@ -210,6 +214,10 @@ export interface CardPatch {
   description: string;
   questionnaire: CardQuestionnaire | null;
   incident_address: string;
+  applicant_full_name: string | null;
+  automatic_phone_number: string | null;
+  provided_phone_number: string | null;
+  location_phone_number: string | null;
   classification?: OperatorClassification;
 }
 export interface AudioMessage {

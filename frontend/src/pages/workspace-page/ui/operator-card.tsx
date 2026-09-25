@@ -336,10 +336,7 @@ export function OperatorCard({
                   aria-label={label}
                   placeholder="+7 (   )   - -"
                   {...form.getInputProps(field)}
-                  readOnly={
-                    (field === "aon" && !!incomingCall) ||
-                    (!!remote && !incomingCall)
-                  }
+                  readOnly={field === "aon" && !!incomingCall}
                 />
               </div>
             </div>
@@ -364,7 +361,6 @@ export function OperatorCard({
                   aria-label="Фамилия и имя заявителя"
                   placeholder="Фамилия и имя заявителя"
                   {...form.getInputProps("applicant")}
-                  readOnly={!!remote && !incomingCall}
                 />
                 <Select
                   aria-label="Статус заявителя"

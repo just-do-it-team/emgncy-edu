@@ -27,13 +27,11 @@ from s112.common.enums import (
 from s112.domain.models import (
     CardFeature,
     CardFeatureHistory,
-    CardEventTypeHistory,
     CardListProjection,
     CardService,
     CardStatusHistory,
     EmergencyService,
     EventKind,
-    EventType,
     IncidentCard,
     OutboxEvent,
     ServiceStatusHistory,
@@ -98,14 +96,6 @@ class CardApplicationService:
                 WorkspaceMemberRole.PARTICIPANT.value,
             },
         )
-        if request.event_type_id is not None:
-            event_type = await session.get(EventType, request.event_type_id)
-            if event_type is None or not event_type.is_active:
-                raise ValidationError("Unknown or inactive event_type_id")
-
-        if request.features is not None:
-            await self._validate_features(session, request.event_type_id, request.features)
-
         if request.parent_card_id is not None:
             parent = await session.get(IncidentCard, request.parent_card_id)
             if parent is None or parent.workspace_id != request.workspace_id:
@@ -118,11 +108,8 @@ class CardApplicationService:
             source_system_id=request.source_system_id,
             external_card_id=request.external_card_id,
             parent_card_id=request.parent_card_id,
-            event_type_id=request.event_type_id,
-            classification=(
-                request.classification.model_dump()
-                if request.classification is not None else None
-            ),
+            event_type_id=None,
+            classification=request.classification.model_dump(),
             description=request.description,
             questionnaire=(
                 request.questionnaire.model_dump()
@@ -130,6 +117,9 @@ class CardApplicationService:
                 else None
             ),
             applicant_full_name=request.applicant_full_name,
+            automatic_phone_number=request.automatic_phone_number,
+            provided_phone_number=request.provided_phone_number,
+            location_phone_number=request.location_phone_number,
             reported_address=request.reported_address,
             incident_address=request.incident_address,
             latitude=request.latitude,
@@ -149,54 +139,33 @@ class CardApplicationService:
                 set_by=request.operator_id,
             )
         )
-        if card.event_type_id is not None:
-            session.add(
-                CardEventTypeHistory(
-                    card_id=card.id,
-                    event_type_id=card.event_type_id,
-                    changed_by=request.operator_id,
-                    reason="Initial classification",
-                )
-            )
-
-        feature_model: CardFeature | None = None
-        if request.features is not None:
-            feature_model = self._make_feature(
-                card,
-                request.features,
-                request.operator_id,
-            )
-            session.add(feature_model)
-            session.add(self._feature_history(feature_model, request.operator_id))
-            await session.flush()
-
         projection = CardListProjection(
             card_id=card.id,
             workspace_id=card.workspace_id,
             card_number=card.card_number,
             event_type_id=card.event_type_id,
             classification=card.classification,
-            event_kind_id=feature_model.event_kind_id if feature_model else None,
+            event_kind_id=None,
             applicant_full_name=card.applicant_full_name,
             incident_address=card.incident_address,
             victims_count=card.victims_count,
             current_status=card.current_status,
             services_summary=[],
-            features_summary=self._features_summary(feature_model),
+            features_summary={},
             registered_at=card.registered_at,
             last_updated_at=utcnow(),
             version=card.version,
         )
         session.add(projection)
         await session.flush()
-        await self._refresh_projection(session, card, feature=feature_model)
+        await self._refresh_projection(session, card)
         self._add_outbox(
             session,
             card,
             "card.created",
             {
                 "card_number": card.card_number,
-                "event_type_id": card.event_type_id,
+                "classification": card.classification,
                 "current_status": card.current_status,
             },
         )
@@ -1344,6 +1313,9 @@ class CardApplicationService:
             "description": card.description,
             "questionnaire": card.questionnaire,
             "applicant_full_name": card.applicant_full_name,
+            "automatic_phone_number": card.automatic_phone_number,
+            "provided_phone_number": card.provided_phone_number,
+            "location_phone_number": card.location_phone_number,
             "reported_address": card.reported_address,
             "incident_address": card.incident_address,
             "victims_count": card.victims_count,

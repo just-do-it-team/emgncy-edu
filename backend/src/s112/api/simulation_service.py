@@ -7,7 +7,6 @@ from typing import Any
 
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from s112.api.schemas import CardCreate
 from s112.api.scenario_completion import (
@@ -62,7 +61,6 @@ from s112.domain.models import (
     AudioMessage,
     AssignmentBatch,
     AssignmentParticipant,
-    CardFeature,
     CardService,
     CardTemplate,
     EmergencyService,
@@ -1897,7 +1895,6 @@ class SimulationApplicationService:
     ) -> TrainingCardResult:
         card = await session.scalar(
             select(IncidentCard)
-            .options(selectinload(IncidentCard.features))
             .where(IncidentCard.id == item.incident_card_id)
         )
         if card is None:
@@ -2080,7 +2077,6 @@ class SimulationApplicationService:
     ) -> dict[str, Any]:
         card = await session.scalar(
             select(IncidentCard)
-            .options(selectinload(IncidentCard.features))
             .where(IncidentCard.id == item.incident_card_id)
         )
         if card is None:
@@ -2236,7 +2232,6 @@ class SimulationApplicationService:
     async def _card_state(
         self, session: AsyncSession, card: IncidentCard
     ) -> dict[str, Any]:
-        feature = await session.get(CardFeature, card.id)
         services = (
             await session.execute(
                 select(CardService, EmergencyService)
@@ -2246,22 +2241,17 @@ class SimulationApplicationService:
             )
         ).all()
         return {
-            "event_type_id": card.event_type_id,
+            "classification": card.classification,
             "description": card.description,
             "questionnaire": card.questionnaire,
             "applicant_full_name": card.applicant_full_name,
+            "automatic_phone_number": card.automatic_phone_number,
+            "provided_phone_number": card.provided_phone_number,
+            "location_phone_number": card.location_phone_number,
             "reported_address": card.reported_address,
             "incident_address": card.incident_address,
             "victims_count": card.victims_count,
             "current_status": card.current_status,
-            "features": (
-                {
-                    "event_kind_id": feature.event_kind_id,
-                    "additional_features": feature.additional_features,
-                }
-                if feature
-                else None
-            ),
             "services": [service.code for _, service in services],
             "service_statuses": {
                 service.code: card_service.current_status
@@ -2331,7 +2321,13 @@ class SimulationApplicationService:
         if isinstance(expected, dict):
             checks = 0
             actual_dict = actual if isinstance(actual, dict) else {}
-            for key, value in expected.items():
+            keys = (
+                sorted(expected.keys() | actual_dict.keys())
+                if path == "card.classification.routing_flags"
+                else expected.keys()
+            )
+            for key in keys:
+                value = expected.get(key)
                 child_path = f"{path}.{key}" if path else key
                 checks += cls._compare_expected(
                     value, actual_dict.get(key), child_path, discrepancies
@@ -2427,12 +2423,19 @@ class SimulationApplicationService:
                     raise ValidationError(
                         f"Inactive or missing incoming call template: {item.template_id}"
                     )
+                if not (template.expected_result.get("card") or {}).get("classification"):
+                    raise ValidationError("Incoming call template requires classification")
             else:
                 template = await session.get(CardTemplate, item.template_id)
                 if template is None or not template.is_active:
                     raise ValidationError(
                         f"Inactive or missing card template: {item.template_id}"
                     )
+                if (
+                    not template.initial_card.get("classification")
+                    or not (template.expected_result.get("card") or {}).get("classification")
+                ):
+                    raise ValidationError("Card template requires classification")
         if definition.procedural_generation is not None:
             await self._procedural_templates(
                 session, definition, scenario_difficulty
@@ -2459,6 +2462,12 @@ class SimulationApplicationService:
                 statement.order_by(CardTemplate.difficulty, CardTemplate.id)
             )
         )
+        templates = [
+            template
+            for template in templates
+            if template.initial_card.get("classification")
+            and (template.expected_result.get("card") or {}).get("classification")
+        ]
         if pool.template_ids is not None:
             resolved_ids = {template.id for template in templates}
             missing = set(pool.template_ids) - resolved_ids
@@ -2468,12 +2477,13 @@ class SimulationApplicationService:
                     "Procedural template_ids contain missing, inactive, or too difficult "
                     f"templates: {formatted}"
                 )
-        if pool.event_type_ids is not None:
-            event_type_ids = set(pool.event_type_ids)
+        if pool.classification_group_codes is not None:
+            group_codes = set(pool.classification_group_codes)
             templates = [
                 template
                 for template in templates
-                if template.initial_card.get("event_type_id") in event_type_ids
+                if (template.initial_card.get("classification") or {}).get("group_code")
+                in group_codes
             ]
         if len(templates) < generator.target_count:
             raise ValidationError(

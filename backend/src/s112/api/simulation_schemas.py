@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
-from s112.api.schemas import CardCreate, CardQuestionnaire, OrmModel
+from s112.api.schemas import CardCreate, CardQuestionnaire, OperatorClassification, OrmModel
 from s112.common.enums import (
     CardStatus,
     LaunchPolicy,
@@ -28,26 +28,18 @@ from s112.domain.rules import (
 )
 
 
-class ExpectedCardFeatures(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    event_kind_id: int
-    additional_features: dict[str, JsonValue] = Field(default_factory=dict)
-
-
 class ExpectedCardState(BaseModel):
     """The complete, assessable state of the incident card after handling."""
 
     model_config = ConfigDict(extra="forbid")
 
-    event_type_id: int
+    classification: OperatorClassification
     description: str
     questionnaire: CardQuestionnaire | None = None
     reported_address: str | None = None
     incident_address: str | None = None
     victims_count: int | None = Field(default=None, ge=0)
     current_status: CardStatus
-    features: ExpectedCardFeatures | None = None
     services: list[str]
     service_statuses: dict[str, ServiceResponseStatus]
 
@@ -178,6 +170,8 @@ class ScenarioCardDefinition(BaseModel):
         if self.item_type is ScenarioItemType.INCIDENT_CARD:
             if self.initial_call is not None:
                 raise ValueError("INCIDENT_CARD item must not contain initial_call")
+            if self.expected_result is not None and self.expected_result.card is None:
+                raise ValueError("INCIDENT_CARD item requires expected_result.card")
         elif self.item_type is ScenarioItemType.INCOMING_CALL:
             if self.initial_card is not None:
                 raise ValueError("INCOMING_CALL item must not contain initial_card")
@@ -207,14 +201,14 @@ class ScenarioCardDefinition(BaseModel):
 
 
 class ProceduralTemplatePool(BaseModel):
-    """Strict allow-list and event-type filters for procedural card selection."""
+    """Strict allow-list and classifier group filters for procedural card selection."""
 
     model_config = ConfigDict(extra="forbid")
 
     template_ids: list[uuid.UUID] | None = Field(
         default=None, min_length=1, max_length=500
     )
-    event_type_ids: list[int] | None = Field(
+    classification_group_codes: list[int] | None = Field(
         default=None, min_length=1, max_length=100
     )
 
@@ -227,16 +221,16 @@ class ProceduralTemplatePool(BaseModel):
             raise ValueError("template_ids must be unique")
         return value
 
-    @field_validator("event_type_ids")
+    @field_validator("classification_group_codes")
     @classmethod
-    def validate_event_type_ids(
+    def validate_classification_group_codes(
         cls, value: list[int] | None
     ) -> list[int] | None:
         if value is not None:
             if any(item <= 0 for item in value):
-                raise ValueError("event_type_ids must contain positive integers")
+                raise ValueError("classification_group_codes must contain positive integers")
             if len(value) != len(set(value)):
-                raise ValueError("event_type_ids must be unique")
+                raise ValueError("classification_group_codes must be unique")
         return value
 
 
@@ -425,6 +419,12 @@ class CardTemplateCreate(BaseModel):
     expected_result: ExpectedResult
     created_by: uuid.UUID
 
+    @model_validator(mode="after")
+    def require_final_card(self) -> "CardTemplateCreate":
+        if self.expected_result.card is None:
+            raise ValueError("Card template requires expected_result.card")
+        return self
+
 
 class CardTemplateResponse(OrmModel):
     id: uuid.UUID
@@ -582,8 +582,7 @@ class ScenarioItemDetail(BaseModel):
     initial_card: dict[str, Any] | None = None
     initial_call: dict[str, Any] | None = None
     expected_card: dict[str, Any] | None = None
-    event_type_name: str | None = None
-    event_kind_name: str | None = None
+    classification: OperatorClassification | None = None
     main_service: ScenarioServiceDetail | None = None
     notification_list: list[ScenarioServiceDetail] = Field(default_factory=list)
 

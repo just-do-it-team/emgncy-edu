@@ -44,7 +44,7 @@ POST /api/v1/incoming-calls/{callId}/complete
 {"user_id":"student-uuid"}
 
 POST /api/v1/cards
-{"workspace_id":"workspace-uuid","operator_id":"student-uuid","event_type_id":1,"applicant_full_name":"Иванов Иван Иванович"}
+{"workspace_id":"workspace-uuid","operator_id":"student-uuid","classification":{"record_id":1050101,"group_code":1,"feature_1_code":5,"feature_2_code":1,"feature_3_code":1,"final_incident_type":"пожар: квартира","routing_flags":{},"excluded_service_codes":[]},"applicant_full_name":"Иванов Иван Иванович"}
 
 POST /api/v1/incoming-calls/{callId}/incident-card
 {"user_id":"student-uuid","incident_card_id":"created-card-uuid"}
