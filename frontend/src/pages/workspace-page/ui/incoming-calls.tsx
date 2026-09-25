@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Alert, Button, Group, Modal, Stack, Text } from "@mantine/core";
-import { PhoneOff } from "lucide-react";
+import { Button, Group, Modal, Stack, Text } from "@mantine/core";
+import { Clock3, PhoneCall, PhoneOff } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   apiError,
+  notifyTrainingError,
   trainingApi,
   type ApiCard,
   type EmergencyService,
@@ -19,6 +20,60 @@ import {
 } from "../model/operator-cards";
 import classes from "./workspace-page.module.scss";
 
+function formatCallDuration(seconds: number) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = seconds % 60;
+  const clock = [minutes, remainingSeconds]
+    .map((value) => String(value).padStart(2, "0"))
+    .join(":");
+  return hours ? `${String(hours).padStart(2, "0")}:${clock}` : clock;
+}
+
+function CallDuration({
+  startedAt,
+  completedAt,
+  finished,
+}: {
+  startedAt: string | null;
+  completedAt: string | null;
+  finished: boolean;
+}) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  useEffect(() => {
+    const start = Date.parse(startedAt ?? "");
+    if (!Number.isFinite(start)) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const completed = Date.parse(completedAt ?? "");
+    const update = () => {
+      const end =
+        finished && Number.isFinite(completed) ? completed : Date.now();
+      setElapsedSeconds(Math.max(0, Math.floor((end - start) / 1000)));
+    };
+    update();
+    if (finished) return;
+    const interval = window.setInterval(update, 1000);
+    return () => window.clearInterval(interval);
+  }, [startedAt, completedAt, finished]);
+
+  return (
+    <div className={classes.callTimer} aria-label="Длительность разговора">
+      <Clock3 size={16} aria-hidden="true" />
+      <div>
+        <span className={classes.callTimerLabel}>Время разговора</span>
+        <time
+          className={classes.callDuration}
+          dateTime={`PT${elapsedSeconds}S`}
+        >
+          {formatCallDuration(elapsedSeconds)}
+        </time>
+      </div>
+    </div>
+  );
+}
+
 export function IncomingCalls({
   ctx,
   active,
@@ -28,6 +83,7 @@ export function IncomingCalls({
   onBusyChange,
   onDraftChange,
   onCardOpenChange,
+  onCardCreated,
   openCardRequest,
 }: {
   ctx: LaunchContext;
@@ -40,6 +96,7 @@ export function IncomingCalls({
   onBusyChange: (busy: boolean) => void;
   onDraftChange: (draft: OperatorCardEntry | null) => void;
   onCardOpenChange: (open: boolean) => void;
+  onCardCreated: (cardId: string) => void;
   openCardRequest: number;
 }) {
   const queryClient = useQueryClient();
@@ -85,6 +142,9 @@ export function IncomingCalls({
     (call) => call.status === "ACTIVE" && !!call.incident_card_id,
   );
   const currentCall = calls.data?.find((call) => call.id === creatingCallId);
+  const callsError = calls.isError
+    ? `Не удалось обновить входящие звонки. ${apiError(calls.error)}`
+    : null;
   useEffect(() => {
     if (currentCall?.status === "COMPLETED") setCallEnded(true);
   }, [currentCall?.status]);
@@ -168,7 +228,7 @@ export function IncomingCalls({
       setCallEnded(false);
       setDraftVisited(false);
     } catch (reason) {
-      setError(apiError(reason));
+      setError(notifyTrainingError(reason));
       void calls.refetch();
     } finally {
       setBusy(false);
@@ -186,7 +246,7 @@ export function IncomingCalls({
       setCallEnded(true);
       await onChanged();
     } catch (reason) {
-      setError(apiError(reason));
+      setError(notifyTrainingError(reason));
       void calls.refetch();
     } finally {
       setBusy(false);
@@ -223,6 +283,7 @@ export function IncomingCalls({
     setRingNotBefore(Date.now() + 5000);
     setError(null);
     await onChanged();
+    onCardCreated(card.id);
   }
 
   async function completeLinkedCall() {
@@ -242,7 +303,7 @@ export function IncomingCalls({
       setRingNotBefore(Date.now() + 5000);
       await onChanged();
     } catch (reason) {
-      setError(apiError(reason));
+      setError(notifyTrainingError(reason));
     } finally {
       setBusy(false);
       onBusyChange(false);
@@ -255,71 +316,159 @@ export function IncomingCalls({
         creatingCallId &&
         currentCall &&
         createPortal(
-          <Group gap="xs" wrap="nowrap" className={classes.callControls}>
+          <Group
+            gap="sm"
+            wrap="nowrap"
+            className={classes.callControls}
+            data-call-state={
+              callEnded || currentCall.status === "COMPLETED"
+                ? "ended"
+                : callAudio.error || error
+                  ? "error"
+                  : "active"
+            }
+          >
+            <div className={classes.callIdentity}>
+              <span className={classes.callIcon} aria-hidden="true">
+                <PhoneCall size={20} />
+              </span>
+              <div className={classes.callIdentityText}>
+                <span className={classes.callEyebrow}>
+                  Разговор с заявителем
+                </span>
+                <Text className={classes.callNumber}>
+                  {currentCall.caller_number ?? "Номер не указан"}
+                </Text>
+              </div>
+            </div>
             <div className={classes.callControlMessage}>
-              <Text size="sm" fw={600}>
+              <Text size="sm" fw={600} className={classes.callStatus}>
+                <span className={classes.callStatusDot} aria-hidden="true" />
                 {callEnded || currentCall.status === "COMPLETED"
                   ? "Разговор завершён"
                   : callAudio.status}
               </Text>
               {callAudio.error && !callEnded && (
-                <Text size="xs" c="red" role="alert">
+                <Text size="xs" className={classes.callError} role="alert">
                   {callAudio.error}
                 </Text>
               )}
               {error && (
-                <Text size="xs" c="red" role="alert">
+                <Text size="xs" className={classes.callError} role="alert">
                   {error}
                 </Text>
               )}
+              {callsError && (
+                <Text size="xs" className={classes.callError} role="alert">
+                  {callsError}
+                </Text>
+              )}
             </div>
-            {callAudio.error && !callEnded && (
+            <CallDuration
+              key={currentCall.id}
+              startedAt={currentCall.answered_at}
+              completedAt={currentCall.completed_at}
+              finished={callEnded || currentCall.status === "COMPLETED"}
+            />
+            <div className={classes.callActions}>
+              {callsError && (
+                <Button
+                  size="compact-xs"
+                  variant="subtle"
+                  className={classes.callRetry}
+                  loading={calls.isFetching}
+                  onClick={() => void calls.refetch()}
+                >
+                  Повторить загрузку
+                </Button>
+              )}
+              {callAudio.error && !callEnded && (
+                <Button
+                  size="compact-xs"
+                  variant="subtle"
+                  className={classes.callRetry}
+                  onClick={callAudio.retry}
+                >
+                  Повторить подключение
+                </Button>
+              )}
               <Button
-                size="compact-xs"
-                variant="subtle"
-                onClick={callAudio.retry}
+                size="sm"
+                color="red"
+                className={classes.callHangup}
+                leftSection={<PhoneOff size={16} />}
+                disabled={callEnded || busy || currentCall.status !== "ACTIVE"}
+                onClick={() => void hangUp()}
               >
-                Повторить подключение
+                Положить трубку
               </Button>
-            )}
-            <Button
-              size="compact-sm"
-              color="red"
-              leftSection={<PhoneOff size={16} />}
-              disabled={callEnded || busy || currentCall.status !== "ACTIVE"}
-              onClick={() => void hangUp()}
-            >
-              Положить трубку
-            </Button>
+            </div>
           </Group>,
           controlTarget,
         )}
-      {calls.isError && (
-        <Alert color="red">
-          Не удалось обновить входящие звонки. {apiError(calls.error)}{" "}
-          <Button
-            variant="subtle"
-            size="xs"
-            onClick={() => void calls.refetch()}
+      {controlTarget &&
+        !currentCall &&
+        (callsError || error || (linkedActiveCall && !creatingCallId)) &&
+        createPortal(
+          <Group
+            gap="sm"
+            wrap="nowrap"
+            className={classes.callControls}
+            data-call-state="error"
           >
-            Повторить
-          </Button>
-        </Alert>
-      )}
-      {error && !currentCall && <Alert color="red">{error}</Alert>}
-      {linkedActiveCall && !creatingCallId && (
-        <Alert color="yellow">
-          Карточка звонка сохранена, но завершение звонка не подтверждено.{" "}
-          <Button
-            variant="subtle"
-            size="xs"
-            loading={busy}
-            onClick={() => void completeLinkedCall()}
-          >
-            Повторить завершение
-          </Button>
-        </Alert>
-      )}
+            <div className={classes.callIdentity}>
+              <span className={classes.callIcon} aria-hidden="true">
+                <PhoneCall size={20} />
+              </span>
+              <div className={classes.callIdentityText}>
+                <Text className={classes.callNumber}>Входящие звонки</Text>
+              </div>
+            </div>
+            <div className={classes.callControlMessage}>
+              {callsError && (
+                <Text size="xs" className={classes.callError} role="alert">
+                  {callsError}
+                </Text>
+              )}
+              {error && (
+                <Text size="xs" className={classes.callError} role="alert">
+                  {error}
+                </Text>
+              )}
+              {linkedActiveCall && !creatingCallId && (
+                <Text size="xs" className={classes.callError} role="alert">
+                  Карточка звонка сохранена, но завершение звонка не
+                  подтверждено.
+                </Text>
+              )}
+            </div>
+            <div className={classes.callActions}>
+              {callsError && (
+                <Button
+                  size="compact-xs"
+                  variant="subtle"
+                  className={classes.callRetry}
+                  loading={calls.isFetching}
+                  onClick={() => void calls.refetch()}
+                >
+                  Повторить загрузку
+                </Button>
+              )}
+              {linkedActiveCall && !creatingCallId && (
+                <Button
+                  size="compact-xs"
+                  variant="subtle"
+                  className={classes.callRetry}
+                  loading={busy}
+                  onClick={() => void completeLinkedCall()}
+                >
+                  Повторить завершение
+                </Button>
+              )}
+            </div>
+          </Group>,
+          controlTarget,
+        )}
       <Modal
         opened={
           ringDelayPassed && active && !!ringingCall && !creatingCallId && !busy

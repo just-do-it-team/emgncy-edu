@@ -13,11 +13,15 @@ import {
 export function CardAudio({
   ctx,
   cardId,
+  defaultOpened = false,
 }: {
   ctx: LaunchContext;
   cardId: string;
+  defaultOpened?: boolean;
 }) {
-  const [opened, setOpened] = useState<string | null>(null);
+  const [opened, setOpened] = useState<string | null>(
+    defaultOpened ? "audio" : null,
+  );
   const query = useQuery({
     queryKey: ["student-api", ctx.userId, ctx.workspaceId, "audio", cardId],
     queryFn: ({ signal }) => trainingApi.audioMessages(ctx, cardId, signal),

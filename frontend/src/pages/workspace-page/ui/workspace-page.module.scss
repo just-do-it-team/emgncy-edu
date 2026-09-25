@@ -230,25 +230,172 @@
 
 .callControls {
   min-width: 0;
+  width: min(100%, 900px);
   max-width: 100%;
-  padding: 4px 10px;
-  border-radius: 6px;
-  background: var(--mantine-color-povLight-6);
+  padding: 8px 10px;
+  border: 1px solid var(--mantine-color-povDark2-6);
+  border-radius: 10px;
+  background: var(--mantine-color-povDark-6);
+  box-shadow: 0 6px 18px rgb(26 36 43 / 15%);
+  color: var(--mantine-color-white);
+}
 
-  :global(.mantine-Text-root) {
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+.callIdentity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.callIcon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: rgb(75 197 135 / 16%);
+  color: #87e5af;
+}
+
+.callIdentityText {
+  min-width: 0;
+}
+
+.callEyebrow,
+.callTimerLabel {
+  display: block;
+  color: #b8c6ca;
+  font-size: 10px;
+  line-height: 1.3;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.callNumber {
+  max-width: 160px;
+  overflow: hidden;
+  color: var(--mantine-color-white);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .callControlMessage {
   min-width: 0;
-  max-width: 560px;
+  flex: 1;
+}
 
-  :global(.mantine-Text-root) {
-    white-space: normal;
-    overflow: visible;
-    overflow-wrap: anywhere;
+.callStatus {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--mantine-color-white);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.callStatusDot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #70d99d;
+  box-shadow: 0 0 0 3px rgb(112 217 157 / 14%);
+}
+
+.callControls[data-call-state="error"] .callStatusDot {
+  background: #ffc46b;
+  box-shadow: 0 0 0 3px rgb(255 196 107 / 16%);
+}
+
+.callControls[data-call-state="ended"] .callStatusDot {
+  background: #aab8bd;
+  box-shadow: none;
+}
+
+.callError {
+  margin-top: 2px;
+  color: #ffd0ca;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.callTimer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 112px;
+  padding: 0 10px;
+  flex-shrink: 0;
+  border-left: 1px solid rgb(255 255 255 / 16%);
+  color: #b8c6ca;
+}
+
+.callDuration {
+  display: block;
+  color: var(--mantine-color-white);
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.callActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.callRetry {
+  color: #d8e7eb;
+  white-space: nowrap;
+}
+
+.callHangup {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 1700px) {
+  .callControlSlot {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  .trainingBar {
+    row-gap: 8px;
+  }
+}
+
+@media (max-width: 700px) {
+  .callControls {
+    flex-wrap: wrap;
+  }
+
+  .callControlMessage {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  .callTimer {
+    min-width: auto;
+    margin-left: auto;
+    padding-right: 0;
+    border-left: 0;
+  }
+
+  .callActions {
+    order: 4;
+    width: 100%;
+    padding-top: 7px;
+    justify-content: flex-end;
+    border-top: 1px solid rgb(255 255 255 / 16%);
   }
 }
 

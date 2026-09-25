@@ -23,7 +23,7 @@ import {
   apiError,
   assignmentLaunchContext,
   isUuid,
-  statusLabels,
+  notifyTrainingError,
   trainingApi,
   type CardListItem,
   type LaunchContext,
@@ -105,11 +105,15 @@ function RestoredWorkspace({
       sessionId,
     ],
     queryFn: async ({ signal }) => {
-      const assignment = assignmentId
-        ? await trainingApi.assignment(assignmentId, userId, signal)
-        : (await trainingApi.assignments(userId, signal)).find(
-            (item) => item.active_session?.session_id === sessionId,
-          );
+      const resolvedAssignmentId =
+        assignmentId ||
+        (await trainingApi.session({ userId, sessionId }, signal))
+          .assignment_id;
+      const assignment = await trainingApi.assignment(
+        resolvedAssignmentId,
+        userId,
+        signal,
+      );
       const ctx = assignment
         ? assignmentLaunchContext(assignment, userId)
         : null;
@@ -170,7 +174,8 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
   const [openCardRequest, setOpenCardRequest] = useState(0);
   const [finishAfterBusy, setFinishAfterBusy] = useState(false);
   const backAction = useRef<() => void>(() => {});
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [needsManualRefresh, setNeedsManualRefresh] = useState(false);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const baseKey = ["student-api", ctx.userId, ctx.workspaceId];
   const readiness = useQuery({
     queryKey: [...baseKey, "readiness", ctx.sessionId],
@@ -261,6 +266,32 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     presenceActive,
     leaveUnavailableSession,
   );
+  const requestConnectionLost = [readiness, cards, calls, reference].some(
+    (query) =>
+      query.isError && axios.isAxiosError(query.error) && !query.error.response,
+  );
+  const hasWorkspaceQueryError =
+    readiness.isError || cards.isError || reference.isError;
+  const connectionLost =
+    connection === "disconnected" ||
+    presence === "interrupted" ||
+    presence === "unavailable" ||
+    requestConnectionLost;
+  useEffect(() => {
+    if (connectionLost) setNeedsManualRefresh(true);
+  }, [connectionLost]);
+  useEffect(() => {
+    if (
+      connection === "connected" &&
+      (presence === "interrupted" || presence === "unavailable")
+    ) {
+      notifyTrainingError(
+        new Error(
+          "Не удалось подтвердить присутствие в занятии. Проверяем соединение повторно.",
+        ),
+      );
+    }
+  }, [connection, presence]);
   const editingCard = cardOpen || !!selectedId;
   const canCreateCallCard =
     ctx.mode === "ARM112" &&
@@ -278,17 +309,40 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: baseKey });
   }
+  async function refreshManually() {
+    if (manualRefreshing) return;
+    setManualRefreshing(true);
+    try {
+      const results = await Promise.allSettled([
+        queryClient.invalidateQueries(
+          { queryKey: baseKey },
+          { throwOnError: true },
+        ),
+        queryClient.invalidateQueries(
+          { queryKey: ["student-api", "reference", ctx.mode] },
+          { throwOnError: true },
+        ),
+      ]);
+      if (
+        results.every((result) => result.status === "fulfilled") &&
+        connection === "connected" &&
+        (!presenceActive || presence === "connected")
+      )
+        setNeedsManualRefresh(false);
+    } finally {
+      setManualRefreshing(false);
+    }
+  }
   async function open(id: string) {
     if (opening) return;
     setOpening(true);
-    setActionError(null);
     try {
       if (ctx.mode === "DDS" && ctx.positionCode && active)
         await trainingApi.open(ctx, id);
       setSelectedId(id);
       await refresh();
     } catch (error) {
-      setActionError(apiError(error));
+      notifyTrainingError(error);
     } finally {
       setOpening(false);
     }
@@ -296,7 +350,6 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
   async function finish(action: "complete" | "abort" | "finished") {
     if (exiting) return;
     setExiting(true);
-    setActionError(null);
     setFinishOpen(false);
     try {
       let session: TrainingSession;
@@ -330,7 +383,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
       rememberFinished(ctx.userId, ctx.sessionId);
       navigate("/student", { replace: true });
     } catch (error) {
-      setActionError(apiError(error));
+      notifyTrainingError(error);
       setExiting(false);
       void refresh();
     }
@@ -445,43 +498,70 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
               ? `ДДС · ${ctx.positionCode ?? "служба не назначена"}`
               : "Оператор 112"}
           </Badge>
-          <Badge variant="outline">API</Badge>
           {presenceActive && (
             <Badge
               color={
-                presence === "connected"
-                  ? "green"
-                  : presence === "checking"
-                    ? "gray"
-                    : "yellow"
+                connectionLost
+                  ? "yellow"
+                  : presence === "connected" && connection === "connected"
+                    ? "green"
+                    : "gray"
               }
               title={
-                presence === "unavailable"
-                  ? "Сервер пока не принимает подтверждение присутствия. Занятие остаётся открытым; повторяем запрос."
-                  : presence === "interrupted"
-                    ? "Не удалось подтвердить присутствие. Повторяем запрос каждые 5 секунд."
-                    : undefined
+                connection === "disconnected"
+                  ? "Связь с событиями прервана. После восстановления соединения обновите данные."
+                  : requestConnectionLost
+                    ? "Не удалось загрузить данные. После восстановления соединения обновите их вручную."
+                    : presence === "unavailable"
+                      ? "Сервер пока не принимает подтверждение присутствия. Занятие остаётся открытым; повторяем запрос."
+                      : presence === "interrupted"
+                        ? "Не удалось подтвердить присутствие. Повторяем запрос каждые 5 секунд."
+                        : undefined
               }
               aria-live="polite"
             >
-              {presence === "connected"
-                ? "Связь активна"
-                : presence === "checking"
-                  ? "Проверка связи"
-                  : presence === "unavailable"
-                    ? "Проверка присутствия недоступна"
-                    : "Связь прервана"}
+              {connection === "disconnected" || requestConnectionLost
+                ? "Связь прервана"
+                : presence === "connected" && connection === "connected"
+                  ? "Связь активна"
+                  : presence === "checking" || connection === "connecting"
+                    ? "Проверка связи"
+                    : presence === "unavailable"
+                      ? "Проверка присутствия недоступна"
+                      : "Связь прервана"}
             </Badge>
           )}
-          <Button
-            size="lg"
-            variant="default"
-            fw={700}
-            loading={readiness.isFetching || cards.isFetching}
-            onClick={() => void refresh()}
-          >
-            Обновить данные
-          </Button>
+          {needsManualRefresh && (
+            <Button
+              size="lg"
+              variant="default"
+              fw={700}
+              loading={manualRefreshing}
+              onClick={() => void refreshManually()}
+            >
+              Обновить данные
+            </Button>
+          )}
+          {hasWorkspaceQueryError && !needsManualRefresh && (
+            <Button
+              size="sm"
+              variant="subtle"
+              disabled={
+                readiness.isFetching || cards.isFetching || reference.isFetching
+              }
+              onClick={() => {
+                if (readiness.isError) void readiness.refetch();
+                if (reference.isError) void reference.refetch();
+                if (cards.isFetchNextPageError) {
+                  void cards.fetchNextPage({ cancelRefetch: false });
+                } else if (cards.isError) {
+                  void cards.refetch();
+                }
+              }}
+            >
+              Повторить загрузку
+            </Button>
+          )}
         </Group>
       </Group>
       {!editingCard && (
@@ -495,98 +575,6 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
           }
         />
       )}
-      {!editingCard && (
-        <Stack px="md" py="sm" gap="xs">
-          {ctx.mode === "DDS" && !ctx.positionCode && (
-            <Alert color="yellow">
-              В назначении не указана служба ДДС. Доступен просмотр карточек;
-              для решений нужна назначенная преподавателем служба.
-            </Alert>
-          )}
-          {readiness.data && (
-            <Group justify="space-between">
-              <div>
-                <Text size="sm">
-                  Занятие:{" "}
-                  {statusLabels[readiness.data.status] ?? readiness.data.status}{" "}
-                  · Решений: {readiness.data.decisions_completed} /{" "}
-                  {readiness.data.decisions_required} · Карточек ожидается:{" "}
-                  {readiness.data.cards_pending} · Звонков завершено:{" "}
-                  {readiness.data.calls_completed} /{" "}
-                  {readiness.data.calls_total}
-                </Text>
-                {active &&
-                  readiness.data.blockers.map((b, i) => (
-                    <Text key={`${b.code}:${i}`} size="xs" c="dimmed">
-                      {b.message}
-                    </Text>
-                  ))}
-                {active &&
-                  readiness.data.completion_policy === "AUTO_WHEN_READY" && (
-                    <Text size="xs">
-                      Занятие завершится автоматически после выполнения условий.
-                    </Text>
-                  )}
-                {active &&
-                  readiness.data.completion_policy === "TEACHER_ONLY" && (
-                    <Text size="xs">Занятие завершает преподаватель.</Text>
-                  )}
-              </div>
-            </Group>
-          )}
-          {connection === "disconnected" && (
-            <Alert color="yellow">
-              Связь с событиями прервана. Нажмите «Обновить данные», чтобы
-              загрузить актуальное состояние.
-            </Alert>
-          )}
-          {(cards.isPending || reference.isPending || opening) && (
-            <Loader size="sm" />
-          )}
-          {[
-            { q: cards, label: "карточки" },
-            { q: reference, label: "справочники" },
-            { q: readiness, label: "состояние занятия" },
-          ].map(
-            ({ q, label }) =>
-              q.isError && (
-                <Alert
-                  key={label}
-                  color="red"
-                  title={
-                    q === cards && cards.isFetchNextPageError
-                      ? "Не удалось загрузить следующие карточки"
-                      : `Не удалось обновить ${label}`
-                  }
-                >
-                  {apiError(q.error)}{" "}
-                  <Button
-                    variant="subtle"
-                    size="xs"
-                    disabled={q.isFetching}
-                    onClick={() => {
-                      if (q === cards && cards.isFetchNextPageError) {
-                        void cards.fetchNextPage({ cancelRefetch: false });
-                      } else {
-                        void q.refetch({ cancelRefetch: false });
-                      }
-                    }}
-                  >
-                    Повторить
-                  </Button>
-                </Alert>
-              ),
-          )}
-          {actionError && <Alert color="red">{actionError}</Alert>}
-          {cards.isSuccess && visibleCards.length === 0 && !callDraft && (
-            <Text c="dimmed">
-              {ctx.mode === "ARM112"
-                ? "Список карточек пуст. Примите звонок и создайте карточку."
-                : "Доступных карточек пока нет. Новые карточки появятся при поступлении событий сценария."}
-            </Text>
-          )}
-        </Stack>
-      )}
       {ctx.mode === "ARM112" && (
         <IncomingCalls
           ctx={ctx}
@@ -597,6 +585,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
           onBusyChange={setCallBusy}
           onDraftChange={setCallDraft}
           onCardOpenChange={setCardOpen}
+          onCardCreated={setSelectedId}
           openCardRequest={openCardRequest}
         />
       )}

@@ -1,17 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
-  Anchor,
   Button,
-  Group,
   Loader,
+  Paper,
   Stack,
   Table,
   Text,
   Title,
 } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
-import { Link, Navigate } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { useSessionStore } from "@/entities/session";
 import {
   apiError,
@@ -19,6 +18,7 @@ import {
   statusLabels,
   trainingApi,
 } from "@/entities/training";
+import { DEFAULT_PAGE_SIZE, TablePagination } from "@/shared/ui";
 
 export function ConnectedResults() {
   const userId = useSessionStore((state) => state.profile?.userId);
@@ -28,22 +28,25 @@ export function ConnectedResults() {
       <Title order={2} size="h4">
         Мои результаты
       </Title>
-      <Anchor component={Link} to="/student">
-        К занятиям
-      </Anchor>
       <Results key={userId} userId={userId} />
     </Stack>
   );
 }
 function Results({ userId }: { userId: string }) {
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const query = useQuery({
-    queryKey: ["student-api", userId, "history", page],
+    queryKey: ["student-api", userId, "history", page, pageSize],
     queryFn: ({ signal }) =>
-      trainingApi.history(userId, (page - 1) * 20, signal),
+      trainingApi.history(userId, pageSize, (page - 1) * pageSize, signal),
     refetchInterval: 15000,
     meta: { showGlobalError: false },
   });
+  useEffect(() => {
+    if (!query.data) return;
+    const lastPage = Math.max(1, Math.ceil(query.data.total / pageSize));
+    if (page > lastPage) setPage(lastPage);
+  }, [page, pageSize, query.data]);
   if (query.isPending) return <Loader size="sm" />;
   return (
     <Stack>
@@ -55,64 +58,81 @@ function Results({ userId }: { userId: string }) {
           </Button>
         </Alert>
       )}
-      <Table.ScrollContainer minWidth={750}>
-        <Table>
-          <Table.Thead>
-            <Table.Tr>
-              {[
-                "Занятие",
-                "Попытка",
-                "Начало",
-                "Статус",
-                "Оценка",
-                "Результат",
-                "Комментарий",
-              ].map((s) => (
-                <Table.Th key={s}>{s}</Table.Th>
-              ))}
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {query.data?.items.map((item) => (
-              <Table.Tr key={item.session_id}>
-                <Table.Td>{item.scenario_name}</Table.Td>
-                <Table.Td>{item.attempt_number}</Table.Td>
-                <Table.Td>{formatApiDate(item.started_at)}</Table.Td>
-                <Table.Td>{statusLabels[item.status] ?? item.status}</Table.Td>
-                <Table.Td>{item.final_score ?? "—"}</Table.Td>
-                <Table.Td>
-                  {item.final_passed === null
-                    ? "Не оценено"
-                    : item.final_passed
-                      ? "Зачёт"
-                      : "Незачёт"}
-                </Table.Td>
-                <Table.Td>{item.expert_comment ?? "—"}</Table.Td>
+      <Paper withBorder>
+        <Table.ScrollContainer minWidth={950}>
+          <Table verticalSpacing="md" highlightOnHover>
+            <Table.Thead>
+              <Table.Tr>
+                {[
+                  "Занятие",
+                  "Попытка",
+                  "Начало",
+                  "Статус",
+                  "Оценка",
+                  "Результат",
+                  "Комментарий",
+                ].map((title) => (
+                  <Table.Th key={title}>{title}</Table.Th>
+                ))}
               </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
-      </Table.ScrollContainer>
+            </Table.Thead>
+            <Table.Tbody>
+              {query.data?.items.map((item) => (
+                <Table.Tr key={item.session_id}>
+                  <Table.Td>
+                    <Text size="sm" fw={600}>
+                      {item.scenario_name}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="sm">{item.attempt_number}</Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="sm">{formatApiDate(item.started_at)}</Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="sm">
+                      {statusLabels[item.status] ?? item.status}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="sm" fw={600}>
+                      {item.final_score ?? "—"}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="sm">
+                      {item.final_passed === null
+                        ? "Не оценено"
+                        : item.final_passed
+                          ? "Зачёт"
+                          : "Незачёт"}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="sm">{item.expert_comment ?? "—"}</Text>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
+        {!!query.data?.total && (
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            total={query.data.total}
+            onPageChange={setPage}
+            onPageSizeChange={(next) => {
+              setPageSize(next);
+              setPage(1);
+            }}
+          />
+        )}
+      </Paper>
       {query.data?.total === 0 && (
         <Text c="dimmed">История занятий пока пуста.</Text>
       )}
-      <Group justify="end">
-        <Button
-          variant="default"
-          disabled={page === 1}
-          onClick={() => setPage(page - 1)}
-        >
-          Назад
-        </Button>
-        <Text>Страница {page}</Text>
-        <Button
-          variant="default"
-          disabled={!query.data || page * 20 >= query.data.total}
-          onClick={() => setPage(page + 1)}
-        >
-          Далее
-        </Button>
-      </Group>
     </Stack>
   );
 }

@@ -6,11 +6,14 @@ import {
 } from "@tanstack/react-query";
 import { handleApiError } from "@/shared/api";
 import { useSessionStore } from "@/entities/session";
+import { notifyTrainingError } from "@/entities/training";
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (error, query) => {
-      if (query.meta?.showGlobalError !== false) {
+      if (query.queryKey[0] === "student-api") {
+        notifyTrainingError(error);
+      } else if (query.meta?.showGlobalError !== false) {
         handleApiError(error, "Произошла ошибка");
       }
     },

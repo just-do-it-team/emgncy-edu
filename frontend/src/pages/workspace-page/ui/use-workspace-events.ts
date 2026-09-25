@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   REALTIME_GATEWAY_URL,
+  notifyTrainingError,
   type CompletionReadiness,
   type LaunchContext,
 } from "@/entities/training";
@@ -38,6 +39,7 @@ export function useWorkspaceEvents(ctx: LaunchContext, ready: boolean) {
 
   useEffect(() => {
     if (!ready) return;
+    let disconnected = false;
     const baseKey = ["student-api", ctx.userId, ctx.workspaceId];
     const readinessKey = [...baseKey, "readiness", ctx.sessionId];
     const callsKey = [...baseKey, "incoming-calls", ctx.sessionId];
@@ -48,6 +50,7 @@ export function useWorkspaceEvents(ctx: LaunchContext, ready: boolean) {
       void queryClient.invalidateQueries({ queryKey: baseKey });
     };
     source.onopen = () => {
+      disconnected = false;
       setConnection("connected");
       publishCallAudioEvent({
         workspaceId: ctx.workspaceId,
@@ -58,6 +61,14 @@ export function useWorkspaceEvents(ctx: LaunchContext, ready: boolean) {
     };
     source.onerror = () => {
       setConnection("disconnected");
+      if (!disconnected) {
+        disconnected = true;
+        notifyTrainingError(
+          new Error(
+            "Связь с событиями прервана. Обновите данные после восстановления соединения.",
+          ),
+        );
+      }
       publishCallAudioEvent({
         workspaceId: ctx.workspaceId,
         type: "stream.error",

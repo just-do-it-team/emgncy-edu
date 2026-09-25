@@ -101,6 +101,7 @@ export function OperatorCard({
   incomingCall,
   onDraftChange,
   embedded = false,
+  startEditing = false,
 }: {
   entry: OperatorCardEntry;
   isNew: boolean;
@@ -122,8 +123,9 @@ export function OperatorCard({
   onClose: () => void;
   onDraftChange?: (draft: OperatorCardDraft) => void;
   embedded?: boolean;
+  startEditing?: boolean;
 }) {
-  const [editing, setEditing] = useState(isNew);
+  const [editing, setEditing] = useState(isNew || startEditing);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const form = useForm<OperatorCardDraft>({
@@ -256,11 +258,19 @@ export function OperatorCard({
         color: "povBlue",
       });
     } catch (error) {
-      setSaveError(
+      const message =
         error instanceof Error
           ? error.message
-          : "Не удалось сохранить карточку.",
-      );
+          : "Не удалось сохранить карточку.";
+      setSaveError(message);
+      if (remote) {
+        notifications.show({
+          title: "Ошибка",
+          message,
+          color: "red",
+          autoClose: 8000,
+        });
+      }
     } finally {
       setSaving(false);
     }
