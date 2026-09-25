@@ -111,21 +111,38 @@ Content-Type: application/json
 {
   "scenario_id": "scenario-uuid",
   "assigned_by": "teacher-uuid",
-  "participant_positions": {"student-uuid": "101"},
-  "launch_policy": "STUDENT_SELF_START",
+  "participant_ids": ["student-112-uuid", "student-dds-uuid"],
+  "participant_positions": {
+    "student-112-uuid": null,
+    "student-dds-uuid": "101"
+  },
+  "incoming_call_operators": {"call-1": "student-112-uuid"},
+  "launch_policy": "TEACHER_START",
   "max_attempts": 2,
   "available_from": "2026-09-21T09:00:00Z",
   "due_at": "2026-09-28T18:00:00Z"
 }
 ```
 
-Для `INDIVIDUAL` backend создаёт отдельное назначение каждому участнику и
-требует `STUDENT_SELF_START`. Для `SHARED` создаётся одно общее назначение и
-требуется `TEACHER_START`. Ответ `AssignmentBatchResponse` содержит созданные
-назначения в `assignments`. `participant_positions` должен содержать запись
-для каждого действующего участника группы: код активной службы означает роль
-`DDS`, а `null` — роль `OPERATOR_112`. По кодам служб backend определяет
-обязательные для решения карточки и готовность завершения.
+`participant_ids` выбирает часть действующих участников группы. Если поле
+отсутствует, для совместимости выбираются все активные участники. Пустой
+список и повторы запрещены. `participant_positions` должен содержать ровно
+выбранных обучаемых: код активной службы означает роль `DDS`, а `null` — роль
+`OPERATOR_112`. Одна позиция ДДС может быть занята только одним участником.
+Распределение задаётся при назначении, а не в шаблоне сценария.
+
+Для `INDIVIDUAL` backend создаёт отдельное назначение каждому выбранному
+участнику и требует `STUDENT_SELF_START`. Для `SHARED` создаётся одно общее
+назначение и требуется `TEACHER_START`. Число выбранных участников должно
+попадать в диапазон сценария. Если в нём есть входящие звонки, нужен хотя бы
+один `OPERATOR_112`. При нескольких операторах укажите в
+`incoming_call_operators` оператора для **каждого** входящего звонка по ключу
+элемента сценария; при одном операторе backend назначит его автоматически.
+
+Ответ `AssignmentBatchResponse` содержит `participant_ids` выбранных
+обучаемых и созданные `assignments` с `participants`, `position_code` и
+`participant_role`. Именно этот состав подтверждает готовность и запускает
+общий сценарий; роли фиксируются в назначении и рабочем пространстве.
 
 ## Прямое назначение
 

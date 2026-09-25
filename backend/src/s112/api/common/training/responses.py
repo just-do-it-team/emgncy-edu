@@ -103,6 +103,10 @@ async def assignment_batch_response(
                 .order_by(ScenarioAssignment.created_at, ScenarioAssignment.id)
             )
         )
+    assignment_items = [
+        await assignment_response(session, assignment)
+        for assignment in assignments
+    ]
     return AssignmentBatchResponse(
         id=batch.id,
         group_id=batch.group_id,
@@ -113,10 +117,10 @@ async def assignment_batch_response(
         available_from=batch.available_from,
         due_at=batch.due_at,
         created_at=batch.created_at,
-        assignments=[
-            await assignment_response(session, assignment)
-            for assignment in assignments
-        ],
+        participant_ids=sorted(
+            {participant.user_id for item in assignment_items for participant in item.participants}
+        ),
+        assignments=assignment_items,
     )
 
 

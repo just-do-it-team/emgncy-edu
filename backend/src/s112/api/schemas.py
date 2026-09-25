@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 from s112.common.enums import (
     CardStatus,
@@ -115,6 +115,15 @@ class OperatorClassification(BaseModel):
     final_incident_type: str = Field(min_length=1)
     routing_flags: dict[str, bool] = Field(default_factory=dict)
     excluded_service_codes: list[str] = Field(default_factory=list)
+
+    @field_validator("excluded_service_codes")
+    @classmethod
+    def validate_excluded_services(cls, codes: list[str]) -> list[str]:
+        if any(not code or code != code.strip() for code in codes):
+            raise ValueError("excluded_service_codes contains a blank or padded code")
+        if len(codes) != len(set(codes)):
+            raise ValueError("excluded_service_codes must be unique")
+        return codes
 
 
 class CardCreate(BaseModel):

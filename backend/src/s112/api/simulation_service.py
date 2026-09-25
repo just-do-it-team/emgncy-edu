@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +19,7 @@ from s112.api.simulation_schemas import (
     CardTemplateCreate,
     CardTemplateDeleteRequest,
     ExpertAssessmentUpdate,
+    ExpectedResult,
     GroupScenarioAssignmentCreate,
     LearningGroupCreate,
     LearningGroupMembersUpdate,
@@ -57,6 +59,7 @@ from s112.common.enums import (
     WorkspaceMode,
     WorkspaceStatus,
 )
+from s112.classifier_reference import validate_classification
 from s112.domain.models import (
     AudioMessage,
     AssignmentBatch,
@@ -117,6 +120,12 @@ class SimulationApplicationService:
     ) -> CardTemplate:
         await self._require_user_role(
             session, request.created_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
+        )
+        await self._validate_template_content(
+            session,
+            initial_card=request.initial_card,
+            expected_result=request.expected_result,
+            location="card template",
         )
         template_key = request.template_key or uuid.uuid4()
         existing = await session.scalar(
@@ -199,6 +208,12 @@ class SimulationApplicationService:
     ) -> IncomingCallTemplate:
         await self._require_user_role(
             session, request.created_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
+        )
+        await self._validate_template_content(
+            session,
+            initial_card=None,
+            expected_result=request.expected_result,
+            location="incoming call template",
         )
         template_key = request.template_key or uuid.uuid4()
         existing = await session.scalar(
@@ -510,7 +525,7 @@ class SimulationApplicationService:
         group = await self._require_group_owner(session, group_id, request.assigned_by)
         if not group.is_active:
             raise ConflictError("Learning group is archived")
-        student_ids = list(
+        active_student_ids = list(
             await session.scalars(
                 select(LearningGroupMember.student_id)
                 .where(
@@ -520,17 +535,24 @@ class SimulationApplicationService:
                 .order_by(LearningGroupMember.student_id)
             )
         )
-        if not student_ids:
+        if not active_student_ids:
             raise ValidationError("Learning group has no active students")
-        unknown_positions = set(request.participant_positions) - set(student_ids)
-        if unknown_positions:
+        active_students = set(active_student_ids)
+        student_ids = (
+            list(request.participant_ids)
+            if request.participant_ids is not None
+            else active_student_ids
+        )
+        if set(student_ids) - active_students:
+            raise ValidationError("participant_ids contains users outside the active learning group")
+        if set(request.participant_positions) - set(student_ids):
             raise ValidationError(
-                "participant_positions contains users outside the learning group"
+                "participant_positions contains users outside participant_ids"
             )
         missing_positions = set(student_ids) - set(request.participant_positions)
         if missing_positions:
             raise ValidationError(
-                "participant_positions must contain every active group member"
+                "participant_positions must contain every selected participant"
             )
         scenario = await session.get(TrainingScenario, request.scenario_id)
         if scenario is None:
@@ -637,6 +659,7 @@ class SimulationApplicationService:
             raise ValidationError("Shared scenarios currently require TEACHER_START")
 
         definition = ScenarioDefinition.model_validate(scenario.definition)
+        await self._validate_template_references(session, definition, scenario.difficulty)
         operator_ids = {
             participant_id
             for participant_id in request.participant_ids
@@ -697,9 +720,7 @@ class SimulationApplicationService:
                     raw["template_id"] = str(template.id)
                     raw["template_key"] = str(template.template_key)
                     raw["template_version"] = template.version
-                    raw["initial_call"] = {
-                        "initial_utterance": template.initial_call["initial_utterance"]
-                    }
+                    raw["initial_call"] = dict(template.initial_call)
                     raw["expected_result"] = dict(template.expected_result)
                 else:
                     template = await session.get(CardTemplate, item.template_id)
@@ -2408,14 +2429,101 @@ class SimulationApplicationService:
             )
         )
 
+    @staticmethod
+    async def _validate_template_content(
+        session: AsyncSession,
+        *,
+        initial_card: CardCreate | None,
+        expected_result: ExpectedResult,
+        location: str,
+        active_service_codes: set[str] | None = None,
+        known_service_codes: set[str] | None = None,
+    ) -> None:
+        expected_card = expected_result.card
+        if expected_card is None:
+            raise ValidationError(f"{location} requires expected_result.card")
+        try:
+            if initial_card is not None:
+                validate_classification(initial_card.classification, location=f"{location}.initial_card")
+            validate_classification(
+                expected_card.classification,
+                location=f"{location}.expected_result.card",
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+        excluded_codes = set(expected_card.classification.excluded_service_codes)
+        if initial_card is not None:
+            excluded_codes.update(initial_card.classification.excluded_service_codes)
+        if excluded_codes:
+            if known_service_codes is None:
+                known_service_codes = set(
+                    await session.scalars(
+                        select(EmergencyService.code).where(
+                            EmergencyService.code.in_(excluded_codes)
+                        )
+                    )
+                )
+            unknown_exclusions = excluded_codes - known_service_codes
+            if unknown_exclusions:
+                raise ValidationError(
+                    f"{location}.classification excludes unknown services: "
+                    f"{', '.join(sorted(unknown_exclusions))}"
+                )
+        if expected_card.services:
+            if active_service_codes is None:
+                active_service_codes = set(
+                    await session.scalars(
+                        select(EmergencyService.code).where(
+                            EmergencyService.code.in_(expected_card.services),
+                            EmergencyService.is_active.is_(True),
+                        )
+                    )
+                )
+            missing = set(expected_card.services) - active_service_codes
+            if missing:
+                raise ValidationError(
+                    f"{location}.expected_result.card.services contains unknown or "
+                    f"inactive services: {', '.join(sorted(missing))}"
+                )
+
+    @staticmethod
+    def _stored_template_content(
+        template: CardTemplate | IncomingCallTemplate,
+    ) -> tuple[CardCreate | None, ExpectedResult]:
+        try:
+            initial_card = (
+                CardCreate.model_validate(template.initial_card)
+                if isinstance(template, CardTemplate)
+                else None
+            )
+            expected_result = ExpectedResult.model_validate(template.expected_result)
+        except PydanticValidationError as exc:
+            raise ValidationError(
+                f"Template {template.id} has an invalid saved payload: {exc.errors()[0]['msg']}"
+            ) from exc
+        return initial_card, expected_result
+
     async def _validate_template_references(
         self,
         session: AsyncSession,
         definition: ScenarioDefinition,
         scenario_difficulty: int,
     ) -> None:
+        service_rows = (
+            await session.execute(select(EmergencyService.code, EmergencyService.is_active))
+        ).all()
+        active_service_codes = {code for code, active in service_rows if active}
+        known_service_codes = {code for code, _ in service_rows}
         for item in definition.cards:
-            if item.source_type is not ScenarioCardSourceType.TEMPLATE:
+            if item.source_type is ScenarioCardSourceType.INLINE:
+                await self._validate_template_content(
+                    session,
+                    initial_card=item.initial_card,
+                    expected_result=item.expected_result,
+                    location=f"scenario item {item.key}",
+                    active_service_codes=active_service_codes,
+                    known_service_codes=known_service_codes,
+                )
                 continue
             if item.item_type is ScenarioItemType.INCOMING_CALL:
                 template = await session.get(IncomingCallTemplate, item.template_id)
@@ -2423,19 +2531,28 @@ class SimulationApplicationService:
                     raise ValidationError(
                         f"Inactive or missing incoming call template: {item.template_id}"
                     )
-                if not (template.expected_result.get("card") or {}).get("classification"):
-                    raise ValidationError("Incoming call template requires classification")
             else:
                 template = await session.get(CardTemplate, item.template_id)
                 if template is None or not template.is_active:
                     raise ValidationError(
                         f"Inactive or missing card template: {item.template_id}"
                     )
-                if (
-                    not template.initial_card.get("classification")
-                    or not (template.expected_result.get("card") or {}).get("classification")
-                ):
-                    raise ValidationError("Card template requires classification")
+            initial_card, expected_result = self._stored_template_content(template)
+            if item.item_type is ScenarioItemType.INCOMING_CALL and (
+                expected_result.outbound_call is not None
+                or expected_result.service_status_history is not None
+            ):
+                raise ValidationError(
+                    f"Incoming call template {template.id} has incompatible expected_result"
+                )
+            await self._validate_template_content(
+                session,
+                initial_card=initial_card,
+                expected_result=expected_result,
+                location=f"template {template.id}",
+                active_service_codes=active_service_codes,
+                known_service_codes=known_service_codes,
+            )
         if definition.procedural_generation is not None:
             await self._procedural_templates(
                 session, definition, scenario_difficulty
@@ -2490,6 +2607,23 @@ class SimulationApplicationService:
                 "Procedural template pool must contain at least target_count "
                 f"eligible unique templates; found {len(templates)}, "
                 f"required {generator.target_count}"
+            )
+        service_rows = (
+            await session.execute(select(EmergencyService.code, EmergencyService.is_active))
+        ).all()
+        active_service_codes = {code for code, active in service_rows if active}
+        known_service_codes = {code for code, _ in service_rows}
+        for template in templates:
+            initial_card, expected_result = SimulationApplicationService._stored_template_content(
+                template
+            )
+            await SimulationApplicationService._validate_template_content(
+                session,
+                initial_card=initial_card,
+                expected_result=expected_result,
+                location=f"procedural template {template.id}",
+                active_service_codes=active_service_codes,
+                known_service_codes=known_service_codes,
             )
         return templates
 

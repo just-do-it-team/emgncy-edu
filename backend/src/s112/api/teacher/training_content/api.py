@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +34,13 @@ from s112.domain.models import (
 router = APIRouter(prefix="/api/v1", tags=["teacher/training_content"])
 
 
+def _assert_actor_identity(request: Request, user_id: uuid.UUID) -> None:
+    if request.app.state.auth_settings.enabled:
+        principal = getattr(request.state, "principal", None)
+        if principal is None or principal.user_id != user_id:
+            raise HTTPException(status_code=403, detail="Teacher does not match token")
+
+
 async def _require_teacher_or_administrator(
     session: AsyncSession, user_id: uuid.UUID
 ) -> None:
@@ -51,9 +58,11 @@ async def _require_teacher_or_administrator(
 )
 async def create_card_template(
     request: CardTemplateCreate,
+    http_request: Request,
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> CardTemplate:
+    _assert_actor_identity(http_request, request.created_by)
     try:
         async with session.begin():
             return await service.create_template(session, request)
@@ -63,10 +72,12 @@ async def create_card_template(
 
 @router.get("/card-templates", response_model=list[CardTemplateResponse])
 async def list_card_templates(
+    http_request: Request,
     active_only: bool = True,
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_read_session),
 ) -> list[CardTemplate]:
+    _assert_actor_identity(http_request, user_id)
     await _require_teacher_or_administrator(session, user_id)
     statement = select(CardTemplate)
     if active_only:
@@ -81,9 +92,11 @@ async def list_card_templates(
 @router.get("/card-templates/{template_id}", response_model=CardTemplateResponse)
 async def get_card_template(
     template_id: uuid.UUID,
+    http_request: Request,
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_read_session),
 ) -> CardTemplate:
+    _assert_actor_identity(http_request, user_id)
     await _require_teacher_or_administrator(session, user_id)
     template = await session.get(CardTemplate, template_id)
     if template is None:
@@ -98,9 +111,11 @@ async def get_card_template(
 async def delete_card_template(
     template_id: uuid.UUID,
     request: CardTemplateDeleteRequest,
+    http_request: Request,
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> None:
+    _assert_actor_identity(http_request, request.deleted_by)
     try:
         async with session.begin():
             await service.delete_template(session, template_id, request)
@@ -115,9 +130,11 @@ async def delete_card_template(
 )
 async def create_incoming_call_template(
     request: IncomingCallTemplateCreate,
+    http_request: Request,
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> IncomingCallTemplate:
+    _assert_actor_identity(http_request, request.created_by)
     try:
         async with session.begin():
             return await service.create_incoming_call_template(session, request)
@@ -130,10 +147,12 @@ async def create_incoming_call_template(
     response_model=list[IncomingCallTemplateResponse],
 )
 async def list_incoming_call_templates(
+    http_request: Request,
     active_only: bool = True,
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_read_session),
 ) -> list[IncomingCallTemplate]:
+    _assert_actor_identity(http_request, user_id)
     await _require_teacher_or_administrator(session, user_id)
     statement = select(IncomingCallTemplate)
     if active_only:
@@ -155,9 +174,11 @@ async def list_incoming_call_templates(
 )
 async def get_incoming_call_template(
     template_id: uuid.UUID,
+    http_request: Request,
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_read_session),
 ) -> IncomingCallTemplate:
+    _assert_actor_identity(http_request, user_id)
     await _require_teacher_or_administrator(session, user_id)
     template = await session.get(IncomingCallTemplate, template_id)
     if template is None:
@@ -172,9 +193,11 @@ async def get_incoming_call_template(
 async def delete_incoming_call_template(
     template_id: uuid.UUID,
     request: IncomingCallTemplateDeleteRequest,
+    http_request: Request,
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> None:
+    _assert_actor_identity(http_request, request.deleted_by)
     try:
         async with session.begin():
             await service.delete_incoming_call_template(session, template_id, request)
@@ -189,9 +212,11 @@ async def delete_incoming_call_template(
 )
 async def create_training_scenario(
     request: TrainingScenarioCreate,
+    http_request: Request,
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> TrainingScenario:
+    _assert_actor_identity(http_request, request.created_by)
     try:
         async with session.begin():
             return await service.create_scenario(session, request)
@@ -201,12 +226,14 @@ async def create_training_scenario(
 
 @router.get("/training-scenarios", response_model=list[TrainingScenarioResponse])
 async def list_training_scenarios(
+    http_request: Request,
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     scenario_status: str | None = Query(default=None, alias="status"),
     difficulty: int | None = Query(default=None, ge=1, le=5),
     include_archived: bool = False,
     session: AsyncSession = Depends(get_read_session),
 ) -> list[TrainingScenario]:
+    _assert_actor_identity(http_request, user_id)
     await _require_teacher_or_administrator(session, user_id)
     statement = select(TrainingScenario)
     if scenario_status:
@@ -223,9 +250,11 @@ async def list_training_scenarios(
 )
 async def get_training_scenario(
     scenario_id: uuid.UUID,
+    http_request: Request,
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_read_session),
 ) -> TrainingScenarioDetailResponse:
+    _assert_actor_identity(http_request, user_id)
     await _require_teacher_or_administrator(session, user_id)
     scenario = await session.get(TrainingScenario, scenario_id)
     if scenario is None:
@@ -239,9 +268,11 @@ async def get_training_scenario(
 async def update_training_scenario(
     scenario_id: uuid.UUID,
     request: TrainingScenarioUpdate,
+    http_request: Request,
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> TrainingScenario:
+    _assert_actor_identity(http_request, request.updated_by)
     try:
         async with session.begin():
             return await service.update_scenario(session, scenario_id, request)
@@ -256,9 +287,11 @@ async def update_training_scenario(
 async def delete_training_scenario(
     scenario_id: uuid.UUID,
     request: ScenarioDeleteRequest,
+    http_request: Request,
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> None:
+    _assert_actor_identity(http_request, request.deleted_by)
     try:
         async with session.begin():
             await service.delete_scenario(session, scenario_id, request)

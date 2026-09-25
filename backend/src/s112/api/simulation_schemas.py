@@ -36,12 +36,29 @@ class ExpectedCardState(BaseModel):
     classification: OperatorClassification
     description: str
     questionnaire: CardQuestionnaire | None = None
+    automatic_phone_number: str | None = Field(default=None, max_length=64)
     reported_address: str | None = None
     incident_address: str | None = None
     victims_count: int | None = Field(default=None, ge=0)
     current_status: CardStatus
     services: list[str]
     service_statuses: dict[str, ServiceResponseStatus]
+
+    @model_validator(mode="after")
+    def validate_services(self) -> "ExpectedCardState":
+        if any(not code or code != code.strip() for code in self.services):
+            raise ValueError("expected_result.card.services contains a blank or padded code")
+        if len(self.services) != len(set(self.services)):
+            raise ValueError("expected_result.card.services must be unique")
+        if set(self.service_statuses) != set(self.services):
+            raise ValueError(
+                "expected_result.card.service_statuses must contain exactly the listed services"
+            )
+        if set(self.services) & set(self.classification.excluded_service_codes):
+            raise ValueError(
+                "expected_result.card.services contains a classification-excluded service"
+            )
+        return self
 
 
 class ExpectedServiceStatusChange(BaseModel):
@@ -108,6 +125,7 @@ class InitialIncomingCall(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     initial_utterance: str = Field(min_length=1, max_length=10_000)
+    automatic_phone_number: str | None = Field(default=None, max_length=64)
 
     @field_validator("initial_utterance")
     @classmethod
@@ -460,6 +478,8 @@ class IncomingCallTemplateCreate(BaseModel):
             raise ValueError("Incoming call template requires expected_result.card")
         if self.expected_result.outbound_call is not None:
             raise ValueError("Incoming call template cannot require an outbound call")
+        if self.expected_result.service_status_history is not None:
+            raise ValueError("Incoming call template cannot require DDS service status history")
         return self
 
 
@@ -922,6 +942,7 @@ class LearningGroupResponse(OrmModel):
 class GroupScenarioAssignmentCreate(BaseModel):
     scenario_id: uuid.UUID
     assigned_by: uuid.UUID
+    participant_ids: list[uuid.UUID] | None = Field(default=None, min_length=1, max_length=100)
     participant_positions: dict[uuid.UUID, str | None] = Field(default_factory=dict)
     incoming_call_operators: dict[str, uuid.UUID] = Field(default_factory=dict)
     launch_policy: LaunchPolicy = LaunchPolicy.STUDENT_SELF_START
@@ -931,6 +952,11 @@ class GroupScenarioAssignmentCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_dates_and_positions(self) -> "GroupScenarioAssignmentCreate":
+        if self.participant_ids is not None:
+            if len(self.participant_ids) != len(set(self.participant_ids)):
+                raise ValueError("participant_ids must be unique")
+            if set(self.participant_positions) != set(self.participant_ids):
+                raise ValueError("participant_positions must contain exactly participant_ids")
         if any(code is not None and not code.strip() for code in self.participant_positions.values()):
             raise ValueError("participant position_code must not be blank")
         self.participant_positions = {
@@ -955,6 +981,7 @@ class AssignmentBatchResponse(OrmModel):
     available_from: datetime | None
     due_at: datetime | None
     created_at: datetime
+    participant_ids: list[uuid.UUID] = Field(default_factory=list)
     assignments: list[ScenarioAssignmentResponse] = Field(default_factory=list)
 
 

@@ -30,6 +30,9 @@ test = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/s112"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/s112/incident_classifier_reference.json" = "s112/incident_classifier_reference.json"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
