@@ -1,7 +1,6 @@
 import { useState } from "react";
 import {
   Alert,
-  Anchor,
   Badge,
   Button,
   Loader,
@@ -12,20 +11,21 @@ import {
   Title,
 } from "@mantine/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { useSessionStore } from "@/entities/session";
+import { TablePagination, usePagination } from "@/shared/ui";
 import {
   apiError,
   assignmentBlocker,
   assignmentLaunchContext,
   clearStartKey,
   formatApiDate,
+  notifyTrainingError,
   pendingStartKey,
   startKey,
   statusLabels,
   trainingApi,
   type Assignment,
-  type TrainingSession,
 } from "@/entities/training";
 
 export function ConnectedOverview() {
@@ -36,9 +36,6 @@ export function ConnectedOverview() {
       <Title order={2} size="h4">
         Доступные занятия
       </Title>
-      <Anchor component={Link} to="/student/results">
-        Мои результаты
-      </Anchor>
       <Assignments key={userId} userId={userId} />
     </Stack>
   );
@@ -46,16 +43,11 @@ export function ConnectedOverview() {
 function Assignments({ userId }: { userId: string }) {
   const query = useQuery({
     queryKey: ["student-api", userId, "assignments"],
-    queryFn: async ({ signal }) => {
-      const [assignments, sessions] = await Promise.all([
-        trainingApi.assignments(userId, signal),
-        trainingApi.sessions(userId, signal),
-      ]);
-      return { assignments, sessions };
-    },
+    queryFn: ({ signal }) => trainingApi.assignments(userId, signal),
     refetchInterval: 15000,
     meta: { showGlobalError: false },
   });
+  const pagination = usePagination(query.data ?? []);
   if (query.isPending) return <Loader size="sm" />;
   return (
     <Stack>
@@ -80,22 +72,28 @@ function Assignments({ userId }: { userId: string }) {
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {query.data?.assignments.map((assignment) => (
+              {pagination.rows.map((assignment) => (
                 <AssignmentRow
                   key={assignment.id}
                   userId={userId}
                   assignment={assignment}
-                  sessions={query.data.sessions.filter(
-                    (s) => s.assignment_id === assignment.id,
-                  )}
                   stale={query.isError}
                 />
               ))}
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>
+        {pagination.total > 0 && (
+          <TablePagination
+            page={pagination.page}
+            pageSize={pagination.pageSize}
+            total={pagination.total}
+            onPageChange={pagination.onPageChange}
+            onPageSizeChange={pagination.onPageSizeChange}
+          />
+        )}
       </Paper>
-      {query.data?.assignments.length === 0 && (
+      {query.data?.length === 0 && (
         <Text c="dimmed">
           Назначенных занятий пока нет. Они появятся после назначения
           преподавателем.
@@ -106,29 +104,23 @@ function Assignments({ userId }: { userId: string }) {
 }
 function AssignmentRow({
   assignment,
-  sessions,
   userId,
   stale,
 }: {
   assignment: Assignment;
-  sessions: TrainingSession[];
   userId: string;
   stale: boolean;
 }) {
   const { participant, scenario } = assignment;
   const mode = participant.position_code === null ? "ARM112" : "DDS";
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [pendingStart, setPendingStart] = useState(
     () => !!pendingStartKey(userId, assignment.id),
   );
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const context = assignmentLaunchContext(assignment, userId);
-  const running = sessions.some((s) =>
-    ["CREATED", "RUNNING"].includes(s.status),
-  );
-  const blocker = assignmentBlocker(assignment, sessions.length);
+  const blocker = assignmentBlocker(assignment, assignment.attempts_used);
   function openSession(sessionId: string) {
     const params = new URLSearchParams({
       assignment: assignment.id,
@@ -139,7 +131,7 @@ function AssignmentRow({
   async function start() {
     if (busy) return;
     setBusy(true);
-    setError(null);
+    let leavingOverview = false;
     try {
       const current = await trainingApi.assignment(assignment.id, userId);
       const active = assignmentLaunchContext(current, userId);
@@ -149,11 +141,11 @@ function AssignmentRow({
         setPendingStart(false);
         throw new Error("Занятие уже запущено. Повторный запуск недоступен.");
       }
-      if (context || running || current.status === "RUNNING")
+      if (context || current.status === "RUNNING")
         throw new Error("Занятие уже запущено. Повторный запуск недоступен.");
       // Only a previously persisted key may replay an uncertain start.
       if (!pendingStartKey(userId, assignment.id)) {
-        const reason = assignmentBlocker(current, sessions.length);
+        const reason = assignmentBlocker(current, current.attempts_used);
         if (reason) throw new Error(reason);
       }
       const request = startKey(userId, assignment.id);
@@ -166,16 +158,20 @@ function AssignmentRow({
       if (useSessionStore.getState().profile?.userId !== userId) return;
       request.clear();
       setPendingStart(false);
+      leavingOverview = true;
       if (["CREATED", "RUNNING"].includes(started.status)) {
         openSession(started.session_id);
       } else {
         navigate("/student/results");
       }
     } catch (err) {
-      setError(apiError(err));
+      notifyTrainingError(err);
     } finally {
       setBusy(false);
-      if (useSessionStore.getState().profile?.userId === userId) {
+      if (
+        !leavingOverview &&
+        useSessionStore.getState().profile?.userId === userId
+      ) {
         void queryClient.invalidateQueries({
           queryKey: ["student-api", userId, "assignments"],
         });
@@ -196,7 +192,7 @@ function AssignmentRow({
           {scenario.cards_count}
         </Text>
         <Text size="xs" c="dimmed">
-          Попытки: {sessions.length} / {assignment.max_attempts}
+          Попытки: {assignment.attempts_used} / {assignment.max_attempts}
         </Text>
       </Table.Td>
       <Table.Td>
@@ -211,33 +207,20 @@ function AssignmentRow({
         {assignment.due_at ? formatApiDate(assignment.due_at) : "Без срока"}
       </Table.Td>
       <Table.Td>
-        <Badge>{statusLabels[assignment.status] ?? assignment.status}</Badge>
+        <Badge color={assignment.status === "ASSIGNED" ? "green" : "gray"}>
+          {statusLabels[assignment.status] ?? assignment.status}
+        </Badge>
       </Table.Td>
       <Table.Td>
-        <Button
-          size="xs"
-          loading={busy}
-          disabled={
-            stale || !!context || running || (!pendingStart && !!blocker)
-          }
-          onClick={() => void start()}
-        >
-          Начать обучение
-        </Button>
-        {(context || running) && (
-          <Text size="xs" maw={260} mt={4}>
-            Занятие уже запущено. Повторный запуск недоступен.
-          </Text>
-        )}
-        {!context && !running && !pendingStart && blocker && (
-          <Text size="xs" maw={260} mt={4}>
-            {blocker}
-          </Text>
-        )}
-        {error && (
-          <Text c="red" size="xs" maw={280} mt={4}>
-            {error}
-          </Text>
+        {assignment.status !== "COMPLETED" && (
+          <Button
+            size="sm"
+            loading={busy}
+            disabled={stale || !!context || (!pendingStart && !!blocker)}
+            onClick={() => void start()}
+          >
+            Начать обучение
+          </Button>
         )}
       </Table.Td>
     </Table.Tr>

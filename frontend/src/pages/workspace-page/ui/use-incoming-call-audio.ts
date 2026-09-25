@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   apiError,
+  notifyTrainingError,
   trainingApi,
   type LaunchContext,
   type TtsSegment,
@@ -37,6 +38,7 @@ export function useIncomingCallAudio(
     let lastPlayedSpeech: string | null = null;
     let finalCount: number | null = null;
     let nextSegment = 1;
+    let lastFailure: string | null = null;
     let playing = false;
     const segments = new Map<number, TtsSegment>();
     const mimeType =
@@ -46,6 +48,10 @@ export function useIncomingCallAudio(
 
     function fail(message: string) {
       if (!disposed) {
+        if (lastFailure !== message) {
+          lastFailure = message;
+          notifyTrainingError(new Error(message));
+        }
         setError(message);
         setStatus("Разговор приостановлен");
       }
@@ -101,6 +107,7 @@ export function useIncomingCallAudio(
         nextSegment = 1;
         segments.clear();
         setError(null);
+        lastFailure = null;
         setStatus("Ожидание ответа заявителя…");
         await sync();
       } catch (cause) {

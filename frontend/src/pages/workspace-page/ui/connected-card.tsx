@@ -8,10 +8,11 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { resolveClassification, resolveServices } from "@/entities/incident";
 import {
   apiError,
+  notifyTrainingError,
   trainingApi,
   type ApiCard,
   type CardService,
@@ -30,6 +31,7 @@ import { IncidentViewer } from "./incident-viewer";
 import { ServerServices } from "./server-services";
 import { ServerCardStatus } from "./server-card-status";
 import { CardAudio } from "./card-audio";
+import { ProcessedCardView } from "./processed-card-view";
 
 type Props = {
   ctx: LaunchContext;
@@ -41,14 +43,17 @@ type Props = {
   onChanged: () => Promise<void>;
 };
 export function ConnectedCard(props: Props) {
+  const queryClient = useQueryClient();
+  const [editingProcessed, setEditingProcessed] = useState(false);
+  const queryKey = [
+    "student-api",
+    props.ctx.userId,
+    props.ctx.workspaceId,
+    "card",
+    props.cardId,
+  ];
   const query = useQuery({
-    queryKey: [
-      "student-api",
-      props.ctx.userId,
-      props.ctx.workspaceId,
-      "card",
-      props.cardId,
-    ],
+    queryKey,
     queryFn: ({ signal }) => trainingApi.card(props.ctx, props.cardId, signal),
     refetchOnMount: "always",
     refetchOnWindowFocus: false,
@@ -83,6 +88,33 @@ export function ConnectedCard(props: Props) {
         )}
       </Modal>
     );
+  if (
+    props.ctx.mode === "ARM112" &&
+    query.data.current_status === "PROCESSED"
+  ) {
+    if (!editingProcessed)
+      return (
+        <ProcessedCardView
+          card={query.data}
+          ctx={props.ctx}
+          directory={props.directory}
+          onEdit={props.readOnly ? undefined : () => setEditingProcessed(true)}
+          onClose={props.onClose}
+        />
+      );
+    return (
+      <CardEditor
+        {...props}
+        initial={query.data}
+        startEditing
+        onClose={() => setEditingProcessed(false)}
+        onSaved={(card) => {
+          queryClient.setQueryData(queryKey, card);
+          setEditingProcessed(false);
+        }}
+      />
+    );
+  }
   return <CardEditor {...props} initial={query.data} />;
 }
 function CardEditor({
@@ -93,7 +125,13 @@ function CardEditor({
   readOnly,
   onClose,
   onChanged,
-}: Props & { initial: ApiCard }) {
+  onSaved,
+  startEditing = false,
+}: Props & {
+  initial: ApiCard;
+  onSaved?: (card: ApiCard) => void;
+  startEditing?: boolean;
+}) {
   const [card, setCard] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [needsRefresh, setNeedsRefresh] = useState(false);
@@ -109,7 +147,7 @@ function CardEditor({
       setNeedsRefresh(false);
       await onChanged();
     } catch (err) {
-      setError(apiError(err));
+      setError(notifyTrainingError(err));
     } finally {
       setBusy(false);
     }
@@ -164,6 +202,7 @@ function CardEditor({
       const fresh = await trainingApi.card(ctx, card.id);
       setCard(fresh);
       await onChanged();
+      onSaved?.(fresh);
     } catch (err) {
       setNeedsRefresh(true);
       throw new Error(
@@ -318,6 +357,7 @@ function CardEditor({
       <OperatorCard
         entry={operatorEntry}
         isNew={false}
+        startEditing={startEditing}
         embedded
         onSave={save}
         onClose={() => {

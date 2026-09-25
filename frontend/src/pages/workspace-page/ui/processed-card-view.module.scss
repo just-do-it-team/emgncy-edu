@@ -1,0 +1,291 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - 64px);
+  background: #d3dbe0;
+  color: #30383e;
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+}
+
+.topbar {
+  display: grid;
+  grid-template-columns:
+    minmax(190px, 1.4fr) repeat(3, minmax(150px, 1fr)) minmax(200px, 1fr)
+    130px;
+  gap: 8px;
+  padding: 8px;
+}
+
+.topbar > div {
+  min-width: 0;
+  min-height: 86px;
+  background: #f8f9fa;
+}
+
+.connection {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+
+  > div {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  button {
+    border: 1px solid #aab4b9;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    padding: 4px 8px;
+  }
+}
+
+.phone,
+.number {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 12px;
+}
+
+.phone span,
+.number span,
+.number small {
+  color: #59636b;
+}
+
+.phone strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 20px;
+  font-weight: 400;
+}
+
+.number strong {
+  font-size: 17px;
+}
+
+.viewActions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: transparent !important;
+}
+
+.viewActions .activeView,
+.viewActions :global(.mantine-Button-root) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 38px;
+  border-radius: 0;
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.activeView {
+  background: #147cbd;
+}
+
+.viewActions :global(.mantine-Button-root) {
+  background: #30383e;
+  border: 0;
+}
+
+.audio {
+  margin: 0 8px 8px;
+  background: #f8f9fa;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 45fr) minmax(0, 54fr);
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  padding: 0 8px 8px;
+}
+
+.leftColumn,
+.rightColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.applicant,
+.address,
+.notes,
+.summary,
+.incident,
+.classification {
+  background: #f8f9fa;
+}
+
+.applicant,
+.address,
+.summary,
+.classification {
+  padding: 12px;
+}
+
+.applicant {
+  min-height: 52px;
+  font-size: 17px;
+}
+
+.address {
+  min-height: 74px;
+  line-height: 1.5;
+}
+
+.notes {
+  flex: 1;
+  min-height: 180px;
+  padding: 12px;
+  white-space: pre-wrap;
+}
+
+.notes p,
+.incident p {
+  margin: 0;
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  min-height: 52px;
+}
+
+.incident h2 {
+  margin: 0;
+  padding: 7px 12px;
+  background: #30383e;
+  color: white;
+  font-size: 15px;
+}
+
+.incident p {
+  padding: 12px;
+  min-height: 64px;
+  white-space: pre-wrap;
+  font-weight: 600;
+}
+
+.classification {
+  min-height: 45px;
+}
+
+.footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: stretch;
+  min-height: 66px;
+  background: #435158;
+  color: white;
+}
+
+.services {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.servicesLabel,
+.noServices,
+.service {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 10px 14px;
+}
+
+.service {
+  min-width: 126px;
+  max-width: 210px;
+  gap: 4px;
+  border-left: 1px solid #819096;
+  background: #64747b;
+}
+
+.service strong {
+  overflow-wrap: anywhere;
+}
+
+.service small {
+  font-size: 11px;
+}
+
+.footerActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+}
+
+.status,
+.footerActions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border: 1px solid #bbc4c7;
+  background: transparent;
+  color: white;
+}
+
+.status {
+  gap: 7px;
+  padding: 0 14px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.footerActions button {
+  width: 44px;
+  cursor: pointer;
+}
+
+@media (max-width: 1450px) {
+  .topbar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 850px) {
+  .columns {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .footer {
+    flex-wrap: wrap;
+  }
+
+  .footerActions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

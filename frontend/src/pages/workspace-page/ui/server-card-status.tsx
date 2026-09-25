@@ -12,6 +12,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import {
   apiError,
+  notifyTrainingError,
   formatApiDate,
   statusLabels,
   trainingApi,
@@ -58,7 +59,7 @@ export function ServerCardStatus({
       setStatus(null);
       setReason("");
     } catch (err) {
-      setError(apiError(err));
+      setError(notifyTrainingError(err));
     } finally {
       setBusy(false);
     }

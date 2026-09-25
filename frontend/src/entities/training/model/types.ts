@@ -8,6 +8,7 @@ export interface Assignment {
   available_from: string | null;
   due_at: string | null;
   max_attempts: number;
+  attempts_used: number;
   created_at: string;
   participant: {
     user_id: string;

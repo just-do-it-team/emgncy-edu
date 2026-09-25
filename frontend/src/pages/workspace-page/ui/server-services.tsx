@@ -14,6 +14,7 @@ import { Phone, Plus } from "lucide-react";
 import {
   allowedServiceStatuses,
   apiError,
+  notifyTrainingError,
   formatApiDate,
   statusLabels,
   trainingApi,
@@ -137,7 +138,7 @@ function ServerService({
       setComment("");
       await query.refetch();
     } catch (err) {
-      setError(apiError(err));
+      setError(notifyTrainingError(err));
     } finally {
       setBusy(false);
     }
@@ -264,7 +265,7 @@ function AddService({
       await onAdd(id);
       setId(null);
     } catch (err) {
-      setError(apiError(err));
+      setError(notifyTrainingError(err));
     } finally {
       setBusy(false);
     }

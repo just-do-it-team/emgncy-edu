@@ -84,7 +84,7 @@ export function apiError(error: unknown): string {
     if (error.response?.status === 422)
       return "Бэкенд отклонил данные. Проверьте обязательные поля и выбранные признаки.";
     if (!error.response)
-      return "Нет ответа от API. Проверьте соединение. Результат последней записи может быть неизвестен — обновите данные перед повтором.";
+      return "Нет ответа от API.";
     return `Ошибка API (${error.response.status}). Повторите загрузку.`;
   }
   return error instanceof Error
@@ -158,7 +158,10 @@ export const trainingApi = {
         signal,
       })
     ).data,
-  session: async (ctx: LaunchContext, signal?: AbortSignal) =>
+  session: async (
+    ctx: Pick<LaunchContext, "userId" | "sessionId">,
+    signal?: AbortSignal,
+  ) =>
     (
       await api.get<TrainingSession>(`/training-sessions/${ctx.sessionId}`, {
         ...requestConfig(ctx.userId),
@@ -344,10 +347,15 @@ export const trainingApi = {
         { ...requestConfig(ctx.userId), signal },
       )
     ).data,
-  history: async (userId: string, offset: number, signal?: AbortSignal) =>
+  history: async (
+    userId: string,
+    limit: number,
+    offset: number,
+    signal?: AbortSignal,
+  ) =>
     (
       await api.get<HistoryPage>("/student/training-history", {
-        params: { limit: 20, offset },
+        params: { limit, offset },
         ...requestConfig(userId),
         signal,
       })

@@ -107,6 +107,28 @@
   line-height: 20px;
 }
 
+.operatorName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workstation,
+.accountStaticIcon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.accountStaticIcon {
+  width: 20px;
+  height: 20px;
+  justify-content: center;
+}
+
 .header .accountIcon {
   width: 20px;
   min-width: 20px;

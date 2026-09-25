@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Box, Group } from "@mantine/core";
+import { MdDirectionsRun } from "react-icons/md";
 import {
   ChevronDown,
   CircleHelp,
@@ -13,8 +14,7 @@ import {
   FileText,
   Globe,
 } from "lucide-react";
-import type { UserRole } from "@/entities/session";
-import { LogoutButton } from "@/features/auth";
+import { useSessionStore, type UserRole } from "@/entities/session";
 import { ActionIcon, Button, TextInput } from "@/shared/ui";
 import classes from "./workspace-header.module.scss";
 
@@ -33,6 +33,15 @@ const roleLabels: Record<UserRole, string> = {
   teacher: "Преподаватель",
   student: "Обучающийся",
 };
+
+function shortName(displayName?: string) {
+  const parts = displayName?.trim().split(/\s+/) ?? [];
+  if (parts.length < 2) return parts[0] ?? "";
+  return [
+    parts[0],
+    ...parts.slice(1, 3).map((part) => part[0].toLocaleUpperCase("ru-RU")),
+  ].join(" ");
+}
 
 function Clock() {
   const [now, setNow] = useState(() => new Date());
@@ -79,6 +88,8 @@ export function WorkspaceHeader({
   operatorMode?: boolean;
   onCreateCard?: () => void;
 }) {
+  const profile = useSessionStore((state) => state.profile);
+
   return (
     <Box
       component="header"
@@ -126,20 +137,27 @@ export function WorkspaceHeader({
             </div>
           )}
           <Group gap={6} wrap="nowrap" className={classes.accountActions}>
-            <span title={roleLabels[role]}>, УМЦ О п</span>
-            <ActionIcon
-              className={classes.accountIcon}
-              aria-label="Рабочее место"
+            <span
+              className={classes.operatorName}
+              title={profile?.displayName || roleLabels[role]}
             >
-              <Monitor size={12} />
-            </ActionIcon>
+              {shortName(profile?.displayName) ||
+                profile?.username ||
+                roleLabels[role]}
+            </span>
+            <span className={classes.workstation} aria-label="АРМ 000">
+              <Monitor size={12} aria-hidden="true" />
+              АРМ 000
+            </span>
             <ActionIcon className={classes.accountIcon} aria-label="Настройки">
               <Settings size={12} />
             </ActionIcon>
             <ActionIcon className={classes.accountIcon} aria-label="Справка">
               <CircleHelp size={12} />
             </ActionIcon>
-            <LogoutButton className={classes.accountIcon} />
+            <span className={classes.accountStaticIcon} aria-hidden="true">
+              <MdDirectionsRun size={14} />
+            </span>
           </Group>
         </div>
         {operatorMode && (
@@ -184,7 +202,7 @@ export function WorkspaceHeader({
                 : undefined
             }
           >
-            Создание карточки
+            Создать новую карточку
           </Button>
         </div>
       )}
