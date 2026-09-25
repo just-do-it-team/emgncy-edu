@@ -9,11 +9,11 @@ import {
   Text,
 } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
+import { resolveClassification, resolveServices } from "@/entities/incident";
 import {
   apiError,
   trainingApi,
   type ApiCard,
-  type CardFeatures,
   type CardService,
   type EmergencyService,
   type EventKind,
@@ -27,11 +27,9 @@ import {
 import type { OperatorCardDraft } from "../model/operator-cards";
 import { OperatorCard } from "./operator-card";
 import { IncidentViewer } from "./incident-viewer";
-import { ServerClassification } from "./server-classification";
 import { ServerServices } from "./server-services";
 import { ServerCardStatus } from "./server-card-status";
 import { CardAudio } from "./card-audio";
-import { validateAdditionalFeatures } from "../model/additional-features";
 
 type Props = {
   ctx: LaunchContext;
@@ -97,35 +95,9 @@ function CardEditor({
   onChanged,
 }: Props & { initial: ApiCard }) {
   const [card, setCard] = useState(initial);
-  const [features, setFeatures] = useState<CardFeatures>(
-    () =>
-      initial.features ?? {
-        event_kind_id: 0,
-        first_order_feature_id: null,
-        second_order_feature_id: null,
-        third_order_feature_id: null,
-        feature_schema_id: null,
-        additional_features: {},
-      },
-  );
   const [busy, setBusy] = useState(false);
   const [needsRefresh, setNeedsRefresh] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const schema = useQuery({
-    queryKey: [
-      "student-api",
-      "reference",
-      "schema",
-      features.event_kind_id,
-      features.first_order_feature_id,
-      features.second_order_feature_id,
-      features.third_order_feature_id,
-    ],
-    queryFn: ({ signal }) => trainingApi.schema(features, signal),
-    enabled: features.event_kind_id > 0,
-    staleTime: 300000,
-    meta: { showGlobalError: false },
-  });
   const outdated = initial.version > card.version;
   const disabled = readOnly || busy || needsRefresh || outdated;
   async function reload() {
@@ -144,38 +116,59 @@ function CardEditor({
   }
   async function save(draft: OperatorCardDraft) {
     if (disabled) throw new Error("Сначала обновите карточку.");
-    if (!features.event_kind_id) throw new Error("Выберите тип происшествия.");
-    if (schema.isFetching || schema.isError)
-      throw new Error("Дождитесь загрузки схемы признаков.");
-    const validationError = validateAdditionalFeatures(
-      schema.data?.additional_features_schema,
-      features.additional_features,
+    const record = resolveClassification(
+      draft.group,
+      draft.features,
+      draft.recordId,
     );
-    if (validationError) throw new Error(validationError);
+    if (!record)
+      throw new Error("Выберите тип происшествия и определяющие признаки.");
+    const routed = resolveServices(record, draft.flags).filter(
+      (service) => !draft.excludedServices.includes(service.code),
+    );
+    const activeServices = new Map(
+      directory
+        .filter((service) => service.is_active)
+        .map((service) => [service.code, service]),
+    );
+    const unavailable = routed.filter(
+      (service) => !activeServices.has(service.code),
+    );
+    if (unavailable.length)
+      throw new Error(
+        `В справочнике API нет служб: ${unavailable.map((service) => service.name).join(", ")}.`,
+      );
     setBusy(true);
     setError(null);
     let coreSaved = false;
     try {
-      const updated = await trainingApi.patch(
+      let updated = await trainingApi.patch(
         ctx,
         card,
         patchFromDraft(card, draft),
       );
       setCard(updated);
       coreSaved = true;
-      await trainingApi.features(ctx, updated, {
-        ...features,
-        feature_schema_id: schema.data?.feature_schema_id ?? null,
-      });
+      for (const service of routed) {
+        const serviceId = activeServices.get(service.code)!.id;
+        if (
+          updated.services.some(
+            (item) => item.service_id === serviceId && item.is_active,
+          )
+        )
+          continue;
+        await trainingApi.addService(ctx, updated, serviceId);
+        updated = await trainingApi.card(ctx, card.id);
+        setCard(updated);
+      }
       const fresh = await trainingApi.card(ctx, card.id);
       setCard(fresh);
-      setFeatures(fresh.features ?? features);
       await onChanged();
     } catch (err) {
       setNeedsRefresh(true);
       throw new Error(
         (coreSaved
-          ? "Основные поля сохранены. Сохранение признаков или проверка результата не завершены. "
+          ? "Поля карточки сохранены, но добавление служб или проверка результата не завершены. "
           : "") + apiError(err),
       );
     } finally {
@@ -332,27 +325,11 @@ function CardEditor({
         }}
         remote={{
           readOnly,
-          canSave:
-            !disabled &&
-            !!features.event_kind_id &&
-            !schema.isFetching &&
-            !schema.isError,
+          canSave: !disabled,
           services,
           serviceCount: card.services.filter(
             (service) => service.is_active && service.is_visible,
           ).length,
-          classification: (
-            <ServerClassification
-              features={features}
-              onChange={setFeatures}
-              kinds={kinds.filter(
-                (k) => k.event_type_id === card.event_type_id,
-              )}
-              schema={schema.data}
-              schemaError={schema.error}
-              schemaPending={schema.isFetching}
-            />
-          ),
         }}
       />
       <details>

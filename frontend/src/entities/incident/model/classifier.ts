@@ -25,6 +25,7 @@ const reference = JSON.parse(source) as {
 
 export interface ClassifierRecord {
   id: number;
+  codes: [number, number, number, number];
   group: string;
   features: [string | null, string | null, string | null];
   additional: string | null;
@@ -37,6 +38,7 @@ export const classifierRecords: ClassifierRecord[] = reference.records
   .filter((row) => row[6] !== "Не отображается оператору 112")
   .map((row) => ({
     id: row[0],
+    codes: [row[1], row[2], row[3], row[4]],
     group: row[5].trim(),
     features: [row[6], row[7], row[8]],
     additional: row[9],

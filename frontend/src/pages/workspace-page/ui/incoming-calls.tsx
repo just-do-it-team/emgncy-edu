@@ -7,10 +7,8 @@ import {
   apiError,
   trainingApi,
   type ApiCard,
-  type EventKind,
   type EmergencyService,
   type LaunchContext,
-  type ReferenceOption,
 } from "@/entities/training";
 import { CreateServerCard } from "./create-server-card";
 import { useIncomingCallAudio } from "./use-incoming-call-audio";
@@ -35,8 +33,6 @@ export function IncomingCalls({
   ctx: LaunchContext;
   active: boolean;
   reference?: {
-    types: ReferenceOption[];
-    kinds: EventKind[];
     services: EmergencyService[];
   };
   canCreate: boolean;
@@ -363,8 +359,6 @@ export function IncomingCalls({
           opened={cardOpen}
           entry={draftEntry}
           ctx={ctx}
-          types={reference.types}
-          kinds={reference.kinds}
           directory={reference.services}
           callId={creatingCallId}
           callerNumber={

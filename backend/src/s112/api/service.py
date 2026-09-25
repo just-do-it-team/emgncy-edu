@@ -98,9 +98,10 @@ class CardApplicationService:
                 WorkspaceMemberRole.PARTICIPANT.value,
             },
         )
-        event_type = await session.get(EventType, request.event_type_id)
-        if event_type is None or not event_type.is_active:
-            raise ValidationError("Unknown or inactive event_type_id")
+        if request.event_type_id is not None:
+            event_type = await session.get(EventType, request.event_type_id)
+            if event_type is None or not event_type.is_active:
+                raise ValidationError("Unknown or inactive event_type_id")
 
         if request.features is not None:
             await self._validate_features(session, request.event_type_id, request.features)
@@ -118,6 +119,10 @@ class CardApplicationService:
             external_card_id=request.external_card_id,
             parent_card_id=request.parent_card_id,
             event_type_id=request.event_type_id,
+            classification=(
+                request.classification.model_dump()
+                if request.classification is not None else None
+            ),
             description=request.description,
             questionnaire=(
                 request.questionnaire.model_dump()
@@ -144,14 +149,15 @@ class CardApplicationService:
                 set_by=request.operator_id,
             )
         )
-        session.add(
-            CardEventTypeHistory(
-                card_id=card.id,
-                event_type_id=card.event_type_id,
-                changed_by=request.operator_id,
-                reason="Initial classification",
+        if card.event_type_id is not None:
+            session.add(
+                CardEventTypeHistory(
+                    card_id=card.id,
+                    event_type_id=card.event_type_id,
+                    changed_by=request.operator_id,
+                    reason="Initial classification",
+                )
             )
-        )
 
         feature_model: CardFeature | None = None
         if request.features is not None:
@@ -169,6 +175,7 @@ class CardApplicationService:
             workspace_id=card.workspace_id,
             card_number=card.card_number,
             event_type_id=card.event_type_id,
+            classification=card.classification,
             event_kind_id=feature_model.event_kind_id if feature_model else None,
             applicant_full_name=card.applicant_full_name,
             incident_address=card.incident_address,
@@ -265,6 +272,9 @@ class CardApplicationService:
         values = request.model_dump(
             exclude={"expected_version", "actor_id", "request_id"}, exclude_unset=True
         )
+        if "classification" in values:
+            if card.event_type_id is not None or values["classification"] is None:
+                raise ValidationError("Classification can only update a classifier card")
         for field, value in values.items():
             setattr(card, field, value)
         card.version += 1
@@ -291,6 +301,8 @@ class CardApplicationService:
             session, card.workspace_id, request.actor_id, card_id=card.id
         )
         existing_feature = await session.get(CardFeature, card.id)
+        if card.event_type_id is None:
+            raise ValidationError("Legacy features cannot update a classifier card")
         before_state = self._features_summary(existing_feature)
         await self._validate_features(session, card.event_type_id, request)
 
@@ -1042,6 +1054,7 @@ class CardApplicationService:
         ).all()
 
         projection.event_type_id = card.event_type_id
+        projection.classification = card.classification
         projection.workspace_id = card.workspace_id
         projection.event_kind_id = feature.event_kind_id if feature else None
         projection.applicant_full_name = card.applicant_full_name
@@ -1327,6 +1340,7 @@ class CardApplicationService:
         return {
             "card_number": card.card_number,
             "event_type_id": card.event_type_id,
+            "classification": card.classification,
             "description": card.description,
             "questionnaire": card.questionnaire,
             "applicant_full_name": card.applicant_full_name,

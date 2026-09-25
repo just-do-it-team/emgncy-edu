@@ -163,10 +163,11 @@ class IncidentCard(Base, TimestampMixin):
     parent_card_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("incident_card.id", ondelete="SET NULL")
     )
-    event_type_id: Mapped[int] = mapped_column(
+    event_type_id: Mapped[int | None] = mapped_column(
         ForeignKey("event_type.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
     )
+    classification: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     questionnaire: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
     applicant_full_name: Mapped[str | None] = mapped_column(String(255))
@@ -426,7 +427,8 @@ class CardListProjection(Base):
         ForeignKey("simulation_workspace.id", ondelete="CASCADE"), nullable=False
     )
     card_number: Mapped[str] = mapped_column(String(64), nullable=False)
-    event_type_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    classification: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
     event_kind_id: Mapped[int | None] = mapped_column(Integer)
     applicant_full_name: Mapped[str | None] = mapped_column(String(255))
     incident_address: Mapped[str | None] = mapped_column(Text)

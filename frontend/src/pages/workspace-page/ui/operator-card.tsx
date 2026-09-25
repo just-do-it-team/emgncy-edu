@@ -106,7 +106,6 @@ export function OperatorCard({
   isNew: boolean;
   onSave: (draft: OperatorCardDraft) => void | Promise<void>;
   remote?: {
-    classification: ReactNode;
     services: ReactNode | ((expanded: boolean) => ReactNode);
     serviceCount?: number;
     readOnly: boolean;
@@ -155,7 +154,6 @@ export function OperatorCard({
       description: (value) =>
         value.trim() ? null : "Опишите происшествие со слов заявителя",
       group: (_, values) =>
-        (remote && !incomingCall) ||
         resolveClassification(values.group, values.features, values.recordId)
           ? null
           : "Выберите тип и все определяющие признаки",
@@ -499,10 +497,9 @@ export function OperatorCard({
                     key={key}
                     variant={values.flags[key] ? "filled" : "default"}
                     aria-pressed={!!values.flags[key]}
-                    onClick={() => {
-                      if (!remote || incomingCall)
-                        form.setFieldValue(`flags.${key}`, !values.flags[key]);
-                    }}
+                    onClick={() =>
+                      form.setFieldValue(`flags.${key}`, !values.flags[key])
+                    }
                   >
                     {key === "casualties"
                       ? "Пострадавшие"
@@ -523,198 +520,165 @@ export function OperatorCard({
               </Group>
             </section>
             <div className={classes.incidentSelection}>
-              {remote && !incomingCall ? (
+              <section className={classes.panel}>
+                <Select
+                  label="Введите тип происшествия"
+                  placeholder="ЧТО СЛУЧИЛОСЬ?"
+                  searchable
+                  clearable
+                  data={groups}
+                  value={values.group || null}
+                  searchValue={search}
+                  onSearchChange={setSearch}
+                  filter={({ options }) => options}
+                  onChange={changeGroup}
+                  maxDropdownHeight={320}
+                  nothingFoundMessage="Тип не найден. Попробуйте другое слово."
+                  error={form.errors.group}
+                />
+                {!values.group && (
+                  <Group gap="xs" mt="md" className={classes.quickTypes}>
+                    {[
+                      "Дорожно-транспортные происшествия с пострадавшими",
+                      "Ошибочно набран номер",
+                      "104",
+                      "Человек в опасности",
+                      "Отмена вызова",
+                      "Тестовый вызов",
+                      "Передача дежурства",
+                      "Консультация",
+                      "Вызов на иностранном языке",
+                      "Справка-101",
+                    ].map((group) => (
+                      <Button
+                        key={group}
+                        size="xs"
+                        variant="default"
+                        onClick={() => {
+                          if (classifierGroups.includes(group))
+                            changeGroup(group);
+                          else if (group === "Консультация")
+                            changeGroup("Справочно-консультационная помощь");
+                        }}
+                      >
+                        {group.startsWith("Дорожно") ? "ДТП" : group}
+                      </Button>
+                    ))}
+                  </Group>
+                )}
+                {!values.group && (
+                  <Text size="xs" mt="sm">
+                    Значимые типы происшествий:
+                  </Text>
+                )}
+              </section>
+              {incomingCall && values.group && (
+                <div className={classes.selectedIncidentType}>
+                  <span>{values.group}</span>
+                </div>
+              )}
+              {values.group && (
                 <section
-                  className={`${classes.panel} ${classes.trainingClassification}`}
+                  className={classes.criteria}
+                  aria-label="Критерии происшествия"
                 >
-                  <div className={classes.remoteTypeTitle}>
-                    добавить тип происшествия
-                  </div>
-                  {remote.classification}
-                </section>
-              ) : (
-                <>
-                  <section className={classes.panel}>
-                    <Select
-                      label="Введите тип происшествия"
-                      placeholder="ЧТО СЛУЧИЛОСЬ?"
-                      searchable
-                      clearable
-                      data={groups}
-                      value={values.group || null}
-                      searchValue={search}
-                      onSearchChange={setSearch}
-                      filter={({ options }) => options}
-                      onChange={changeGroup}
-                      maxDropdownHeight={320}
-                      nothingFoundMessage="Тип не найден. Попробуйте другое слово."
-                      error={form.errors.group}
-                    />
-                    {!values.group && (
-                      <Group gap="xs" mt="md" className={classes.quickTypes}>
-                        {[
-                          "Дорожно-транспортные происшествия с пострадавшими",
-                          "Ошибочно набран номер",
-                          "104",
-                          "Человек в опасности",
-                          "Отмена вызова",
-                          "Тестовый вызов",
-                          "Передача дежурства",
-                          "Консультация",
-                          "Вызов на иностранном языке",
-                          "Справка-101",
-                        ].map((group) => (
-                          <Button
-                            key={group}
-                            size="xs"
-                            variant="default"
-                            onClick={() => {
-                              if (classifierGroups.includes(group))
-                                changeGroup(group);
-                              else if (group === "Консультация")
-                                changeGroup(
-                                  "Справочно-консультационная помощь",
-                                );
-                            }}
-                          >
-                            {group.startsWith("Дорожно") ? "ДТП" : group}
-                          </Button>
-                        ))}
-                      </Group>
-                    )}
-                    {!values.group && (
-                      <Text size="xs" mt="sm">
-                        Значимые типы происшествий:
-                      </Text>
-                    )}
-                  </section>
-                  {incomingCall && values.group && (
-                    <div className={classes.selectedIncidentType}>
-                      <span>{values.group}</span>
-                    </div>
-                  )}
-                  {values.group && (
-                    <section
-                      className={classes.criteria}
-                      aria-label="Критерии происшествия"
-                    >
-                      <h2>{values.group}</h2>
-                      {[0, 1, 2].map((level) => {
-                        const options = getFeatureOptions(
-                          values.group,
-                          values.features,
-                          level,
-                        );
-                        if (!options.some((option) => option !== null))
-                          return null;
-                        return (
-                          <div key={level} className={classes.criterionRow}>
-                            <span>Определяющий признак {level + 1}</span>
-                            <div className={classes.options}>
-                              {options.map((option) => (
-                                <Button
-                                  color="povBlue"
-                                  key={option ?? "none"}
-                                  variant={
-                                    values.features[level] === option
-                                      ? "filled"
-                                      : "default"
-                                  }
-                                  aria-pressed={
-                                    values.features[level] === option
-                                  }
-                                  onClick={() =>
-                                    form.setFieldValue(
-                                      "features",
-                                      values.features.map((value, i) =>
-                                        i < level
-                                          ? value
-                                          : i === level
-                                            ? option
-                                            : null,
-                                      ),
-                                    )
-                                  }
-                                >
-                                  {option ?? "Не требуется"}
-                                </Button>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {matches.length > 1 && (
-                        <Select
-                          m="sm"
-                          label="Уточните итоговый тип"
-                          placeholder="Выберите тип"
-                          data={matches.map((item) => ({
-                            value: String(item.id),
-                            label: item.name,
-                          }))}
-                          value={
-                            values.recordId ? String(values.recordId) : null
-                          }
-                          onChange={(id) =>
-                            form.setFieldValue(
-                              "recordId",
-                              id ? Number(id) : null,
-                            )
-                          }
-                        />
-                      )}
-                      {!record && (
-                        <Text p="sm" size="sm" c="dimmed">
-                          Выберите признаки, чтобы определить итоговый тип и
-                          службы.
-                        </Text>
-                      )}
-                      {record?.additional && (
-                        <Text size="sm" p="sm">
-                          Дополнительные сведения: {record.additional}
-                        </Text>
-                      )}
-                      <div className={classes.flags}>
-                        <Text size="sm" fw={600} mb="sm">
-                          Дополнительные признаки для оповещения служб
-                        </Text>
-                        <div className={classes.flagGrid}>
-                          {routingFlags.slice(3).map(([key, label]) => (
-                            <Checkbox
-                              key={key}
-                              label={label}
-                              checked={!!values.flags[key]}
-                              onChange={(event) =>
+                  <h2>{values.group}</h2>
+                  {[0, 1, 2].map((level) => {
+                    const options = getFeatureOptions(
+                      values.group,
+                      values.features,
+                      level,
+                    );
+                    if (!options.some((option) => option !== null)) return null;
+                    return (
+                      <div key={level} className={classes.criterionRow}>
+                        <span>Определяющий признак {level + 1}</span>
+                        <div className={classes.options}>
+                          {options.map((option) => (
+                            <Button
+                              color="povBlue"
+                              key={option ?? "none"}
+                              variant={
+                                values.features[level] === option
+                                  ? "filled"
+                                  : "default"
+                              }
+                              aria-pressed={values.features[level] === option}
+                              onClick={() =>
                                 form.setFieldValue(
-                                  `flags.${key}`,
-                                  event.currentTarget.checked,
+                                  "features",
+                                  values.features.map((value, i) =>
+                                    i < level
+                                      ? value
+                                      : i === level
+                                        ? option
+                                        : null,
+                                  ),
                                 )
                               }
-                            />
+                            >
+                              {option ?? "Не требуется"}
+                            </Button>
                           ))}
                         </div>
                       </div>
-                    </section>
+                    );
+                  })}
+                  {matches.length > 1 && (
+                    <Select
+                      m="sm"
+                      label="Уточните итоговый тип"
+                      placeholder="Выберите тип"
+                      data={matches.map((item) => ({
+                        value: String(item.id),
+                        label: item.name,
+                      }))}
+                      value={values.recordId ? String(values.recordId) : null}
+                      onChange={(id) =>
+                        form.setFieldValue("recordId", id ? Number(id) : null)
+                      }
+                    />
                   )}
-                  {record && !incomingCall && (
-                    <section className={classes.panel} aria-live="polite">
-                      <Text size="sm">
-                        Класс.: <strong>{record.name}</strong>
-                      </Text>
-                      <Text size="xs" c="dimmed" mt={5}>
-                        [ВИС] Класс.: {record.externalName || "—"} · №{" "}
-                        {record.id}
-                      </Text>
-                    </section>
+                  {!record && (
+                    <Text p="sm" size="sm" c="dimmed">
+                      Выберите признаки, чтобы определить итоговый тип и службы.
+                    </Text>
                   )}
-                </>
+                  {record?.additional && (
+                    <Text size="sm" p="sm">
+                      Дополнительные сведения: {record.additional}
+                    </Text>
+                  )}
+                  <div className={classes.flags}>
+                    <Text size="sm" fw={600} mb="sm">
+                      Дополнительные признаки для оповещения служб
+                    </Text>
+                    <div className={classes.flagGrid}>
+                      {routingFlags.slice(3).map(([key, label]) => (
+                        <Checkbox
+                          key={key}
+                          label={label}
+                          checked={!!values.flags[key]}
+                          onChange={(event) =>
+                            form.setFieldValue(
+                              `flags.${key}`,
+                              event.currentTarget.checked,
+                            )
+                          }
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </section>
               )}
-              {remote && incomingCall && values.group && (
-                <section
-                  className={`${classes.panel} ${classes.trainingClassification}`}
-                  aria-label="Классификация учебной карточки"
-                >
-                  {remote.classification}
+              {record && !incomingCall && (
+                <section className={classes.panel} aria-live="polite">
+                  <Text size="sm">
+                    Класс.: <strong>{record.name}</strong>
+                  </Text>
+                  <Text size="xs" c="dimmed" mt={5}>
+                    [ВИС] Класс.: {record.externalName || "—"} · № {record.id}
+                  </Text>
                 </section>
               )}
             </div>
@@ -854,7 +818,9 @@ export function OperatorCard({
             onClick={() => void save()}
             loading={saving}
             disabled={
-              !editing || remote?.readOnly || (remote && !remote.canSave)
+              !editing ||
+              remote?.readOnly ||
+              (remote && (!remote.canSave || !record))
             }
           >
             сохранить
