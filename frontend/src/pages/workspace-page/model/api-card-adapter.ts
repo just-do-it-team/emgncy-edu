@@ -1,10 +1,15 @@
-import type { Incident } from "@/entities/incident";
+import {
+  classifierRecords,
+  resolveClassification,
+  type Incident,
+} from "@/entities/incident";
 import {
   statusLabels,
   type ApiCard,
   type CardListItem,
   type CardPatch,
   type EventKind,
+  type OperatorClassification,
 } from "@/entities/training";
 import { emptyOperatorDraft, type OperatorCardDraft } from "./operator-cards";
 
@@ -21,7 +26,52 @@ export function draftFromCard(card: ApiCard): OperatorCardDraft {
   draft.description = card.description;
   draft.questions = card.questionnaire?.questions ?? "";
   draft.answers = card.questionnaire?.answers ?? "";
+  const record = classifierRecords.find(
+    (item) =>
+      item.id === card.classification?.record_id &&
+      item.codes.every(
+        (code, index) =>
+          code ===
+          [
+            card.classification?.group_code,
+            card.classification?.feature_1_code,
+            card.classification?.feature_2_code,
+            card.classification?.feature_3_code,
+          ][index],
+      ),
+  );
+  if (record) {
+    draft.group = record.group;
+    draft.features = [...record.features];
+    draft.recordId = record.id;
+    draft.flags = card.classification?.routing_flags ?? {};
+    draft.excludedServices = card.classification?.excluded_service_codes ?? [];
+  }
   return draft;
+}
+
+export function classificationFromDraft(
+  draft: OperatorCardDraft,
+): OperatorClassification {
+  const record = resolveClassification(
+    draft.group,
+    draft.features,
+    draft.recordId,
+  );
+  if (!record)
+    throw new Error("Выберите тип происшествия и определяющие признаки.");
+  return {
+    record_id: record.id,
+    group_code: record.codes[0],
+    feature_1_code: record.codes[1],
+    feature_2_code: record.codes[2],
+    feature_3_code: record.codes[3],
+    final_incident_type: record.name,
+    routing_flags: Object.fromEntries(
+      Object.entries(draft.flags).filter(([, selected]) => selected),
+    ),
+    excluded_service_codes: draft.excludedServices,
+  };
 }
 export function patchFromDraft(
   card: ApiCard,
@@ -50,6 +100,7 @@ export function patchFromDraft(
       draft.answers === ""
         ? null
         : { questions: draft.questions, answers: draft.answers },
+    classification: classificationFromDraft(draft),
   };
 }
 export function listIncident(
@@ -68,6 +119,7 @@ export function listIncident(
     workstation: null,
     createdAt: card.registered_at,
     type:
+      card.classification?.final_incident_type ??
       kinds.find((k) => k.id === card.event_kind_id)?.name ??
       "Не классифицировано",
     hasCasualties: card.victims_count === null ? null : card.victims_count > 0,
@@ -91,6 +143,7 @@ export function cardIncident(
       card_number: card.card_number,
       workspace_id: card.workspace_id,
       event_type_id: card.event_type_id,
+      classification: card.classification,
       event_kind_id: card.features?.event_kind_id ?? null,
       incident_address: card.incident_address,
       victims_count: card.victims_count,

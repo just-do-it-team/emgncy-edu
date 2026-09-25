@@ -110,6 +110,16 @@ export interface CardFeatures {
   feature_schema_id: string | null;
   additional_features: Record<string, unknown>;
 }
+export interface OperatorClassification {
+  record_id: number;
+  group_code: number;
+  feature_1_code: number;
+  feature_2_code: number;
+  feature_3_code: number;
+  final_incident_type: string;
+  routing_flags: Record<string, boolean>;
+  excluded_service_codes: string[];
+}
 export interface FeatureSchema {
   feature_schema_id: string;
   incident_type_name: string | null;
@@ -138,9 +148,7 @@ export interface IncomingCall {
   answered_at: string | null;
 }
 export interface CardCreate extends CardPatch {
-  event_type_id: number;
-  victims_count: number | null;
-  features: CardFeatures;
+  classification: OperatorClassification;
 }
 export interface CardService {
   id: string;
@@ -166,7 +174,7 @@ export interface ApiCard {
   workspace_id: string;
   operator_id: string | null;
   card_number: string;
-  event_type_id: number;
+  event_type_id: number | null;
   description: string;
   questionnaire: CardQuestionnaire | null;
   reported_address: string | null;
@@ -176,13 +184,15 @@ export interface ApiCard {
   registered_at: string;
   version: number;
   features: CardFeatures | null;
+  classification: OperatorClassification | null;
   services: CardService[];
 }
 export interface CardListItem {
   card_id: string;
   card_number: string;
   workspace_id: string;
-  event_type_id: number;
+  event_type_id: number | null;
+  classification: OperatorClassification | null;
   event_kind_id: number | null;
   incident_address: string | null;
   victims_count: number | null;
@@ -200,6 +210,7 @@ export interface CardPatch {
   description: string;
   questionnaire: CardQuestionnaire | null;
   incident_address: string;
+  classification?: OperatorClassification;
 }
 export interface AudioMessage {
   id: string;

@@ -104,6 +104,19 @@ class CardFeatureInput(BaseModel):
     additional_features: dict[str, JsonValue] = Field(default_factory=dict)
 
 
+class OperatorClassification(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    record_id: int = Field(gt=0)
+    group_code: int = Field(ge=0)
+    feature_1_code: int = Field(ge=0)
+    feature_2_code: int = Field(ge=0)
+    feature_3_code: int = Field(ge=0)
+    final_incident_type: str = Field(min_length=1)
+    routing_flags: dict[str, bool] = Field(default_factory=dict)
+    excluded_service_codes: list[str] = Field(default_factory=list)
+
+
 class CardCreate(BaseModel):
     workspace_id: uuid.UUID = SYSTEM_WORKSPACE_ID
     card_number: str | None = Field(default=None, max_length=64)
@@ -111,7 +124,8 @@ class CardCreate(BaseModel):
     source_system_id: uuid.UUID | None = None
     external_card_id: str | None = Field(default=None, max_length=255)
     parent_card_id: uuid.UUID | None = None
-    event_type_id: int
+    event_type_id: int | None = None
+    classification: OperatorClassification | None = None
     description: str = ""
     questionnaire: CardQuestionnaire | None = None
     applicant_full_name: str | None = Field(default=None, max_length=255)
@@ -124,6 +138,14 @@ class CardCreate(BaseModel):
     request_id: str | None = Field(default=None, max_length=128)
     features: CardFeatureInput | None = None
 
+    @model_validator(mode="after")
+    def validate_classification_source(self) -> "CardCreate":
+        if (self.classification is None) == (self.event_type_id is None):
+            raise ValueError("Provide either classification or event_type_id")
+        if self.classification is not None and self.features is not None:
+            raise ValueError("Legacy features cannot accompany classification")
+        return self
+
 
 class CardUpdate(BaseModel):
     expected_version: int = Field(ge=1)
@@ -133,6 +155,7 @@ class CardUpdate(BaseModel):
     reported_address: str | None = None
     incident_address: str | None = None
     victims_count: int | None = Field(default=None, ge=0)
+    classification: OperatorClassification | None = None
     actor_id: uuid.UUID | None = None
     request_id: str | None = Field(default=None, max_length=128)
 
@@ -170,7 +193,8 @@ class CardListItem(OrmModel):
     card_id: uuid.UUID
     workspace_id: uuid.UUID
     card_number: str
-    event_type_id: int
+    event_type_id: int | None
+    classification: OperatorClassification | None
     event_kind_id: int | None
     applicant_full_name: str | None
     incident_address: str | None
@@ -291,7 +315,8 @@ class CardResponse(OrmModel):
     source_system_id: uuid.UUID | None
     external_card_id: str | None
     parent_card_id: uuid.UUID | None
-    event_type_id: int
+    event_type_id: int | None
+    classification: OperatorClassification | None
     description: str
     questionnaire: CardQuestionnaire | None
     applicant_full_name: str | None

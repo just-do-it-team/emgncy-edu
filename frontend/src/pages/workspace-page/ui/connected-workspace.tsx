@@ -218,17 +218,19 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     return cardItems.filter((card) => completedCardIds.has(card.card_id));
   }, [cardItems, calls.data, ctx.mode]);
   const reference = useQuery({
-    queryKey: ["student-api", "reference"],
+    queryKey: ["student-api", "reference", ctx.mode],
     queryFn: async ({ signal }) => {
-      const [types, services] = await Promise.all([
-        trainingApi.eventTypes(signal),
-        trainingApi.services(signal),
-      ]);
-      const kinds = (
-        await Promise.all(
-          types.map((t) => trainingApi.eventKinds(t.id, signal)),
-        )
-      ).flat();
+      const services = await trainingApi.services(signal);
+      const types =
+        ctx.mode === "ARM112" ? [] : await trainingApi.eventTypes(signal);
+      const kinds =
+        ctx.mode === "ARM112"
+          ? []
+          : (
+              await Promise.all(
+                types.map((t) => trainingApi.eventKinds(t.id, signal)),
+              )
+            ).flat();
       return { types, services, kinds };
     },
     staleTime: 300000,
