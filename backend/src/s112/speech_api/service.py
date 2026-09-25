@@ -26,6 +26,75 @@ class SpeechServiceError(RuntimeError):
     pass
 
 
+def compose_call_audio(paths: list[Path]) -> tuple[bytes, int]:
+    """Concatenate call clips in order, without reconstructing playback pauses."""
+    with tempfile.TemporaryDirectory(prefix="s112-call-recording-") as directory:
+        root = Path(directory)
+        merged_path = root / "merged.wav"
+        frame_count = 0
+        with wave.open(str(merged_path), "wb") as merged:
+            merged.setnchannels(1)
+            merged.setsampwidth(2)
+            merged.setframerate(16000)
+            for index, path in enumerate(paths):
+                normalized = root / f"clip-{index}.wav"
+                result = subprocess.run(
+                    [
+                        "ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(path),
+                        "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
+                        str(normalized),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    raise SpeechServiceError(f"Could not decode call clip {index}: {result.stderr[-500:]}")
+                with wave.open(str(normalized), "rb") as clip:
+                    frame_count += clip.getnframes()
+                    while frames := clip.readframes(16000):
+                        merged.writeframes(frames)
+                normalized.unlink()
+        if frame_count == 0:
+            raise SpeechServiceError("Call recording has no audio frames")
+        output_path = root / "recording.mp3"
+        result = subprocess.run(
+            [
+                "ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(merged_path),
+                "-c:a", "libmp3lame", "-b:a", "64k", str(output_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise SpeechServiceError(f"Could not encode call recording: {result.stderr[-500:]}")
+        return output_path.read_bytes(), round(frame_count * 1000 / 16000)
+
+
+def probe_audio_duration_ms(path: Path) -> int | None:
+    """Read media duration without decoding it in the card API."""
+    base = ["ffprobe", "-v", "error", "-select_streams", "a:0"]
+    commands = [
+        [*base, "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+        [*base, "-show_entries", "packet=duration_time", "-of", "csv=p=0", str(path)],
+    ]
+    for index, command in enumerate(commands):
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=10, check=False)
+            if result.returncode != 0:
+                continue
+            values = [float(line) for line in result.stdout.splitlines() if line and line != "N/A"]
+            seconds = sum(values) if index else values[0] if values else 0
+            if math.isfinite(seconds) and seconds > 0:
+                return round(seconds * 1000)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            continue
+    return None
+
+
 def _force_stt_preprocessor_fp32(
     _module: Any, inputs: tuple[Any, ...]
 ) -> tuple[Any, ...]:

@@ -1145,6 +1145,7 @@ class CallTranscriptUtterance(BaseModel):
     sequence_no: int
     created_at: datetime
     text: str
+    duration_ms: int | None = None
     audio_urls: list[str] = Field(default_factory=list)
 
 

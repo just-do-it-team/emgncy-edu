@@ -10,8 +10,8 @@ x-app-environment: &app-environment
   S112_DIALOGUE_REQUEST_TOPIC: ${S112_DIALOGUE_REQUEST_TOPIC:-dialogue.requested.v1}
   S112_OUTBOX_POLL_INTERVAL_SECONDS: ${S112_OUTBOX_POLL_INTERVAL_SECONDS:-0.05}
   S112_CALL_VAD_SILENCE_MS: ${S112_CALL_VAD_SILENCE_MS:-600}
-  S112_DIALOGUE_LLM_BASE_URL: ${S112_DIALOGUE_LLM_BASE_URL:-http://host.docker.internal:8080/v1}
-  S112_DIALOGUE_LLM_MODEL: ${S112_DIALOGUE_LLM_MODEL:-default}
+  S112_DIALOGUE_LLM_BASE_URL: ${S112_DIALOGUE_LLM_BASE_URL:-http://host.docker.internal:4555/v1}
+  S112_DIALOGUE_LLM_MODEL: ${S112_DIALOGUE_LLM_MODEL:-gpt-oss-20b}
   S112_DIALOGUE_LLM_API_KEY: ${S112_DIALOGUE_LLM_API_KEY:-}
   S112_DIALOGUE_LLM_TIMEOUT_SECONDS: ${S112_DIALOGUE_LLM_TIMEOUT_SECONDS:-120}
   S112_DIALOGUE_LLM_HISTORY_MESSAGES: ${S112_DIALOGUE_LLM_HISTORY_MESSAGES:-12}
@@ -573,6 +573,23 @@ services:
         condition: service_completed_successfully
       kafka-init:
         condition: service_completed_successfully
+
+  call-recording-worker:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+    command: ["python", "-m", "s112.audio.recording_worker_main"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      speech-api:
+        condition: service_healthy
+      seaweed-filer-1:
+        condition: service_healthy
+      seaweed-filer-2:
+        condition: service_healthy
 
   dialogue-worker:
     build:

@@ -51,8 +51,8 @@ class Settings(BaseSettings):
     realtime_instance_id: str = "realtime-local"
     outbox_poll_interval_seconds: float = Field(default=0.05, ge=0.05)
     call_vad_silence_ms: int = Field(default=600, ge=200, le=5000)
-    dialogue_llm_base_url: str = "http://host.docker.internal:8080/v1"
-    dialogue_llm_model: str = "default"
+    dialogue_llm_base_url: str = "http://host.docker.internal:4555/v1"
+    dialogue_llm_model: str = "gpt-oss-20b"
     dialogue_llm_api_key: str = ""
     dialogue_llm_timeout_seconds: float = Field(default=120.0, ge=1.0)
     dialogue_llm_history_messages: int = Field(default=12, ge=1, le=100)

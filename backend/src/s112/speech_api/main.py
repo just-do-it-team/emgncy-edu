@@ -11,7 +11,12 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
 from s112.common.config import get_settings
-from s112.speech_api.service import SpeechService, SpeechServiceError
+from s112.speech_api.service import (
+    SpeechService,
+    SpeechServiceError,
+    compose_call_audio,
+    probe_audio_duration_ms,
+)
 
 
 settings = get_settings()
@@ -64,16 +69,17 @@ async def health() -> JSONResponse:
 
 
 @app.post("/api/v1/stt")
-async def transcribe(audio: UploadFile = File(...)) -> dict[str, str]:
+async def transcribe(audio: UploadFile = File(...)) -> dict[str, str | int | None]:
     path = await _save_upload(audio)
     try:
+        duration_ms = await asyncio.to_thread(probe_audio_duration_ms, path)
         async with model_gate:
             text = await asyncio.to_thread(speech.transcribe, str(path))
     except SpeechServiceError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     finally:
         path.unlink(missing_ok=True)
-    return {"text": text}
+    return {"text": text, "duration_ms": duration_ms}
 
 
 @app.post("/api/v1/tts")
@@ -91,6 +97,27 @@ async def synthesize(request: TTSRequest) -> Response:
         content=audio,
         media_type="audio/wav",
         headers={"X-Sample-Rate": str(sample_rate)},
+    )
+
+
+@app.post("/api/v1/call-recordings/compose")
+async def compose_call_recording(audio: list[UploadFile] = File(...)) -> Response:
+    if not 1 <= len(audio) <= 500:
+        raise HTTPException(status_code=422, detail="Expected 1 to 500 audio clips")
+    paths: list[Path] = []
+    try:
+        for clip in audio:
+            paths.append(await _save_upload(clip))
+        content, duration_ms = await asyncio.to_thread(compose_call_audio, paths)
+    except (SpeechServiceError, OSError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        for path in paths:
+            path.unlink(missing_ok=True)
+    return Response(
+        content=content,
+        media_type="audio/mpeg",
+        headers={"X-Duration-Ms": str(duration_ms)},
     )
 
 

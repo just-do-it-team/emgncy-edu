@@ -77,6 +77,7 @@ from s112.domain.models import (
     SimulationWorkspace,
     TrainingAction,
     TrainingCall,
+    TrainingCallRecording,
     TrainingCardResult,
     TrainingScenario,
     TrainingSession,
@@ -2209,6 +2210,7 @@ class SimulationApplicationService:
         now = utcnow()
         item.status = TrainingCallStatus.COMPLETED.value
         item.completed_at = now
+        session.add(TrainingCallRecording(training_call_id=item.id))
         self._add_training_call_action(
             session,
             item,

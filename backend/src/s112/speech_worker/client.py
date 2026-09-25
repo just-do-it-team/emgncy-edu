@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import ExitStack
 from pathlib import Path
 
 import httpx
@@ -32,7 +33,7 @@ class SpeechModelClient:
         if self._owns_client:
             await self._client.aclose()
 
-    async def transcribe(self, path: Path, content_type: str) -> str:
+    async def transcribe(self, path: Path, content_type: str) -> tuple[str, int | None]:
         try:
             with path.open("rb") as source:
                 response = await self._client.post(
@@ -44,7 +45,10 @@ class SpeechModelClient:
             text = payload.get("text") if isinstance(payload, dict) else None
             if not isinstance(text, str) or not text.strip():
                 raise SpeechModelAPIError("Speech API returned an empty transcript")
-            return text.strip()
+            duration_ms = payload.get("duration_ms")
+            if isinstance(duration_ms, bool) or not isinstance(duration_ms, int) or duration_ms < 0:
+                duration_ms = None
+            return text.strip(), duration_ms
         except httpx.HTTPStatusError as exc:
             details = exc.response.text.strip()
             if len(details) > 2000:
@@ -68,3 +72,21 @@ class SpeechModelClient:
             return response.content, sample_rate
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             raise SpeechModelAPIError(f"TTS request failed: {exc}") from exc
+
+    async def compose_call_recording(self, paths: list[Path]) -> tuple[bytes, int]:
+        try:
+            with ExitStack() as stack:
+                files = [
+                    ("audio", (path.name, stack.enter_context(path.open("rb")), "application/octet-stream"))
+                    for path in paths
+                ]
+                response = await self._client.post(
+                    "/api/v1/call-recordings/compose", files=files
+                )
+            response.raise_for_status()
+            duration_ms = int(response.headers["X-Duration-Ms"])
+            if not response.content or duration_ms <= 0:
+                raise SpeechModelAPIError("Speech API returned an empty call recording")
+            return response.content, duration_ms
+        except (httpx.HTTPError, KeyError, ValueError) as exc:
+            raise SpeechModelAPIError(f"Call recording composition failed: {exc}") from exc

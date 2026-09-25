@@ -1,4 +1,7 @@
+import asyncio
+import io
 import uuid
+import wave
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
@@ -8,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from s112.api.dependencies import get_read_session
 from s112.api.simulation_schemas import CallTranscriptResponse, CallTranscriptUtterance
 from s112.audio.access import can_access_training_call
+from s112.audio.storage import AudioStorageError, SeaweedStorage
 from s112.common.enums import AudioMessageKind, AudioMessageStatus
 from s112.domain.models import (
     AudioMessage,
@@ -17,6 +21,16 @@ from s112.domain.models import (
 
 
 router = APIRouter(prefix="/api/v1", tags=["common/training"])
+
+
+async def _wav_duration_ms(storage: SeaweedStorage, object_key: str) -> int | None:
+    try:
+        header = await storage.get_prefix(object_key)
+        with wave.open(io.BytesIO(header), "rb") as audio:
+            frame_rate = audio.getframerate()
+            return round(audio.getnframes() * 1000 / frame_rate) if frame_rate else None
+    except (AudioStorageError, EOFError, wave.Error):
+        return None
 
 
 @router.get(
@@ -57,6 +71,15 @@ async def get_call_transcript(
         and message.generation_id is not None
     }
     segment_urls: dict[uuid.UUID, list[str]] = defaultdict(list)
+    segment_keys: dict[uuid.UUID, list[str]] = defaultdict(list)
+    wav_keys = {
+        message.object_key
+        for message in messages
+        if message.object_key
+        and message.size_bytes is not None
+        and message.duration_ms is None
+        and message.content_type in {"audio/wav", "audio/x-wav"}
+    }
     if generated_messages:
         segments = await session.scalars(
             select(TtsSegment)
@@ -73,6 +96,20 @@ async def get_call_transcript(
             segment_urls[segment.audio_message_id].append(
                 f"/api/v1/tts-segments/{segment.id}/content"
             )
+            if segment.object_key and segment.content_type in {"audio/wav", "audio/x-wav"}:
+                segment_keys[segment.audio_message_id].append(segment.object_key)
+                wav_keys.add(segment.object_key)
+            else:
+                segment_keys[segment.audio_message_id].append("")
+
+    storage = request.app.state.audio_storage
+    semaphore = asyncio.Semaphore(8)
+
+    async def duration_for(key: str) -> tuple[str, int | None]:
+        async with semaphore:
+            return key, await _wav_duration_ms(storage, key)
+
+    durations = dict(await asyncio.gather(*(duration_for(key) for key in wav_keys)))
 
     utterances = []
     for message in messages:
@@ -84,6 +121,14 @@ async def get_call_transcript(
         audio_urls = list(segment_urls.get(message.id, []))
         if not audio_urls and message.object_key and message.size_bytes is not None:
             audio_urls = [f"/api/v1/audio-messages/{message.id}/content"]
+        keys = segment_keys.get(message.id)
+        if keys:
+            parts = [durations.get(key) for key in keys]
+            duration_ms = sum(parts) if all(part is not None for part in parts) else None
+        else:
+            duration_ms = message.duration_ms
+            if duration_ms is None and message.object_key:
+                duration_ms = durations.get(message.object_key)
         utterances.append(
             CallTranscriptUtterance(
                 id=message.id,
@@ -98,6 +143,7 @@ async def get_call_transcript(
                 sequence_no=message.sequence_no,
                 created_at=message.created_at,
                 text=text,
+                duration_ms=duration_ms,
                 audio_urls=audio_urls,
             )
         )

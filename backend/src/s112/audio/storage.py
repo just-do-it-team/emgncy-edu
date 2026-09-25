@@ -181,6 +181,26 @@ class SeaweedStorage:
                 errors.append(f"{filer_url}: {exc}")
         raise AudioStorageError("SeaweedFS download failed: " + "; ".join(errors))
 
+    async def get_prefix(self, object_key: str, limit: int = 4096) -> bytes:
+        errors: list[str] = []
+        for filer_url in self.settings.seaweed_filers:
+            try:
+                async with self._client.stream(
+                    "GET",
+                    self._url(filer_url, object_key),
+                    headers={"Range": f"bytes=0-{limit - 1}"},
+                ) as response:
+                    response.raise_for_status()
+                    prefix = bytearray()
+                    async for chunk in response.aiter_bytes(chunk_size=limit):
+                        prefix.extend(chunk[: limit - len(prefix)])
+                        if len(prefix) >= limit:
+                            break
+                    return bytes(prefix)
+            except httpx.HTTPError as exc:
+                errors.append(f"{filer_url}: {exc}")
+        raise AudioStorageError("SeaweedFS download failed: " + "; ".join(errors))
+
     async def delete(self, object_key: str) -> bool:
         for filer_url in self.settings.seaweed_filers:
             try:

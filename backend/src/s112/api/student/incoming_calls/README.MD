@@ -67,6 +67,50 @@ POST /api/v1/incoming-calls/{callId}/incident-card
 `audio_message.training_call_id` нужны для воспроизведения диалога и ожидания
 окончания обработки речи.
 
+Для шкалы разговора используйте
+`GET /api/v1/training-calls/{callId}/transcript` с `X-User-Id`.
+Ответ уже содержит `answered_at` и `completed_at`; в `utterances[]` есть
+`created_at`, `audio_urls[]` и `duration_ms`. Для новых голосовых сообщений
+длительность определяется при обработке аудио; у старых WAV она читается из
+заголовка. Для старых записей других форматов или недоступного файла значение
+может быть `null`.
+`audio_urls[]` ссылается на отдельные реплики или TTS-сегменты.
+
+## Единая запись звонка
+
+После `POST /api/v1/incoming-calls/{callId}/complete` сервер ставит сборку записи
+в очередь. Она начинается после готовности всех аудиореплик и TTS-сегментов.
+Аудио склеивается по `sequence_no`, внутри ответа модели — по `segment_no`, без
+восстановления пауз и фактического времени воспроизведения.
+
+```http
+GET /api/v1/training-calls/{callId}/recording
+X-User-Id: <user-uuid>
+```
+
+Ответ содержит `call_id`, `status` (`QUEUED`, `PROCESSING`, `READY` или `FAILED`),
+`content_type`, `duration_ms`, `size_bytes`, `completed_at`, `content_url` и
+`last_error`. До `READY` поля файла и `content_url` равны `null`. При `FAILED`
+сборка не создала файл; frontend показывает ошибку. Доступ разрешён оператору
+этого звонка и преподавателю его назначения. При включённом JWT заголовок
+`X-User-Id` должен совпадать с токеном.
+
+Когда `status=READY`, аудио `audio/mpeg` доступно по `content_url`:
+
+```http
+GET /api/v1/training-calls/{callId}/recording/content
+X-User-Id: <user-uuid>
+Range: bytes=0-
+```
+
+Без `Range` ответ `200` с полным MP3; с допустимым одиночным диапазоном —
+`206 Partial Content`. Если запись ещё готовится, контент возвращает `409`.
+Для вызова до завершения звонка оба метода возвращают `409`.
+`call_payload.initial_utterance` — только промпт модели, поэтому в запись не
+попадает. Старые завершённые звонки ставятся в очередь миграцией `0019`.
+Размер готового файла ограничен действующим `S112_AUDIO_MAX_UPLOAD_BYTES`;
+при превышении сборка завершится статусом `FAILED`.
+
 ## Разговор после принятия звонка
 
 Клиент запрашивает `GET /api/v1/call-audio-config` и использует

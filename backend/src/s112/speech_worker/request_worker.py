@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import json
 import logging
 import os
 import tempfile
 import uuid
+import wave
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +38,7 @@ class ProcessingResult:
     transcript: str | None = None
     stored: StoredAudioObject | None = None
     sample_rate: int | None = None
+    duration_ms: int | None = None
 
 
 class SpeechRequestWorker:
@@ -250,10 +253,10 @@ class SpeechRequestWorker:
                     actual_hash = await asyncio.to_thread(_sha256_file, path)
                     if actual_hash != message.sha256:
                         raise ValueError("Downloaded audio checksum does not match")
-                transcript = await self.speech.transcribe(
+                transcript, duration_ms = await self.speech.transcribe(
                     path, message.content_type or "application/octet-stream"
                 )
-                return ProcessingResult(transcript=transcript)
+                return ProcessingResult(transcript=transcript, duration_ms=duration_ms)
             finally:
                 Path(filename).unlink(missing_ok=True)
 
@@ -285,7 +288,14 @@ class SpeechRequestWorker:
                     "Created-At": message.created_at.isoformat(),
                 },
             )
-            return ProcessingResult(stored=stored, sample_rate=sample_rate)
+            try:
+                with wave.open(io.BytesIO(audio), "rb") as reader:
+                    duration_ms = round(reader.getnframes() * 1000 / reader.getframerate())
+            except (EOFError, wave.Error, ZeroDivisionError):
+                duration_ms = None
+            return ProcessingResult(
+                stored=stored, sample_rate=sample_rate, duration_ms=duration_ms
+            )
         raise ValueError(f"Unknown audio message kind: {message.kind}")
 
     async def _is_consumed(self, event_id: uuid.UUID) -> bool:
@@ -393,6 +403,7 @@ class SpeechRequestWorker:
                     message.content_type = result.stored.content_type
                     message.size_bytes = result.stored.size_bytes
                 message.sample_rate = result.sample_rate
+                message.duration_ms = result.duration_ms
                 message.last_error = None
                 message.completed_at = utcnow()
                 self._add_result_outbox(session, message, request_event_id)

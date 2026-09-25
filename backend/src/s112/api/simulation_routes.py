@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from s112.api.common.dependencies import simulation_service
 from s112.api.common.training.assignments import router as assignments_router
 from s112.api.common.training.call_transcript import router as call_transcript_router
+from s112.api.common.training.call_recording import router as call_recording_router
 from s112.api.common.training.responses import (
     assignment_batch_response as _assignment_batch_response,
     assignment_response as _assignment_response,
@@ -33,6 +34,7 @@ router.include_router(performance_router)
 router.include_router(active_sessions_router)
 router.include_router(session_data_router)
 router.include_router(call_transcript_router)
+router.include_router(call_recording_router)
 router.include_router(scenario_session_router)
 router.include_router(audio_messages_router)
 router.include_router(incoming_calls_router)

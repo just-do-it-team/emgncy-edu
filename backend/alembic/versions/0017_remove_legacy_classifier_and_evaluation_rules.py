@@ -171,16 +171,26 @@ def _normalize_container(container: dict[str, Any], location: str) -> bool:
     if legacy is not None:
         if not isinstance(legacy, dict):
             raise RuntimeError(f"Invalid expected_result.final_state at {location}")
-        if expected.get("card") is not None:
+        current = expected.get("card")
+        if current is not None and not isinstance(current, dict):
+            raise RuntimeError(f"Invalid expected_result.card at {location}")
+        current = current or {}
+        conflicting_fields = sorted(
+            key
+            for key in legacy.keys() & current.keys()
+            if legacy[key] != current[key]
+        )
+        if conflicting_fields:
             raise RuntimeError(
-                f"Both expected_result.card and final_state are present at {location}"
+                "Conflicting expected_result.card and final_state fields at "
+                f"{location}: {', '.join(conflicting_fields)}"
             )
         initial = container.get("initial_card") or container.get("card_payload") or {}
         if not isinstance(initial, dict):
             raise RuntimeError(f"Invalid initial card at {location}")
         expected["card"] = _full_expected_card(
             initial,
-            legacy,
+            {**legacy, **current},
             rules,
             has_outbound_call=expected.get("outbound_call") is not None,
         )
@@ -236,14 +246,14 @@ def _rewrite_table(table_name: str, json_columns: tuple[str, ...]) -> None:
 def _drop_foreign_keys_for_columns(table: str, columns: set[str]) -> None:
     for constraint in sa.inspect(op.get_bind()).get_foreign_keys(table):
         if columns.intersection(constraint["constrained_columns"]):
-            op.drop_constraint(constraint["name"], table, type_="foreignkey")
+            op.drop_constraint(op.f(constraint["name"]), table, type_="foreignkey")
 
 
 def _drop_checks_for_columns(table: str, columns: set[str]) -> None:
     for constraint in sa.inspect(op.get_bind()).get_check_constraints(table):
         sqltext = constraint.get("sqltext") or ""
         if any(column in sqltext for column in columns):
-            op.drop_constraint(constraint["name"], table, type_="check")
+            op.drop_constraint(op.f(constraint["name"]), table, type_="check")
 
 
 def upgrade() -> None:

@@ -55,6 +55,8 @@ GET /api/v1/training-sessions/{sessionId}/expert-review-context?teacher_id={teac
 Для отдельного звонка доступен также
 `GET /api/v1/training-calls/{callId}/transcript` с `X-User-Id: <teacherId>`:
 он возвращает текст обеих сторон и ссылки на доступное аудио.
+После завершения звонка `GET /api/v1/training-calls/{callId}/recording` возвращает
+статус сборки единого MP3 и `content_url`, когда файл готов.
 
 Ответ содержит:
 
@@ -83,7 +85,7 @@ GET /api/v1/training-sessions/{sessionId}/expert-review-context?teacher_id={teac
   "passed": false,
   "discrepancies": [
     {
-      "path": "features.event_kind_id",
+      "path": "card.features.event_kind_id",
       "expected": 10,
       "actual": 20,
       "reason": "value_mismatch"
@@ -95,6 +97,35 @@ GET /api/v1/training-sessions/{sessionId}/expert-review-context?teacher_id={teac
 
 Frontend должен показывать `path`, ожидаемое и фактическое значения и переводить
 известные `reason`. Если `automatic_result=null`, карточка ещё не оценена.
+
+Таблица ниже описывает **нынешние пути расхождений**, а не будущий расчёт
+критериев по ролям. Фактические `discrepancies[].path` строятся из ожидаемых полей; сегменты в
+угловых скобках означают код службы, ключ дополнительного признака или индекс:
+
+| Критерий | Возможные `path` |
+| --- | --- |
+| C1 Классификация | `card.event_type_id`, `card.features`, `card.features.event_kind_id`, `card.features.additional_features.<key>` |
+| C2 Службы | `card.services` |
+| C3 Полнота | `card.description`, `card.questionnaire`, `card.questionnaire.questions`, `card.questionnaire.answers`, `card.victims_count` |
+| C4 Адрес | `card.reported_address`, `card.incident_address` |
+| C5 Тайминг | `service_handling.<code>.open_deadline`, `service_handling.<code>.decision_deadline` |
+| C7 Статусы реагирования | `card.current_status`, `card.service_statuses.<code>`, `service_status_history.<code>.length`, `service_status_history.<code>.<index>.status`, `service_status_history.<code>.<index>.comment`, `service_handling.<code>.opened_at`, `service_handling.<code>.decision` |
+
+`expected_result.outbound_call` относится к проверке исходящего звонка и не
+укладывается в C1–C7. Для C6 «Грамматика» отдельной автоматической проверки и
+`path` сейчас нет. Это соответствие полей критериям предназначено для показа
+результата: сервер пока не возвращает `criterion_code` и не выставляет отдельные
+оценки по C1–C7. Поля C3 сравниваются по значению, без семантической проверки
+полноты текста. При `card.features.additional_features` путь может продолжаться
+вложенными ключами, если их задаёт ожидаемое значение.
+
+Согласованное направление следующей версии оценки: C1, C4 и C6 относятся к
+оператору 112; C5 и C7 — к ДДС; C2 и C3 применимы обеим позициям. C6 проверяет
+текст, записанный Обучаемым со слов заявителя в карточке, а не адрес и не речь
+виртуального заявителя. Критерии должны агрегироваться по всему сценарию и
+участнику, а не становиться отдельной оценкой каждой карточки. Пока эти правила
+не реализованы; особенно для C3 в карточке и эталоне ещё нет поля
+предоставленного номера заявителя.
 
 ## Сохранить экспертную оценку
 
