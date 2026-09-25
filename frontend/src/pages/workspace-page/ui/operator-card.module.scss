@@ -235,6 +235,479 @@
   }
 }
 
+// Operator 112 card: proportions and controls follow the dispatch screen.
+.card {
+  height: 100dvh;
+  min-height: 680px;
+  overflow: hidden;
+  background: #d3dbe0;
+  font-family: Arial, sans-serif;
+  font-size: 13px;
+}
+
+.cardToolbar {
+  flex-shrink: 0;
+}
+.cardFields {
+  overflow: hidden;
+}
+
+.topbar,
+.incomingCard .topbar,
+.topbar[data-remote],
+.incomingCard .topbar[data-remote] {
+  display: grid;
+  grid-template-columns:
+    minmax(245px, 1.1fr) repeat(3, minmax(175px, 1.25fr)) minmax(210px, 0.75fr)
+    108px;
+  gap: 7px;
+  min-height: 80px;
+  padding: 7px 8px;
+  align-items: stretch;
+
+  > div {
+    min-width: 0;
+    padding: 0;
+    background: #f8f9fa;
+  }
+}
+
+.callState,
+.incomingCard .callState {
+  display: flex;
+  gap: 0;
+  align-items: stretch;
+  > svg {
+    width: 64px;
+    padding: 18px;
+    transform: rotate(135deg);
+  }
+}
+.hangup,
+.incomingCard .hangup {
+  width: 64px;
+  min-width: 64px;
+  min-height: 66px;
+  background: transparent;
+  color: #303b41;
+  border: 0;
+  padding: 0;
+  svg {
+    transform: rotate(135deg);
+  }
+}
+.callDetails {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 8px 10px !important;
+  border-left: 1px solid #d8dde0;
+  > span {
+    font-size: 14px;
+    white-space: nowrap;
+  }
+}
+.callButtons {
+  display: flex;
+  gap: 8px;
+}
+.callButtons button {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  border: 1px solid #adb6bb;
+  background: transparent;
+  color: #27333a;
+  font-size: 11px;
+  cursor: default;
+}
+.phoneField {
+  display: flex;
+  min-width: 0;
+}
+.phoneActions {
+  width: 35px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  align-items: center;
+  color: #4b5559;
+  background: #d3dbe0;
+}
+.phoneInput {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 9px 4px;
+}
+.phoneLabel {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #566068;
+  font-size: 12px;
+}
+.phoneInput :global(.mantine-Input-input) {
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  font-size: 19px;
+  color: #4b5860;
+}
+.cardNumber,
+.incomingCard .cardNumber {
+  justify-content: center;
+  gap: 0;
+  padding: 6px 9px !important;
+  white-space: nowrap;
+  overflow: hidden;
+  strong {
+    font-size: 17px;
+  }
+  span,
+  small {
+    font-size: 12px;
+  }
+}
+.topbar .timer,
+.incomingCard .topbar .timer,
+.topbar .viewState {
+  background: #30373b;
+  color: white;
+  padding: 3px !important;
+}
+.topbar .timer {
+  strong {
+    font-size: 33px;
+    line-height: 1.15;
+  }
+  > span {
+    display: flex;
+    justify-content: space-around;
+    width: 100%;
+    margin: 0;
+    font-size: 11px;
+  }
+}
+.columns,
+.incomingCard .columns {
+  grid-template-columns: minmax(0, 45fr) minmax(0, 54fr);
+  align-items: stretch;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 8px 8px;
+  gap: 8px;
+}
+.leftColumn,
+.rightColumn,
+.incomingCard .leftColumn,
+.incomingCard .rightColumn {
+  min-height: 0;
+  overflow-y: auto;
+  gap: 8px;
+}
+.panel,
+.incomingCard .panel {
+  padding: 9px 10px;
+  background: #f8f9fa;
+}
+.applicantRow,
+.incomingCard .applicantRow {
+  grid-template-columns:
+    minmax(155px, 1.25fr) minmax(135px, 0.9fr) minmax(130px, 1.7fr)
+    36px;
+  gap: 12px;
+  align-items: center;
+}
+.applicantRow :global(.mantine-Input-input) {
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  font-size: 16px;
+}
+.translateButton {
+  width: 32px;
+  height: 31px;
+  border: 1px solid #aab4b9;
+  background: transparent;
+  color: #26323a;
+}
+.addressPanel,
+.incomingCard .addressPanel {
+  min-height: 440px;
+  flex: 0 0 55%;
+}
+.sectionTitle {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.addressSummary,
+.incomingCard .addressSummary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 0 0 8px;
+  padding: 6px 0 4px;
+  font-size: 15px;
+  button {
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+}
+.addressGrid,
+.incomingCard .addressGrid {
+  gap: 8px 14px;
+}
+.addressGrid :global(.mantine-InputWrapper-label) {
+  font-size: 12px;
+}
+.addressGrid :global(.mantine-Input-input) {
+  height: 25px;
+  min-height: 25px;
+}
+.addressPanel :global(.mantine-Textarea-input) {
+  min-height: 45px;
+}
+.description,
+.incomingCard .description {
+  flex: 1;
+  min-height: 230px;
+}
+.description :global(.mantine-Textarea-input) {
+  min-height: 36px;
+}
+.rightColumn > .panel:first-child,
+.incomingCard .rightColumn > .panel:first-child {
+  min-height: 65px;
+  display: flex;
+  align-items: center;
+}
+.rightColumn > .panel:first-child :global(.mantine-Group-root) {
+  gap: 5px;
+}
+.statusButton {
+  height: 46px;
+  padding: 4px 11px;
+  line-height: 1.1;
+  white-space: normal;
+}
+.statusDivider {
+  width: 2px;
+  height: 46px;
+  margin: 0 5px;
+  background: #d3dbe0;
+}
+.warningButton {
+  min-height: 46px;
+  border: 1px solid #f16843;
+  background: transparent;
+  color: #e75d37;
+  padding: 5px 13px;
+  font-weight: 600;
+  cursor: default;
+}
+.quickTypes {
+  gap: 10px 18px;
+}
+.quickTypes :global(.mantine-Button-root) {
+  border: 1px solid #aeb7be;
+  color: #26323a;
+}
+.selectedIncidentType {
+  flex-shrink: 0;
+}
+.criteria {
+  flex-shrink: 0;
+}
+.criterionRow,
+.incomingCard .criterionRow {
+  grid-template-columns: minmax(200px, 29%) minmax(0, 1fr);
+}
+.trainingClassification {
+  flex-shrink: 0;
+}
+.remoteTypeTitle {
+  padding: 0 0 4px;
+  border-bottom: 1px solid #c7ced1;
+  color: #657179;
+  font-size: 20px;
+}
+.footer,
+.incomingCard .footer {
+  min-height: 70px;
+  padding: 8px;
+  gap: 10px;
+  flex-wrap: nowrap;
+  > strong {
+    min-width: 72px;
+    font-size: 13px;
+  }
+}
+.addService {
+  order: 0;
+  min-width: 44px;
+  height: 45px;
+}
+.services {
+  order: 1;
+  flex: 1;
+}
+.services > :global(.mantine-Group-root) {
+  flex-wrap: nowrap;
+}
+.expandedServices {
+  max-height: 150px;
+  overflow-y: auto;
+  flex-wrap: wrap;
+  > :global(.mantine-Group-root) {
+    flex-wrap: wrap;
+  }
+}
+.footerActions {
+  order: 2;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.footerIcon {
+  width: 44px;
+  height: 45px;
+  display: grid;
+  place-items: center;
+  border: 1px solid white;
+  background: transparent;
+  color: white;
+  cursor: default;
+}
+.footerActions .saveButton {
+  height: 45px;
+  padding: 0 13px;
+  font-size: 20px;
+  font-weight: 700;
+  &:disabled {
+    border-color: white;
+    background: transparent;
+    color: white;
+    opacity: 0.7;
+  }
+}
+.footerActions > :global(.mantine-Button-root) {
+  height: 45px;
+}
+
+.serviceModal {
+  border-radius: 0;
+  :global(.mantine-Modal-header) {
+    justify-content: center;
+  }
+  :global(.mantine-Modal-close) {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+  }
+}
+.serviceModalTitle {
+  color: #26323a;
+  font-size: 30px;
+  font-weight: 700;
+}
+.serviceModalBody {
+  padding: 18px 10px 30px;
+}
+.serviceModalBody :global(.mantine-Input-input) {
+  height: 34px;
+  border: 0;
+  border-bottom: 1px solid #ccd1d5;
+  border-radius: 0;
+  font-size: 20px;
+}
+.serviceOptions {
+  display: flex;
+  flex-direction: column;
+  height: 290px;
+  overflow-y: auto;
+  border: 1px solid #ccd1d5;
+  > button {
+    flex-shrink: 0;
+    min-height: 45px;
+    padding: 10px 13px;
+    border: 0;
+    background: white;
+    color: #27333a;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+  }
+  > button + button {
+    border-top: 1px solid #e2e5e7;
+  }
+  > .selectedServiceOption {
+    background: #1d70ae;
+    color: white;
+    font-weight: 600;
+  }
+}
+.serviceModalSave {
+  align-self: center;
+  min-height: 44px;
+  margin-top: 10px;
+  padding: 0 16px;
+  border: 1px solid #f1643e;
+  border-radius: 0;
+  background: white;
+  color: #e95d38;
+  font-size: 19px;
+  font-weight: 700;
+  &:hover {
+    background: #fff4ef;
+  }
+}
+
+@media (max-width: 1350px) {
+  .topbar,
+  .incomingCard .topbar,
+  .topbar[data-remote],
+  .incomingCard .topbar[data-remote] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .card {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+  .cardFields,
+  .columns,
+  .incomingCard .columns {
+    overflow: visible;
+  }
+  .leftColumn,
+  .rightColumn {
+    overflow: visible;
+  }
+}
+@media (max-width: 850px) {
+  .columns,
+  .incomingCard .columns {
+    grid-template-columns: 1fr;
+  }
+  .applicantRow,
+  .incomingCard .applicantRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .footer,
+  .incomingCard .footer {
+    flex-wrap: wrap;
+  }
+  .footerActions {
+    margin-left: auto;
+  }
+}
+
 .cardToolbar {
   padding: 8px 12px;
   background: var(--mantine-color-povLight-6);

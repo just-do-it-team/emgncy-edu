@@ -5,7 +5,6 @@ import {
   Checkbox,
   Group,
   Modal,
-  MultiSelect,
   Select,
   Stack,
   Text,
@@ -15,7 +14,21 @@ import {
 } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { notifications } from "@mantine/notifications";
-import { Phone, Plus, Save, X } from "lucide-react";
+import {
+  Bell,
+  ChevronUp,
+  Globe2,
+  Hand,
+  Languages,
+  Link2,
+  MapPin,
+  MessageSquare,
+  Pencil,
+  Phone,
+  Plus,
+  Timer,
+  X,
+} from "lucide-react";
 import {
   classifierGroups,
   classifierRecords,
@@ -42,13 +55,13 @@ const addressLabels = {
   okrug: "Округ",
   district: "Район",
   street: "Улица",
-  house: "Дом / владение",
+  house: "Дом/Вл",
   building: "Корпус",
-  structure: "Строение / сооружение",
-  apartment: "Квартира / офис",
+  structure: "Стр/соор",
+  apartment: "Квартира/офис",
   entrance: "Подъезд",
   floor: "Этаж",
-  code: "Код домофона",
+  code: "Код",
 };
 
 function ElapsedTime() {
@@ -62,12 +75,15 @@ function ElapsedTime() {
     return () => window.clearInterval(timer);
   }, [startedAt]);
   return (
-    <div className={classes.timer} aria-label="Время заполнения">
+    <div className={classes.timer} aria-label="Таймер карточки">
       <strong>
         {String(Math.floor(seconds / 60)).padStart(2, "0")}:
         {String(seconds % 60).padStart(2, "0")}
       </strong>
-      <span>время заполнения</span>
+      <span>
+        <span>минут</span>
+        <span>секунд</span>
+      </span>
     </div>
   );
 }
@@ -145,8 +161,10 @@ export function OperatorCard({
     if (!editing) setFormValues(structuredClone(entry.draft));
   }, [entry.draft, editing, setFormValues]);
   const [addingService, setAddingService] = useState(false);
+  const [expandedServices, setExpandedServices] = useState(false);
   const [manualService, setManualService] = useState<string | null>(null);
   const [manualServiceIds, setManualServiceIds] = useState<string[]>([]);
+  const [serviceSearch, setServiceSearch] = useState("");
   const directory = useServiceDirectory(!remote);
   const values = form.values;
   const record = resolveClassification(
@@ -240,35 +258,8 @@ export function OperatorCard({
 
   return (
     <div
-      className={`${classes.card} ${incomingCall ? classes.incomingCard : ""}`}
+      className={`${classes.card} ${incomingCall || remote ? classes.incomingCard : ""}`}
     >
-      {!incomingCall && (
-        <Group justify="space-between" className={classes.cardToolbar}>
-          <Text size="sm" fw={600}>
-            Карточка {entry.incident.id} · {editing ? "Заполнение" : "Просмотр"}
-          </Text>
-          <Group gap="xs">
-            {!editing && !remote?.readOnly && (
-              <Button
-                size="xs"
-                variant="default"
-                onClick={() => setEditing(true)}
-              >
-                Дополнить карточку
-              </Button>
-            )}
-            <Button
-              size="xs"
-              variant="default"
-              onClick={onClose}
-              disabled={saving}
-              leftSection={<X size={16} />}
-            >
-              К списку карточек
-            </Button>
-          </Group>
-        </Group>
-      )}
       {saveError && (
         <Alert color="red" m="sm">
           {saveError}
@@ -311,17 +302,16 @@ export function OperatorCard({
             ) : (
               <Phone size={25} />
             )}
-            <div>
-              <strong>
-                {incomingCall?.ended ? "Разговор завершён" : "Учебный вызов"}
-              </strong>
-              <Text size="xs" c="dimmed" mt={5}>
-                {incomingCall
-                  ? incomingCall.ended
-                    ? "Карточку можно сохранить"
-                    : incomingCall.status
-                  : "Голосовой диалог пока недоступен"}
-              </Text>
+            <div className={classes.callDetails}>
+              <span>
+                {incomingCall && !incomingCall.ended
+                  ? incomingCall.status
+                  : "Отключение"}
+              </span>
+              <div className={classes.callButtons}>
+                <button type="button">записи звонков</button>
+                <button type="button">список SMS</button>
+              </div>
               {incomingCall?.error && (
                 <>
                   <Text size="xs" c="red" lineClamp={2}>
@@ -338,151 +328,150 @@ export function OperatorCard({
               )}
             </div>
           </div>
-          {(!remote || incomingCall) && (
-            <>
-              <TextInput
-                label="АОН"
-                placeholder="+7 (___) ___-__-__"
-                readOnly={!!incomingCall}
-                {...form.getInputProps("aon")}
-              />
-              <TextInput
-                label="Предоставленный телефон"
-                placeholder="+7 (___) ___-__-__"
-                {...form.getInputProps("providedPhone")}
-              />
-              <TextInput
-                label="Телефон на место"
-                placeholder="+7 (___) ___-__-__"
-                {...form.getInputProps("locationPhone")}
-              />
-            </>
-          )}
+          {(
+            [
+              ["АОН", "aon"],
+              ["предоставленный", "providedPhone"],
+              ["телефон на место", "locationPhone"],
+            ] as const
+          ).map(([label, field]) => (
+            <div className={classes.phoneField} key={field}>
+              <div className={classes.phoneActions}>
+                <Phone size={22} />
+                <MessageSquare size={17} />
+              </div>
+              <div className={classes.phoneInput}>
+                <div className={classes.phoneLabel}>
+                  {label}
+                  <Globe2 size={13} />
+                </div>
+                <TextInput
+                  aria-label={label}
+                  placeholder="+7 (   )   - -"
+                  {...form.getInputProps(field)}
+                  readOnly={
+                    (field === "aon" && !!incomingCall) ||
+                    (!!remote && !incomingCall)
+                  }
+                />
+              </div>
+            </div>
+          ))}
           <div className={classes.cardNumber}>
-            <strong>
-              {incomingCall ? "Карточка входящего звонка" : "Карточка 112"}
-            </strong>
-            <span>Происшествие {entry.incident.id}</span>
-            <small>Оператор 112 · АРМ 4</small>
+            <strong>Происшествие {entry.incident.id}</strong>
+            <span>
+              Сохр. {new Date(entry.incident.createdAt).toLocaleString("ru-RU")}
+            </span>
+            <small>Опер., АРМ 4, УМЦ О п</small>
           </div>
-          {editing ? (
-            <ElapsedTime />
-          ) : (
-            <div className={classes.viewState}>Просмотр</div>
-          )}
+          <ElapsedTime />
         </header>
         <div className={classes.columns}>
           <div className={classes.leftColumn}>
-            {(!remote || incomingCall) && (
-              <section
-                className={classes.panel}
-                aria-label="Заявитель и пострадавший"
-              >
-                <div className={classes.applicantRow}>
-                  <TextInput
-                    label="ФИО заявителя"
-                    placeholder="Фамилия, имя, отчество"
-                    {...form.getInputProps("applicant")}
-                  />
-                  <Select
-                    label="Статус заявителя"
-                    placeholder="Выберите статус"
-                    data={[
-                      "Пострадавший",
-                      "Очевидец",
-                      "Родственник",
-                      "Участник",
-                      "Ребёнок",
-                    ]}
-                    {...form.getInputProps("applicantStatus")}
-                  />
-                  {incomingCall && (
-                    <TextInput
-                      label="ФИО пострадавшего"
-                      placeholder="Если отличается"
-                      {...form.getInputProps("victim")}
-                    />
-                  )}
-                </div>
-                {!incomingCall && (
-                  <TextInput
-                    mt="xs"
-                    label="ФИО пострадавшего"
-                    placeholder="Если отличается от заявителя"
-                    {...form.getInputProps("victim")}
-                  />
-                )}
-              </section>
-            )}
-            {remote && !incomingCall ? (
-              <section
-                className={classes.panel}
-                aria-label="Адрес происшествия"
-              >
-                <Textarea
-                  label="Адрес происшествия"
-                  placeholder="Населённый пункт, улица, дом, ориентиры"
-                  minRows={2}
-                  autosize
-                  {...form.getInputProps("address.descriptive")}
+            <section
+              className={classes.panel}
+              aria-label="Заявитель и пострадавший"
+            >
+              <div className={classes.applicantRow}>
+                <TextInput
+                  aria-label="Фамилия и имя заявителя"
+                  placeholder="Фамилия и имя заявителя"
+                  {...form.getInputProps("applicant")}
+                  readOnly={!!remote && !incomingCall}
                 />
-              </section>
-            ) : (
-              <section
-                className={classes.panel}
-                aria-label="Адрес происшествия"
-              >
-                <div className={classes.sectionTitle}>
-                  {incomingCall ? "Адрес:" : "Адрес происшествия"}
-                </div>
-                <div className={classes.addressSummary}>
-                  {[
-                    values.address.subject,
-                    values.address.settlement,
-                    values.address.street,
-                    values.address.house && `д. ${values.address.house}`,
-                  ]
-                    .filter(Boolean)
-                    .join(", ") || "Адрес не указан"}
-                </div>
-                <div className={classes.addressGrid}>
-                  {Object.entries(addressLabels).map(([key, label]) => (
-                    <TextInput
-                      key={key}
-                      label={label}
-                      className={
-                        key === "street" || key === "object"
-                          ? classes.wideField
-                          : undefined
-                      }
-                      {...form.getInputProps(`address.${key}`)}
-                    />
-                  ))}
-                </div>
-                <Textarea
-                  label="Описательный адрес / ориентиры"
-                  mt="sm"
-                  minRows={2}
-                  autosize
-                  {...form.getInputProps("address.descriptive")}
+                <Select
+                  aria-label="Статус заявителя"
+                  placeholder="выберите статус"
+                  data={[
+                    "Пострадавший",
+                    "Очевидец",
+                    "Родственник",
+                    "Участник",
+                    "Ребёнок",
+                  ]}
+                  {...form.getInputProps("applicantStatus")}
+                  disabled={!!remote && !incomingCall}
                 />
-                <Group justify="flex-end" mt="xs">
-                  <Button
-                    size="compact-xs"
-                    variant="default"
-                    onClick={() =>
-                      form.setFieldValue("address", { ...emptyAddress })
+                <TextInput
+                  aria-label="ФИО пострадавшего"
+                  placeholder=""
+                  {...form.getInputProps("victim")}
+                  readOnly={!!remote && !incomingCall}
+                />
+                <button
+                  type="button"
+                  className={classes.translateButton}
+                  aria-label="Перевод"
+                >
+                  <Languages size={19} />
+                </button>
+              </div>
+            </section>
+            <section
+              className={`${classes.panel} ${classes.addressPanel}`}
+              aria-label="Адрес происшествия"
+            >
+              <div className={classes.sectionTitle}>
+                Адрес: <MapPin size={14} />
+              </div>
+              <div className={classes.addressSummary}>
+                {[
+                  values.address.subject,
+                  values.address.settlement,
+                  values.address.street,
+                  values.address.house && `д. ${values.address.house}`,
+                ]
+                  .filter(Boolean)
+                  .join(", ") ||
+                  values.address.descriptive ||
+                  "Москва"}
+                <button
+                  type="button"
+                  aria-label="Очистить строку адреса"
+                  onClick={() =>
+                    form.setFieldValue("address", { ...emptyAddress })
+                  }
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className={classes.addressGrid}>
+                {Object.entries(addressLabels).map(([key, label]) => (
+                  <TextInput
+                    key={key}
+                    label={label}
+                    className={
+                      key === "street" || key === "object"
+                        ? classes.wideField
+                        : undefined
                     }
-                  >
-                    Очистить адрес
-                  </Button>
-                </Group>
-              </section>
-            )}
+                    {...form.getInputProps(`address.${key}`)}
+                  />
+                ))}
+              </div>
+              <Textarea
+                label="Описательный адрес"
+                mt="sm"
+                minRows={2}
+                autosize
+                {...form.getInputProps("address.descriptive")}
+              />
+              <Group justify="flex-end" mt="xs">
+                <Button
+                  size="compact-xs"
+                  variant="default"
+                  onClick={() =>
+                    form.setFieldValue("address", { ...emptyAddress })
+                  }
+                >
+                  очистить адрес
+                </Button>
+              </Group>
+            </section>
             <section className={`${classes.panel} ${classes.description}`}>
               <Textarea
                 label="Описание со слов заявителя"
-                placeholder="Что произошло?"
+                placeholder="введите"
                 minRows={5}
                 autosize
                 maxLength={1999}
@@ -512,30 +501,49 @@ export function OperatorCard({
             )}
           </div>
           <div className={classes.rightColumn}>
+            <section className={classes.panel} aria-label="Основные признаки">
+              <Group gap="xs">
+                {routingFlags.slice(0, 3).map(([key, label]) => (
+                  <Button
+                    className={classes.statusButton}
+                    color="povBlue"
+                    key={key}
+                    variant={values.flags[key] ? "filled" : "default"}
+                    aria-pressed={!!values.flags[key]}
+                    onClick={() => {
+                      if (!remote || incomingCall)
+                        form.setFieldValue(`flags.${key}`, !values.flags[key]);
+                    }}
+                  >
+                    {key === "casualties"
+                      ? "Пострадавшие"
+                      : key === "absent"
+                        ? "Нет на месте/ Отказ от скорой"
+                        : key === "noAccess"
+                          ? "Нет доступа/ Заблокированные"
+                          : label}
+                  </Button>
+                ))}
+                <span className={classes.statusDivider} />
+                <button type="button" className={classes.warningButton}>
+                  нет контакта
+                </button>
+                <button type="button" className={classes.warningButton}>
+                  срыв звонка
+                </button>
+              </Group>
+            </section>
             {remote && !incomingCall ? (
-              remote.classification
+              <section
+                className={`${classes.panel} ${classes.trainingClassification}`}
+              >
+                <div className={classes.remoteTypeTitle}>
+                  добавить тип происшествия
+                </div>
+                {remote.classification}
+              </section>
             ) : (
               <>
-                <section
-                  className={classes.panel}
-                  aria-label="Основные признаки"
-                >
-                  <Group gap="xs">
-                    {routingFlags.slice(0, 3).map(([key, label]) => (
-                      <Button
-                        color="povBlue"
-                        key={key}
-                        variant={values.flags[key] ? "filled" : "default"}
-                        aria-pressed={!!values.flags[key]}
-                        onClick={() =>
-                          form.setFieldValue(`flags.${key}`, !values.flags[key])
-                        }
-                      >
-                        {label}
-                      </Button>
-                    ))}
-                  </Group>
-                </section>
                 <section className={classes.panel}>
                   <Select
                     label="Введите тип происшествия"
@@ -553,23 +561,39 @@ export function OperatorCard({
                     error={form.errors.group}
                   />
                   {!values.group && (
-                    <Group gap="xs" mt="md">
+                    <Group gap="xs" mt="md" className={classes.quickTypes}>
                       {[
-                        "пожар в жилом доме",
                         "Дорожно-транспортные происшествия с пострадавшими",
-                        "Запах газа в помещении (в доме, в квартире)",
+                        "Ошибочно набран номер",
+                        "104",
                         "Человек в опасности",
+                        "Отмена вызова",
+                        "Тестовый вызов",
+                        "Передача дежурства",
+                        "Консультация",
+                        "Вызов на иностранном языке",
+                        "Справка-101",
                       ].map((group) => (
                         <Button
                           key={group}
                           size="xs"
                           variant="default"
-                          onClick={() => changeGroup(group)}
+                          onClick={() => {
+                            if (classifierGroups.includes(group))
+                              changeGroup(group);
+                            else if (group === "Консультация")
+                              changeGroup("Справочно-консультационная помощь");
+                          }}
                         >
                           {group.startsWith("Дорожно") ? "ДТП" : group}
                         </Button>
                       ))}
                     </Group>
+                  )}
+                  {!values.group && (
+                    <Text size="xs" mt="sm">
+                      Значимые типы происшествий:
+                    </Text>
                   )}
                 </section>
                 {incomingCall && values.group && (
@@ -685,25 +709,61 @@ export function OperatorCard({
                 )}
               </>
             )}
-            {remote && incomingCall && (
-              <details
+            {remote && incomingCall && values.group && (
+              <section
                 className={`${classes.panel} ${classes.trainingClassification}`}
-                aria-label="Данные учебной карточки"
+                aria-label="Классификация учебной карточки"
               >
-                <summary>Данные учебной карточки</summary>
                 {remote.classification}
-              </details>
+              </section>
             )}
           </div>
         </div>
       </fieldset>
       <footer className={classes.footer}>
         <strong>Службы:</strong>
+        {(!remote || incomingCall) && (
+          <Button
+            className={classes.addService}
+            variant="outline"
+            color="white"
+            px={10}
+            aria-label="Добавить службу"
+            disabled={!editing || remote?.readOnly || remote?.lockFields}
+            onClick={() => {
+              setManualServiceIds(
+                values.manualServices.filter(
+                  (id) =>
+                    !incomingCall ||
+                    incomingCall.directory.some(
+                      (service) =>
+                        service.id === id &&
+                        service.is_active &&
+                        !services.some(
+                          (routed) => routed.code === service.code,
+                        ),
+                    ),
+                ),
+              );
+              setServiceSearch("");
+              setAddingService(true);
+            }}
+          >
+            <Plus size={23} />
+          </Button>
+        )}
         {remote && !incomingCall ? (
-          remote.services
+          <div
+            className={`${classes.services} ${expandedServices ? classes.expandedServices : ""}`}
+          >
+            {remote.services}
+          </div>
         ) : (
           <>
-            <div className={classes.services} aria-live="polite">
+            <div
+              className={`${classes.services} ${expandedServices ? classes.expandedServices : ""}`}
+              aria-live="polite"
+            >
               {allServices.map((service) => (
                 <Tooltip
                   key={service.name}
@@ -743,58 +803,82 @@ export function OperatorCard({
                   </div>
                 </Tooltip>
               ))}
-              {!allServices.length && (
-                <Text size="sm">
-                  {record
-                    ? "Для выбранных признаков автоматическое оповещение не предусмотрено"
-                    : "Появятся после выбора критериев"}
-                </Text>
-              )}
             </div>
-            <Button
-              variant="outline"
-              color="white"
-              px={10}
-              aria-label="Добавить службу"
-              disabled={!editing || remote?.readOnly || remote?.lockFields}
-              onClick={() => {
-                setManualServiceIds(
-                  values.manualServices.filter(
-                    (id) =>
-                      !incomingCall ||
-                      incomingCall.directory.some(
-                        (service) =>
-                          service.id === id &&
-                          service.is_active &&
-                          !services.some(
-                            (routed) => routed.code === service.code,
-                          ),
-                      ),
-                  ),
-                );
-                setAddingService(true);
-              }}
-            >
-              <Plus size={20} />
-            </Button>
           </>
         )}
-        <Button
-          variant="outline"
-          color="white"
-          leftSection={<Save size={18} />}
-          onClick={() => void save()}
-          loading={saving}
-          disabled={
-            !editing ||
-            remote?.readOnly ||
-            (remote && !remote.canSave) ||
-            (!!incomingCall && !incomingCall.ended)
-          }
-        >
-          Сохранить
-        </Button>
-        {incomingCall && (
+        <div className={classes.footerActions}>
+          {!editing && !remote?.readOnly && (
+            <button
+              type="button"
+              className={classes.footerIcon}
+              aria-label="Дополнить карточку"
+              title="Дополнить карточку"
+              onClick={() => setEditing(true)}
+            >
+              <Pencil size={21} />
+            </button>
+          )}
+          {(allServices.length > 3 || (remote && !incomingCall)) && (
+            <button
+              type="button"
+              className={classes.footerIcon}
+              aria-label="Показать службы"
+              aria-expanded={expandedServices}
+              onClick={() => setExpandedServices(!expandedServices)}
+            >
+              <ChevronUp size={22} />
+            </button>
+          )}
+          <Button
+            className={classes.saveButton}
+            variant="outline"
+            color="white"
+            onClick={() => void save()}
+            loading={saving}
+            disabled={
+              !editing ||
+              remote?.readOnly ||
+              (remote && !remote.canSave) ||
+              (!!incomingCall && !incomingCall.ended)
+            }
+          >
+            сохранить
+          </Button>
+          <button
+            type="button"
+            className={classes.footerIcon}
+            aria-label="Связать карточку"
+          >
+            <Link2 size={22} />
+          </button>
+          <button
+            type="button"
+            className={classes.footerIcon}
+            aria-label="Таймер"
+          >
+            <Timer size={22} />
+          </button>
+          <button
+            type="button"
+            className={classes.footerIcon}
+            aria-label="Сигнал"
+          >
+            <Hand size={22} />
+          </button>
+          <button
+            type="button"
+            className={classes.footerIcon}
+            aria-label="Уведомления"
+          >
+            <Bell size={22} />
+          </button>
+          <button
+            type="button"
+            className={classes.footerIcon}
+            aria-label="Сообщения"
+          >
+            <MessageSquare size={22} />
+          </button>
           <Button
             variant="outline"
             color="white"
@@ -806,32 +890,66 @@ export function OperatorCard({
           >
             <X size={24} />
           </Button>
-        )}
+        </div>
       </footer>
       <Modal
         opened={addingService}
         onClose={() => setAddingService(false)}
-        title="Добавить службу"
+        title="Добавьте службы"
         centered
+        size="md"
+        classNames={{
+          content: classes.serviceModal,
+          title: classes.serviceModalTitle,
+          body: classes.serviceModalBody,
+        }}
       >
         <Stack>
           {incomingCall ? (
-            <MultiSelect
-              label="Поиск служб"
-              searchable
-              clearable
-              placeholder="Введите название службы"
-              data={incomingCall.directory
-                .filter(
-                  (service) =>
-                    service.is_active &&
-                    !services.some((routed) => routed.code === service.code),
-                )
-                .map((service) => ({ value: service.id, label: service.name }))}
-              value={manualServiceIds}
-              onChange={setManualServiceIds}
-              nothingFoundMessage="Службы не найдены"
-            />
+            <>
+              <TextInput
+                aria-label="Поиск служб"
+                placeholder="Поиск ..."
+                value={serviceSearch}
+                onChange={(event) =>
+                  setServiceSearch(event.currentTarget.value)
+                }
+              />
+              <div className={classes.serviceOptions}>
+                {incomingCall.directory
+                  .filter(
+                    (service) =>
+                      service.is_active &&
+                      !services.some(
+                        (routed) => routed.code === service.code,
+                      ) &&
+                      service.name
+                        .toLocaleLowerCase("ru")
+                        .includes(serviceSearch.toLocaleLowerCase("ru")),
+                  )
+                  .map((service) => (
+                    <button
+                      key={service.id}
+                      type="button"
+                      aria-pressed={manualServiceIds.includes(service.id)}
+                      className={
+                        manualServiceIds.includes(service.id)
+                          ? classes.selectedServiceOption
+                          : ""
+                      }
+                      onClick={() =>
+                        setManualServiceIds((current) =>
+                          current.includes(service.id)
+                            ? current.filter((id) => id !== service.id)
+                            : [...current, service.id],
+                        )
+                      }
+                    >
+                      {service.name}
+                    </button>
+                  ))}
+              </div>
+            </>
           ) : directory.isError ? (
             <Alert color="red" title="Не удалось загрузить справочник служб">
               <Button variant="subtle" onClick={() => directory.refetch()}>
@@ -855,6 +973,7 @@ export function OperatorCard({
             />
           )}
           <Button
+            className={classes.serviceModalSave}
             disabled={!incomingCall && (!manualService || directory.isError)}
             onClick={() => {
               if (incomingCall) {
