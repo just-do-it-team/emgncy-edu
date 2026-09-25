@@ -39,6 +39,7 @@ export const emptyOperatorDraft = {
   recordId: null as number | null,
   flags: {} as RoutingFlags,
   manualServices: [] as string[],
+  excludedServices: [] as string[],
 };
 export type OperatorCardDraft = typeof emptyOperatorDraft;
 
@@ -91,7 +92,9 @@ export function saveOperatorCard(
     .join(", ");
   const names = [
     ...new Set([
-      ...resolveServices(record, draft.flags).map((service) => service.name),
+      ...resolveServices(record, draft.flags)
+        .filter((service) => !draft.excludedServices.includes(service.code))
+        .map((service) => service.name),
       ...draft.manualServices,
     ]),
   ];

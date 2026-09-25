@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { notifications } from "@mantine/notifications";
 import {
@@ -31,9 +31,11 @@ import {
 } from "@/entities/training";
 import { IncidentList } from "./incident-list";
 import { listIncident } from "../model/api-card-adapter";
+import type { OperatorCardEntry } from "../model/operator-cards";
 import { ConnectedCard } from "./connected-card";
 import { IncomingCalls } from "./incoming-calls";
 import { useWorkspaceEvents } from "./use-workspace-events";
+import { useTrainingPresence } from "./use-training-presence";
 import classes from "./workspace-page.module.scss";
 
 class PendingSessionError extends Error {}
@@ -163,6 +165,9 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
   const [exiting, setExiting] = useState(false);
   const [finishOpen, setFinishOpen] = useState(false);
   const [callBusy, setCallBusy] = useState(false);
+  const [callDraft, setCallDraft] = useState<OperatorCardEntry | null>(null);
+  const [cardOpen, setCardOpen] = useState(false);
+  const [openCardRequest, setOpenCardRequest] = useState(0);
   const [finishAfterBusy, setFinishAfterBusy] = useState(false);
   const backAction = useRef<() => void>(() => {});
   const [actionError, setActionError] = useState<string | null>(null);
@@ -230,6 +235,40 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     meta: { showGlobalError: false },
   });
   const active = readiness.data?.status === "RUNNING" && !readiness.isError;
+  const presenceActive =
+    !exiting &&
+    (!readiness.data ||
+      readiness.data.status === "RUNNING" ||
+      readiness.data.status === "CREATED");
+  const leaveUnavailableSession = useCallback(
+    (terminal: boolean) => {
+      setExiting(true);
+      if (terminal) rememberFinished(ctx.userId, ctx.sessionId);
+      void queryClient.invalidateQueries({
+        queryKey: ["student-api", ctx.userId, "assignments"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["student-api", ctx.userId, "history"],
+      });
+      navigate("/student", { replace: true });
+    },
+    [ctx.sessionId, ctx.userId, navigate, queryClient],
+  );
+  const presence = useTrainingPresence(
+    ctx,
+    presenceActive,
+    leaveUnavailableSession,
+  );
+  const editingCard = cardOpen || !!selectedId;
+  const canCreateCallCard =
+    ctx.mode === "ARM112" &&
+    active &&
+    !!reference.data &&
+    !!calls.data?.some(
+      (call) =>
+        (call.status === "ACTIVE" || call.status === "COMPLETED") &&
+        !call.incident_card_id,
+    );
   const canComplete = active && readiness.data?.can_complete === true;
   const alreadyFinished = ["COMPLETED", "ABORTED"].includes(
     readiness.data?.status ?? "",
@@ -340,7 +379,12 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     if (canComplete) setFinishOpen(false);
   }, [canComplete]);
   return (
-    <div className={classes.page}>
+    <div
+      className={classes.page}
+      data-operator-editing={
+        ctx.mode === "ARM112" && editingCard ? true : undefined
+      }
+    >
       <Modal
         opened={finishOpen}
         onClose={() => setFinishOpen(false)}
@@ -379,14 +423,10 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
             size="lg"
             color={
               canComplete || readiness.data?.status === "COMPLETED"
-                ? "orange"
-                : "gray"
+                ? "green"
+                : "red"
             }
-            variant={
-              canComplete || readiness.data?.status === "COMPLETED"
-                ? "filled"
-                : "light"
-            }
+            variant="filled"
             fw={700}
             disabled={exiting || callBusy || opening}
             loading={exiting}
@@ -396,6 +436,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
           </Button>
           <Text fw={600}>{ctx.title}</Text>
         </Group>
+        <div id="workspace-call-controls" className={classes.callControlSlot} />
         <Group>
           <Badge>
             {ctx.mode === "DDS"
@@ -403,153 +444,203 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
               : "Оператор 112"}
           </Badge>
           <Badge variant="outline">API</Badge>
-        </Group>
-      </Group>
-      <WorkspaceHeader role="student" operatorMode={ctx.mode === "ARM112"} />
-      <Stack px="md" py="sm" gap="xs">
-        {ctx.mode === "DDS" && !ctx.positionCode && (
-          <Alert color="yellow">
-            В назначении не указана служба ДДС. Доступен просмотр карточек; для
-            решений нужна назначенная преподавателем служба.
-          </Alert>
-        )}
-        {readiness.data && (
-          <Group justify="space-between">
-            <div>
-              <Text size="sm">
-                Занятие:{" "}
-                {statusLabels[readiness.data.status] ?? readiness.data.status} ·
-                Решений: {readiness.data.decisions_completed} /{" "}
-                {readiness.data.decisions_required} · Карточек ожидается:{" "}
-                {readiness.data.cards_pending} · Звонков завершено:{" "}
-                {readiness.data.calls_completed} / {readiness.data.calls_total}
-              </Text>
-              {active &&
-                readiness.data.blockers.map((b, i) => (
-                  <Text key={`${b.code}:${i}`} size="xs" c="dimmed">
-                    {b.message}
-                  </Text>
-                ))}
-              {active &&
-                readiness.data.completion_policy === "AUTO_WHEN_READY" && (
-                  <Text size="xs">
-                    Занятие завершится автоматически после выполнения условий.
-                  </Text>
-                )}
-              {active &&
-                readiness.data.completion_policy === "TEACHER_ONLY" && (
-                  <Text size="xs">Занятие завершает преподаватель.</Text>
-                )}
-            </div>
-          </Group>
-        )}
-        <Group justify="center">
+          {presenceActive && (
+            <Badge
+              color={
+                presence === "connected"
+                  ? "green"
+                  : presence === "checking"
+                    ? "gray"
+                    : "yellow"
+              }
+              title={
+                presence === "unavailable"
+                  ? "Сервер пока не принимает подтверждение присутствия. Занятие остаётся открытым; повторяем запрос."
+                  : presence === "interrupted"
+                    ? "Не удалось подтвердить присутствие. Повторяем запрос каждые 5 секунд."
+                    : undefined
+              }
+              aria-live="polite"
+            >
+              {presence === "connected"
+                ? "Связь активна"
+                : presence === "checking"
+                  ? "Проверка связи"
+                  : presence === "unavailable"
+                    ? "Проверка присутствия недоступна"
+                    : "Связь прервана"}
+            </Badge>
+          )}
           <Button
-            size="md"
+            size="lg"
             variant="default"
+            fw={700}
             loading={readiness.isFetching || cards.isFetching}
             onClick={() => void refresh()}
           >
             Обновить данные
           </Button>
         </Group>
-        {connection === "disconnected" && (
-          <Alert color="yellow">
-            Связь с событиями прервана. Нажмите «Обновить данные», чтобы
-            загрузить актуальное состояние.
-          </Alert>
-        )}
-        {(cards.isPending || reference.isPending || opening) && (
-          <Loader size="sm" />
-        )}
-        {[
-          { q: cards, label: "карточки" },
-          { q: reference, label: "справочники" },
-          { q: readiness, label: "состояние занятия" },
-        ].map(
-          ({ q, label }) =>
-            q.isError && (
-              <Alert
-                key={label}
-                color="red"
-                title={
-                  q === cards && cards.isFetchNextPageError
-                    ? "Не удалось загрузить следующие карточки"
-                    : `Не удалось обновить ${label}`
-                }
-              >
-                {apiError(q.error)}{" "}
-                <Button
-                  variant="subtle"
-                  size="xs"
-                  disabled={q.isFetching}
-                  onClick={() => {
-                    if (q === cards && cards.isFetchNextPageError) {
-                      void cards.fetchNextPage({ cancelRefetch: false });
-                    } else {
-                      void q.refetch({ cancelRefetch: false });
-                    }
-                  }}
-                >
-                  Повторить
-                </Button>
-              </Alert>
-            ),
-        )}
-        {actionError && <Alert color="red">{actionError}</Alert>}
-        {ctx.mode === "ARM112" && (
-          <IncomingCalls
-            ctx={ctx}
-            active={active && !exiting}
-            reference={reference.data}
-            canCreate={!!reference.data && !reference.isError}
-            onChanged={refresh}
-            onBusyChange={setCallBusy}
-          />
-        )}
-        {cards.isSuccess && visibleCards.length === 0 && (
-          <Text c="dimmed">
-            {ctx.mode === "ARM112"
-              ? "Список карточек пуст. Карточка появится здесь после обработки входящего звонка."
-              : "Доступных карточек пока нет. Новые карточки появятся при поступлении событий сценария."}
-          </Text>
-        )}
-      </Stack>
-      <div className={classes.content}>
-        <IncidentList
-          incidents={visibleCards.map((c) =>
-            listIncident(c, reference.data?.kinds ?? [], ctx.positionCode),
-          )}
+      </Group>
+      {!editingCard && (
+        <WorkspaceHeader
+          role="student"
           operatorMode={ctx.mode === "ARM112"}
-          onOpenIncident={(incident) => {
-            if (incident.serverId) void open(incident.serverId);
-          }}
-          pagination={
-            <Group justify="flex-end" className={classes.pagination}>
-              <Text size="sm" aria-live="polite">
-                Загружено карточек: {visibleCards.length}
-              </Text>
-              {cards.hasNextPage ? (
-                <Button
-                  size="xs"
-                  variant="default"
-                  loading={cards.isFetchingNextPage}
-                  disabled={cards.isFetching}
-                  onClick={() => {
-                    if (!cards.isFetching) {
-                      void cards.fetchNextPage({ cancelRefetch: false });
-                    }
-                  }}
-                >
-                  Загрузить ещё
-                </Button>
-              ) : cards.isSuccess ? (
-                <Text size="sm">Все карточки загружены</Text>
-              ) : null}
-            </Group>
+          onCreateCard={
+            canCreateCallCard
+              ? () => setOpenCardRequest((value) => value + 1)
+              : undefined
           }
         />
-      </div>
+      )}
+      {!editingCard && (
+        <Stack px="md" py="sm" gap="xs">
+          {ctx.mode === "DDS" && !ctx.positionCode && (
+            <Alert color="yellow">
+              В назначении не указана служба ДДС. Доступен просмотр карточек;
+              для решений нужна назначенная преподавателем служба.
+            </Alert>
+          )}
+          {readiness.data && (
+            <Group justify="space-between">
+              <div>
+                <Text size="sm">
+                  Занятие:{" "}
+                  {statusLabels[readiness.data.status] ?? readiness.data.status}{" "}
+                  · Решений: {readiness.data.decisions_completed} /{" "}
+                  {readiness.data.decisions_required} · Карточек ожидается:{" "}
+                  {readiness.data.cards_pending} · Звонков завершено:{" "}
+                  {readiness.data.calls_completed} /{" "}
+                  {readiness.data.calls_total}
+                </Text>
+                {active &&
+                  readiness.data.blockers.map((b, i) => (
+                    <Text key={`${b.code}:${i}`} size="xs" c="dimmed">
+                      {b.message}
+                    </Text>
+                  ))}
+                {active &&
+                  readiness.data.completion_policy === "AUTO_WHEN_READY" && (
+                    <Text size="xs">
+                      Занятие завершится автоматически после выполнения условий.
+                    </Text>
+                  )}
+                {active &&
+                  readiness.data.completion_policy === "TEACHER_ONLY" && (
+                    <Text size="xs">Занятие завершает преподаватель.</Text>
+                  )}
+              </div>
+            </Group>
+          )}
+          {connection === "disconnected" && (
+            <Alert color="yellow">
+              Связь с событиями прервана. Нажмите «Обновить данные», чтобы
+              загрузить актуальное состояние.
+            </Alert>
+          )}
+          {(cards.isPending || reference.isPending || opening) && (
+            <Loader size="sm" />
+          )}
+          {[
+            { q: cards, label: "карточки" },
+            { q: reference, label: "справочники" },
+            { q: readiness, label: "состояние занятия" },
+          ].map(
+            ({ q, label }) =>
+              q.isError && (
+                <Alert
+                  key={label}
+                  color="red"
+                  title={
+                    q === cards && cards.isFetchNextPageError
+                      ? "Не удалось загрузить следующие карточки"
+                      : `Не удалось обновить ${label}`
+                  }
+                >
+                  {apiError(q.error)}{" "}
+                  <Button
+                    variant="subtle"
+                    size="xs"
+                    disabled={q.isFetching}
+                    onClick={() => {
+                      if (q === cards && cards.isFetchNextPageError) {
+                        void cards.fetchNextPage({ cancelRefetch: false });
+                      } else {
+                        void q.refetch({ cancelRefetch: false });
+                      }
+                    }}
+                  >
+                    Повторить
+                  </Button>
+                </Alert>
+              ),
+          )}
+          {actionError && <Alert color="red">{actionError}</Alert>}
+          {cards.isSuccess && visibleCards.length === 0 && !callDraft && (
+            <Text c="dimmed">
+              {ctx.mode === "ARM112"
+                ? "Список карточек пуст. Примите звонок и создайте карточку."
+                : "Доступных карточек пока нет. Новые карточки появятся при поступлении событий сценария."}
+            </Text>
+          )}
+        </Stack>
+      )}
+      {ctx.mode === "ARM112" && (
+        <IncomingCalls
+          ctx={ctx}
+          active={active && !exiting}
+          reference={reference.data}
+          canCreate={!!reference.data && !reference.isError}
+          onChanged={refresh}
+          onBusyChange={setCallBusy}
+          onDraftChange={setCallDraft}
+          onCardOpenChange={setCardOpen}
+          openCardRequest={openCardRequest}
+        />
+      )}
+      {!editingCard && (
+        <div className={classes.content}>
+          <IncidentList
+            incidents={[
+              ...(callDraft ? [callDraft.incident] : []),
+              ...visibleCards.map((c) =>
+                listIncident(c, reference.data?.kinds ?? [], ctx.positionCode),
+              ),
+            ]}
+            operatorMode={ctx.mode === "ARM112"}
+            onOpenIncident={(incident) => {
+              if (callDraft && incident.id === callDraft.incident.id)
+                setOpenCardRequest((value) => value + 1);
+              else if (incident.serverId) void open(incident.serverId);
+            }}
+            pagination={
+              <Group justify="flex-end" className={classes.pagination}>
+                <Text size="sm" aria-live="polite">
+                  Загружено карточек:{" "}
+                  {visibleCards.length + (callDraft ? 1 : 0)}
+                </Text>
+                {cards.hasNextPage ? (
+                  <Button
+                    size="xs"
+                    variant="default"
+                    loading={cards.isFetchingNextPage}
+                    disabled={cards.isFetching}
+                    onClick={() => {
+                      if (!cards.isFetching) {
+                        void cards.fetchNextPage({ cancelRefetch: false });
+                      }
+                    }}
+                  >
+                    Загрузить ещё
+                  </Button>
+                ) : cards.isSuccess ? (
+                  <Text size="sm">Все карточки загружены</Text>
+                ) : null}
+              </Group>
+            }
+          />
+        </div>
+      )}
       {selectedId && reference.data && (
         <ConnectedCard
           key={selectedId}

@@ -40,12 +40,6 @@
   align-items: center;
   gap: 16px;
 }
-.hangup {
-  flex-shrink: 0;
-  min-width: 54px;
-  min-height: 54px;
-  padding: 0;
-}
 .cardNumber {
   display: flex;
   flex-direction: column;
@@ -970,5 +964,235 @@
     .criterionRow {
       grid-template-columns: 1fr;
     }
+  }
+}
+
+.embeddedCard {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+
+  .cardFields {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .topbar {
+    flex-shrink: 0;
+  }
+
+  .columns {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .leftColumn,
+  .rightColumn {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .addressPanel {
+    flex: 0 1 55%;
+    min-height: 0;
+  }
+
+  .leftColumn > :nth-child(2) {
+    min-height: 0;
+  }
+
+  .description {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .rightColumn > .panel:first-child {
+    flex-shrink: 0;
+  }
+
+  .footer {
+    position: relative;
+    bottom: auto;
+    flex-shrink: 0;
+  }
+}
+
+.incidentSelection {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.topbar .timer[data-overtime],
+.incomingCard .topbar .timer[data-overtime] {
+  background: #d82428;
+}
+
+.serviceArea {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: flex-end;
+  min-width: 0;
+  gap: 8px;
+  --service-width: clamp(85px, 6vw, 118px);
+}
+
+.serviceArea .services {
+  order: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  width: max-content;
+  max-width: clamp(680px, 48vw, 944px);
+  overflow: hidden;
+}
+
+.serviceArea .expandedServices {
+  max-height: none;
+  overflow: visible;
+}
+
+.embeddedCard .footer {
+  height: 70px;
+  min-height: 70px;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  overflow: visible;
+}
+
+.embeddedCard .serviceArea {
+  height: 60px;
+  min-height: 60px;
+  overflow: visible;
+}
+
+.embeddedCard .serviceArea .expandedServices {
+  background: var(--mantine-color-povOrange-6);
+}
+
+.serviceArea .draftServices {
+  display: flex;
+  flex-wrap: wrap-reverse;
+  width: max-content;
+  max-width: clamp(680px, 48vw, 944px);
+  overflow: visible;
+}
+
+.draftServices .service {
+  flex: 0 0 var(--service-width);
+  width: var(--service-width);
+  min-width: var(--service-width);
+  max-width: var(--service-width);
+  min-height: 60px;
+  justify-content: flex-end;
+
+  strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-decoration: underline;
+  }
+}
+
+.draftServices .service[data-manual] {
+  background: #8d9397;
+}
+
+.serviceArea .addService {
+  order: 2;
+  flex-shrink: 0;
+}
+
+.serviceArea > .footerIcon {
+  order: 1;
+  flex-shrink: 0;
+  align-self: flex-end;
+}
+
+.footer,
+.incomingCard .footer {
+  align-items: flex-end;
+  gap: 0;
+}
+
+.footer > strong,
+.incomingCard .footer > strong {
+  align-self: flex-end;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+}
+
+.footerActions {
+  margin-left: auto;
+  align-self: flex-end;
+}
+
+.embeddedCard .footer {
+  align-items: center;
+}
+
+.embeddedCard .footer > strong,
+.embeddedCard .footerActions,
+.embeddedCard .serviceArea > .footerIcon,
+.embeddedCard .serviceArea > .addService {
+  align-self: center;
+}
+
+.embeddedCard .footerActions {
+  min-height: 60px;
+  justify-content: center;
+}
+
+.embeddedCard .serviceArea > .addService {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.phoneButton {
+  flex: 0 0 64px;
+  width: 64px;
+  min-height: 66px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: #f8f9fa;
+  color: #303b41;
+  cursor: pointer;
+
+  svg {
+    transform: rotate(135deg);
+  }
+
+  &:disabled {
+    opacity: 1;
+    cursor: default;
+  }
+}
+
+.incomingCard .callState {
+  gap: 0;
+}
+
+.service {
+  padding: 18px 18px 6px 10px;
+
+  > svg {
+    position: absolute;
+    top: 3px;
+    left: 10px;
+  }
+
+  > button {
+    top: 3px;
+    right: 4px;
   }
 }

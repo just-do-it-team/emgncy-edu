@@ -10,7 +10,7 @@ import {
   Textarea,
 } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { Phone, Plus } from "lucide-react";
 import {
   allowedServiceStatuses,
   apiError,
@@ -31,6 +31,7 @@ export function ServerServices({
   readOnly,
   onStatus,
   onAdd,
+  expanded = true,
 }: {
   ctx: LaunchContext;
   card: ApiCard;
@@ -42,9 +43,23 @@ export function ServerServices({
     comment: string,
   ) => Promise<void>;
   onAdd?: (serviceId: string) => Promise<void>;
+  expanded?: boolean;
 }) {
+  const visibleServices = card.services.filter(
+    (service) => service.is_active && service.is_visible,
+  );
   return (
     <Group gap="xs" align="start">
+      {(expanded ? visibleServices : visibleServices.slice(0, 8)).map((s) => (
+        <ServerService
+          key={s.id}
+          ctx={ctx}
+          service={s}
+          info={directory.find((d) => d.id === s.service_id)}
+          readOnly={readOnly}
+          onStatus={onStatus}
+        />
+      ))}
       {onAdd && (
         <AddService
           directory={directory.filter(
@@ -56,18 +71,6 @@ export function ServerServices({
           onAdd={onAdd}
         />
       )}
-      {card.services
-        .filter((s) => s.is_active && s.is_visible)
-        .map((s) => (
-          <ServerService
-            key={s.id}
-            ctx={ctx}
-            service={s}
-            info={directory.find((d) => d.id === s.service_id)}
-            readOnly={readOnly}
-            onStatus={onStatus}
-          />
-        ))}
       {ctx.mode !== "ARM112" &&
         !card.services.some((s) => s.is_active && s.is_visible) && (
           <Text size="sm">Службы не назначены</Text>
@@ -157,6 +160,7 @@ function ServerService({
           aria-expanded={opened}
         >
           <span className={classes.serviceContent}>
+            {ctx.mode === "ARM112" && <Phone size={13} aria-hidden="true" />}
             <span className={classes.serviceName}>
               {info?.name ?? "Служба"}
             </span>
