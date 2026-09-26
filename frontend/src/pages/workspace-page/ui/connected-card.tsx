@@ -44,6 +44,7 @@ type Props = {
   kinds: EventKind[];
   directory: EmergencyService[];
   readOnly: boolean;
+  eventsConnected: boolean;
   summary?: Incident;
   onClose: () => void;
   onChanged: () => Promise<void>;
@@ -61,6 +62,8 @@ export function ConnectedCard(props: Props) {
   const query = useQuery({
     queryKey,
     queryFn: ({ signal }) => trainingApi.card(props.ctx, props.cardId, signal),
+    refetchInterval:
+      props.ctx.mode === "DDS" && !props.eventsConnected ? 5000 : false,
     refetchOnMount: "always",
     refetchOnWindowFocus: false,
     meta: { showGlobalError: false },

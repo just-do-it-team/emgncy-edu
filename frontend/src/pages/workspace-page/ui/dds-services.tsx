@@ -160,7 +160,7 @@ function DdsService({
       ? allowedServiceStatuses(service.current_status, info.code)
       : [];
   const requiresReason = status === "REJECTED" || status === "WORK_REFUSED";
-  const requiresComment = requiresReason || status === "WORK_COMPLETED";
+  const requiresComment = requiresReason;
   const latest = history.data?.at(-1);
   const currentStatusTime =
     service.current_status === "ADDED" ||
@@ -380,7 +380,7 @@ function DdsService({
               requiresReason
                 ? "Причина отказа (обязательно)"
                 : status === "WORK_COMPLETED"
-                  ? "Результат работ (обязательно)"
+                  ? "Результат работ"
                   : "Комментарий"
             }
             required={requiresComment}

@@ -183,6 +183,12 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
   const readiness = useQuery({
     queryKey: [...baseKey, "readiness", ctx.sessionId],
     queryFn: ({ signal }) => trainingApi.readiness(ctx, signal),
+    refetchInterval: (query) =>
+      query.state.data?.status === "RUNNING" &&
+      (ctx.mode === "DDS" ||
+        query.state.data.completion_policy === "AUTO_WHEN_READY")
+        ? 5000
+        : false,
     refetchOnWindowFocus: false,
     meta: { showGlobalError: false },
   });
@@ -193,6 +199,8 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
       trainingApi.cards(ctx, pageParam, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor,
+    refetchInterval:
+      ctx.mode === "DDS" && connection !== "connected" ? 5000 : false,
     refetchOnWindowFocus: false,
     meta: { showGlobalError: false },
   });
@@ -428,11 +436,11 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     if (alreadyFinished) {
       void finish("finished");
     } else if (canComplete) {
-      void finish(
-        readiness.data?.completion_policy === "STUDENT_CONFIRM"
-          ? "complete"
-          : "abort",
-      );
+      if (readiness.data?.completion_policy === "STUDENT_CONFIRM") {
+        void finish("complete");
+      } else {
+        void readiness.refetch();
+      }
     } else {
       setFinishOpen(true);
     }
@@ -512,11 +520,20 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
             }
             variant="filled"
             fw={700}
-            disabled={exiting || callBusy || opening}
+            disabled={
+              exiting ||
+              callBusy ||
+              opening ||
+              (canComplete &&
+                readiness.data?.completion_policy === "AUTO_WHEN_READY")
+            }
             loading={exiting}
             onClick={requestFinish}
           >
-            Завершить занятие
+            {canComplete &&
+            readiness.data?.completion_policy === "AUTO_WHEN_READY"
+              ? "Завершаем занятие…"
+              : "Завершить занятие"}
           </Button>
           <Text fw={600} className={classes.trainingTitle}>
             {ctx.title}
@@ -687,6 +704,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
           kinds={reference.data.kinds}
           directory={reference.data.services}
           readOnly={!active || exiting || reference.isError}
+          eventsConnected={connection === "connected"}
           summary={selectedSummary}
           onClose={() => setSelectedId(null)}
           onChanged={refresh}
