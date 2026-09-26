@@ -170,6 +170,76 @@ Content-Type: application/json
 `409` означает конфликт оптимистической блокировки: frontend должен перечитать
 карточку и предложить повторить изменение, а не отправлять запрос бесконечно.
 
+## Сценарий оператора ДДС: работа с card-api
+
+Если в назначении `participant.participant_role=DDS` и задан
+`participant.position_code`, обучаемый работает с карточками, направленными
+его службе. `card.created` служит сигналом перечитать список workspace;
+`GET /api/v1/workspaces/{workspaceId}/cards` уже фильтрует его по службе.
+Для полного состояния откройте
+`GET /api/v1/workspaces/{workspaceId}/cards/{cardId}`. В `services[]` найдите
+запись своей службы по `service_id` (код и ID доступны в `GET /api/v1/services`);
+её `id` — это `cardServiceId` для истории и последующих статусов.
+
+1. При открытии карточки вызовите `POST /api/v1/workspaces/{workspaceId}/cards/{cardId}/open`
+   с `X-User-Id`. Сервер запишет `RECEIVED` и вернёт `CardServiceResponse`
+   с `received_at` и `decision_deadline_at`. Повторное открытие безопасно.
+2. При необходимости исправьте карточку общим card-api. Например:
+
+   ```http
+   PATCH /api/v1/cards/{cardId}
+   Content-Type: application/json
+
+   {"expected_version":2,"victims_count":0,"actor_id":"student-uuid","request_id":"edit-uuid"}
+   ```
+
+   `PATCH` возвращает `CardResponse` с новой `version`. Так же ДДС может
+   обновить признаки через `PUT /api/v1/cards/{cardId}/features`, статус
+   карточки через `POST /api/v1/cards/{cardId}/statuses` и добавить нужную
+   службу через `POST /api/v1/cards/{cardId}/services`. Для последнего метода
+   нужны `service_id`, `expected_card_version` и `actor_id`. Эти методы
+   доступны ДДС только для карточки, направленной его собственной службе.
+3. Зафиксируйте решение по **своей** службе через
+   `POST /api/v1/workspaces/{workspaceId}/cards/{cardId}/decision` с
+   `decision=ACCEPTED` или `REJECTED`. Для отклонения обязателен комментарий.
+   Это действие отличается от смены общего статуса карточки.
+4. Если сценарий требует исходящего оповещения, передайте запись через
+   `POST /api/v1/workspaces/{workspaceId}/cards/{cardId}/audio-messages`
+   с `direction=OUTBOUND`, `X-User-Id` и `Idempotency-Key`. Ожидаемый текст
+   обучаемому не выдаётся; обработку записи отслеживайте по audio API.
+   Подробнее — в [README аудиосообщений](../audio_messages/README.MD).
+5. Статусы реагирования своей службы после решения отправляйте по одному:
+
+   ```http
+   POST /api/v1/card-services/{cardServiceId}/statuses
+   Content-Type: application/json
+
+   {"status":"RESPONSE_STARTED","expected_card_version":4,"occurred_at":"2026-09-21T10:02:00Z","author_id":"student-uuid","comment":"Расчёт выехал","request_id":"status-uuid"}
+   ```
+
+   Далее допустимы переходы `ARRIVED` → `WORK_IN_PROGRESS` →
+   `WORK_COMPLETED` либо предусмотренный правилами отказ. Ответ — запись
+   `ServiceStatusResponse`, **без** новой версии карточки. Историю можно
+   прочитать через `GET /api/v1/card-services/{cardServiceId}/status-history`.
+   ДДС не может менять статусы реагирования чужой службы.
+
+В запросах общего card-api ID пользователя передаётся в теле (`actor_id` или
+`author_id`), а для `/open`, `/decision` и audio API — в `X-User-Id`.
+При включённой авторизации ID должен совпадать с пользователем JWT.
+Числа `expected_version` в примерах условные. После `/open`,
+`/decision` и каждого `/card-services/{id}/statuses` перечитайте полную
+карточку: эти действия увеличивают её `version`, но их ответы новую версию
+не возвращают. Перед каждым следующим изменением используйте актуальную
+версию. При `409` повторно получите карточку и предложите применить правку
+снова.
+
+Проверка `completion-readiness` учитывает решение службы и обработку аудио,
+но не требует всей ожидаемой истории статусов или правильного содержания
+карточки. Поэтому `can_complete=true` не означает успешную оценку: если
+шаблон требует дальнейшие статусы, отправьте их до `POST /complete`.
+При `AUTO_WHEN_READY` сервер может завершить сессию сразу после выполнения
+условий readiness, до поздних ручных правок или статусов.
+
 ## План и завершение
 
 ```http

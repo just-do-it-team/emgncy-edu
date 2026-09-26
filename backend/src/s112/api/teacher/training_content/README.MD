@@ -175,8 +175,8 @@ type IncomingCallTemplateCreate = {
 Для входящего звонка действуют дополнительные правила:
 
 - `expected_result.card` обязателен;
-- `initial_call.initial_utterance` — первая фраза заявителя, которую обучаемый
-  слышит после ответа на звонок;
+- `initial_call.initial_utterance` — затравка истории диалога для модели;
+  сама по себе не озвучивается после ответа на звонок;
 - достоверные обстоятельства происшествия задаются в `expected_result.card`;
   dialogue worker передаёт этот эталонный объект модели как закрытый контекст;
 - разговор и формулировки вопросов обучаемого не оцениваются — оценивается
@@ -566,8 +566,10 @@ DELETE /api/v1/incoming-call-templates/{templateId}
 `TIME_OFFSET` нужен `trigger_config.offset_seconds >= 0`; для `AFTER_ACTION` —
 существующий `card_key`, `action_type` и необязательная задержка
 `delay_seconds >= 0`. `MANUAL` пока не поддерживается. `INLINE` содержит
-`initial_card` либо `initial_call` и `expected_result`; `TEMPLATE` ссылается
-на `template_id`. Входящие звонки требуют `schema_version >= 2`.
+`initial_card` и `expected_result` для карточки; `TEMPLATE` ссылается
+на `template_id`. Входящий звонок задаётся только ссылкой на шаблон входящего
+звонка и требует `schema_version >= 2`. Поле `initial_utterance` остаётся
+в шаблоне звонка и в определение сценария не передаётся.
 
 При назначении в `scenario_assignment.scenario_snapshot` сохраняются метаданные
 сценария и разрешённая копия `definition`: ссылки на шаблоны заменяются
@@ -586,7 +588,8 @@ X-User-Id: <teacher-or-administrator-uuid>
 
 Детальная ручка дополнительно возвращает `items[]` для элементов статического
 плана. Каждый элемент содержит `key`, `item_type`, источник и имя шаблона,
-`initial_card` либо `initial_call`, а также `expected_card`. Сервер добавляет
+`initial_card` для карточки и `expected_card`. Для просмотра `initial_call`
+используйте ручку шаблона входящего звонка. Сервер добавляет
 `event_type_name` и `event_kind_name`. `notification_list` берётся из
 `expected_card.services`, а первый элемент считается `main_service`. Для процедурного сценария
 будущие карточки до генерации в `items[]` не перечисляются.

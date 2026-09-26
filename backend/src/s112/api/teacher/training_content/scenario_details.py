@@ -95,10 +95,6 @@ async def scenario_detail_response(
                 "template_id": item.get("template_id"),
                 "template_name": template.name if template else None,
                 "initial_card": initial_card or None,
-                "initial_call": item.get("initial_call") or (
-                    template.initial_call
-                    if isinstance(template, IncomingCallTemplate) else None
-                ),
                 "expected_card": expected_card or None,
                 "classification": classification,
                 "main_service": notification_list[0] if notification_list else None,

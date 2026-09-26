@@ -158,36 +158,33 @@ class ScenarioCardDefinition(BaseModel):
     source_type: ScenarioCardSourceType
     template_id: uuid.UUID | None = None
     initial_card: CardCreate | None = None
-    initial_call: InitialIncomingCall | None = None
     expected_result: ExpectedResult | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_initial_call(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "initial_call" in value:
+            raise ValueError("initial_call belongs to an incoming call template, not a scenario")
+        return value
 
     @model_validator(mode="after")
     def validate_source_and_trigger(self) -> "ScenarioCardDefinition":
         if self.source_type is ScenarioCardSourceType.TEMPLATE:
             if self.template_id is None:
                 raise ValueError("template_id is required for TEMPLATE source")
-            if (
-                self.initial_card is not None
-                or self.initial_call is not None
-                or self.expected_result is not None
-            ):
+            if self.initial_card is not None or self.expected_result is not None:
                 raise ValueError("TEMPLATE source must not duplicate template data")
         elif self.source_type is ScenarioCardSourceType.INLINE:
-            payload = (
-                self.initial_card
-                if self.item_type is ScenarioItemType.INCIDENT_CARD
-                else self.initial_call
-            )
-            if payload is None or self.expected_result is None:
-                raise ValueError("INLINE source requires an initial payload and expected_result")
+            if self.item_type is ScenarioItemType.INCOMING_CALL:
+                raise ValueError("INCOMING_CALL item requires an incoming call template")
+            if self.initial_card is None or self.expected_result is None:
+                raise ValueError("INLINE source requires initial_card and expected_result")
             if self.template_id is not None:
                 raise ValueError("INLINE source must not contain template_id")
         else:
             raise ValueError("SNAPSHOT source is reserved for assigned scenarios")
 
         if self.item_type is ScenarioItemType.INCIDENT_CARD:
-            if self.initial_call is not None:
-                raise ValueError("INCIDENT_CARD item must not contain initial_call")
             if self.expected_result is not None and self.expected_result.card is None:
                 raise ValueError("INCIDENT_CARD item requires expected_result.card")
         elif self.item_type is ScenarioItemType.INCOMING_CALL:
@@ -600,7 +597,6 @@ class ScenarioItemDetail(BaseModel):
     template_id: uuid.UUID | None = None
     template_name: str | None = None
     initial_card: dict[str, Any] | None = None
-    initial_call: dict[str, Any] | None = None
     expected_card: dict[str, Any] | None = None
     classification: OperatorClassification | None = None
     main_service: ScenarioServiceDetail | None = None
