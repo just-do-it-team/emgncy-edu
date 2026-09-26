@@ -58,24 +58,36 @@ GET /api/v1/training-sessions/{sessionId}/expert-review-context?teacher_id={teac
 После завершения звонка `GET /api/v1/training-calls/{callId}/recording` возвращает
 статус сборки единого MP3 и `content_url`, когда файл готов.
 
-Ответ содержит:
+Метод доступен после завершения сессии со статусом `COMPLETED` преподавателю,
+назначившему сценарий, и администратору. Ответ содержит:
 
-- `session` — базовые результаты попытки;
-- `scenario_snapshot` — неизменяемая версия сценария на момент назначения;
-- `participant_ids` — участники;
-- `cards[]` — ожидаемое состояние, фактическое состояние и автоматический
-  результат каждой карточки;
-- `actions[]` — полная хронология действий.
-- `call_utterances[]` — текст реплик завершённых учебных звонков в порядке
-  `sequence_no`: `call_id`, `speaker`, `input_mode`, `created_at`, `text`.
+- `session` — полный `TrainingSessionResponse`, включая `status`, автоматические
+  `score`/`passed`/`result` и экспертные поля;
+- `scenario_snapshot` — версия сценария, сохранённая в назначении;
+- `participant_ids` — UUID участников назначения;
+- `cards[]` — для каждого элемента плана `scenario_card_key`,
+  `incident_card_id` (может быть `null`), `expected_result`, `current_state`
+  (может быть `null`) и `automatic_result` (может быть `null`);
+- `actions[]` — хронология действий с `actor_user_id`, `action_type`,
+  `occurred_at`, `before_state`, `after_state`, `details`;
+- `call_utterances[]` — текст обработанных аудиосообщений учебных звонков в порядке
+  `sequence_no`: `id`, `call_id`, `speaker`, `input_mode`, `created_at`, `text`.
   `speaker=OPERATOR` обозначает обучаемого; у другой стороны сохраняется роль
   звонка (`CALLER` или `RESPONSE_LEAD`). `input_mode=VOICE` означает STT речи
   обучаемого, `TEXT` — введённый им текст, `GENERATED` — ответ модели.
   `created_at` — время записи сообщения на сервере, не время фактического
-  воспроизведения звука у обучаемого. У действий в `actions[]` есть `occurred_at`,
-  `before_state`, `after_state` и `details` для сопоставления с репликами.
-- `incoming_calls[]` — в том числе `ringing_at`, `answered_at` и `completed_at`;
+  воспроизведения звука у обучаемого;
+- `incoming_calls[]` — `scenario_item_key`, `training_call_id`,
+  `incident_card_id`, `status`, `ringing_at`, `answered_at`, `completed_at`,
+  `expected_result`, `current_state`, `automatic_result`;
   `answered_at` можно использовать как начало относительной шкалы времени.
+
+`expected_result` и `scenario_snapshot` содержат эталон и предназначены для
+преподавателя. Автоматические расхождения находятся в
+`cards[].automatic_result.discrepancies` и
+`incoming_calls[].automatic_result.discrepancies`, а не в отдельном поле
+верхнего уровня. `cards[].automatic_result` берётся из сохранённого результата
+карточки; для звонка результат берётся из `session.result.incoming_calls[]`.
 
 Элемент `cards[].automatic_result`:
 
@@ -95,37 +107,44 @@ GET /api/v1/training-sessions/{sessionId}/expert-review-context?teacher_id={teac
 }
 ```
 
-Frontend должен показывать `path`, ожидаемое и фактическое значения и переводить
-известные `reason`. Если `automatic_result=null`, карточка ещё не оценена.
+Frontend может показывать `path`, `expected`, `actual` и переводить известные
+`reason`. Если `automatic_result=null`, сохранённого результата для этого
+элемента нет. Содержимое `expected_result` зависит от шаблона, поэтому
+расхождения возникают только по проверяемым полям.
 
-Таблица ниже описывает **нынешние пути расхождений**, а не будущий расчёт
-критериев по ролям. Фактические `discrepancies[].path` строятся из ожидаемых полей; сегменты в
-угловых скобках означают код службы, ключ дополнительного признака или индекс:
+Реальные группы `discrepancies[].path` в текущем расчёте:
 
-| Критерий | Возможные `path` |
+| Источник | Возможные `path` |
 | --- | --- |
-| C1 Классификация | `card.classification.record_id`, `card.classification.group_code`, `card.classification.feature_1_code`, `card.classification.feature_2_code`, `card.classification.feature_3_code`, `card.classification.final_incident_type`, `card.classification.routing_flags.<key>`, `card.classification.excluded_service_codes` |
-| C2 Службы | `card.services` |
-| C3 Полнота | `card.description`, `card.questionnaire`, `card.questionnaire.questions`, `card.questionnaire.answers`, `card.victims_count` |
-| C4 Адрес | `card.reported_address`, `card.incident_address` |
-| C5 Тайминг | `service_handling.<code>.open_deadline`, `service_handling.<code>.decision_deadline` |
-| C7 Статусы реагирования | `card.current_status`, `card.service_statuses.<code>`, `service_status_history.<code>.length`, `service_status_history.<code>.<index>.status`, `service_status_history.<code>.<index>.comment`, `service_handling.<code>.opened_at`, `service_handling.<code>.decision` |
+| Поля карточки | `card.classification.record_id`, `card.classification.group_code`, `card.classification.feature_1_code`, `card.classification.feature_2_code`, `card.classification.feature_3_code`, `card.classification.final_incident_type`, `card.classification.routing_flags.<key>`, `card.classification.excluded_service_codes`, `card.description`, `card.questionnaire`, `card.questionnaire.questions`, `card.questionnaire.answers`, `card.automatic_phone_number`, `card.reported_address`, `card.incident_address`, `card.victims_count`, `card.current_status`, `card.services`, `card.service_statuses.<code>` |
+| История статусов ДДС | `service_status_history.<code>.length`, `service_status_history.<code>.<index>.status`, `service_status_history.<code>.<index>.comment` |
+| Открытие и решение ДДС | `service_handling.<code>.opened_at`, `service_handling.<code>.open_deadline`, `service_handling.<code>.decision`, `service_handling.<code>.decision_deadline` |
+| Исходящий звонок | `expected_result.outbound_call` |
 
-`expected_result.outbound_call` относится к проверке исходящего звонка и не
-укладывается в C1–C7. Для C6 «Грамматика» отдельной автоматической проверки и
-`path` сейчас нет. Это соответствие полей критериям предназначено для показа
-результата: сервер пока не возвращает `criterion_code` и не выставляет отдельные
-оценки по C1–C7. Поля C3 сравниваются по значению, без семантической проверки
-полноты текста. Для `card.classification.routing_flags` сравниваются все ключи
-эталона и сохранённой карточки.
+`<code>` — код службы, `<index>` — индекс ожидаемого действия с нуля.
+Для `card.classification.routing_flags` сравниваются ключи и эталона, и
+фактической карточки. Если ожидаемое значение `questionnaire` — `null`,
+расхождение будет по `card.questionnaire` целиком; если задан объект — по
+`questions` или `answers`. Для входящего звонка проверяются только поля
+`expected_result.card`; история статусов, тайминг ДДС и исходящий звонок к
+его `automatic_result` не добавляются.
 
-Согласованное направление следующей версии оценки: C1, C4 и C6 относятся к
-оператору 112; C5 и C7 — к ДДС; C2 и C3 применимы обеим позициям. C6 проверяет
-текст, записанный Обучаемым со слов заявителя в карточке, а не адрес и не речь
-виртуального заявителя. Критерии должны агрегироваться по всему сценарию и
-участнику, а не становиться отдельной оценкой каждой карточки. Пока эти правила
-не реализованы; особенно для C3 в карточке и эталоне ещё нет поля
-предоставленного номера заявителя.
+`reason=value_mismatch` используется для сравнения полей и истории статусов.
+Для открытия и решения возможны `card_not_opened`,
+`card_open_deadline_missed`, `card_decision_missing`,
+`card_decision_deadline_missed`. Для исходящего звонка возможны
+`semantic_similarity_below_threshold`, `semantic_evaluation_failed`,
+`semantic_evaluation_missing` и `invalid_semantic_evaluation_rule: ...`.
+`required_action_missing` встречается только в исторических результатах.
+
+Этот endpoint пока не возвращает `criterion_code` и отдельные оценки C1–C7.
+Согласованные правила будущей оценки: C1, C4, C6 — для оператора 112;
+C5, C7 — для ДДС; C2, C3 — для обеих ролей. C6 должен проверять текст,
+записанный обучаемым со слов заявителя в карточке. Оценки планируется
+агрегировать по сценарию и участнику. Поле `provided_phone_number` уже есть
+в карточке и `current_state`, но отсутствует в схеме `expected_result.card`:
+поэтому сейчас эталонный номер нельзя задать и `card.provided_phone_number`
+не появится в `discrepancies[].path`.
 
 ## Сохранить экспертную оценку
 
