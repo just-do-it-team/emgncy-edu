@@ -31,7 +31,8 @@ export function useTrainingPresence(
 
       controller = new AbortController();
       const signal = controller.signal;
-      const request = (async () => {
+      let request: Promise<void> | null = null;
+      request = (async () => {
         try {
           await trainingApi.presence(ctx, signal);
           if (!stopped) setState("connected");

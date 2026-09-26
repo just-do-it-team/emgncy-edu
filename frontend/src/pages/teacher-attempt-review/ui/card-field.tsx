@@ -1,5 +1,5 @@
 import type { ErrorSeverity } from "@/entities/attempt";
-import type { CharSpan } from "../model/char-diff";
+import type { CharSpan } from "@/shared/lib";
 import type { ReviewView } from "../model/review-view";
 import classes from "./attempt-review.module.scss";
 

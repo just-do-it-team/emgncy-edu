@@ -1,17 +1,17 @@
-import { api, toCardTimeline, type CardTimeline, type CardTimelineDto } from "@/shared/api";
+import { api, type TrainingActionDto } from "@/shared/api";
 import { CARD_API_URL, mocks } from "@/shared/config";
-import { cardTimelineMock } from "./card-timeline.mocks";
+import { trainingActionsMock } from "./card-timeline.mocks";
 
-export async function fetchCardTimeline(
+export async function fetchTrainingActions(
   trainingSessionId: string,
   signal?: AbortSignal,
-): Promise<CardTimeline> {
-  if (mocks.cardTimeline) return toCardTimeline(cardTimelineMock);
+): Promise<TrainingActionDto[]> {
+  if (mocks.cardTimeline) return trainingActionsMock;
 
-  const { data } = await api.get<CardTimelineDto>(
-    `${CARD_API_URL}/training-sessions/${trainingSessionId}/timeline`,
+  const { data } = await api.get<TrainingActionDto[]>(
+    `${CARD_API_URL}/training-sessions/${trainingSessionId}/actions`,
     { signal },
   );
 
-  return toCardTimeline(data);
+  return data;
 }

@@ -147,6 +147,7 @@ export interface IncomingCall {
   scheduled_at: string | null;
   ringing_at: string | null;
   answered_at: string | null;
+  completed_at: string | null;
 }
 export interface CardCreate extends CardPatch {
   classification: OperatorClassification;
