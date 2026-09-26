@@ -27,8 +27,8 @@ export interface Incident {
     locationPhone: string;
     addressTitle: string;
     district: string;
-    ambulanceRefused: boolean;
-    trapped: boolean;
+    ambulanceRefused: boolean | null;
+    trapped: boolean | null;
     urgent: boolean;
     category: string;
     classification: string;
