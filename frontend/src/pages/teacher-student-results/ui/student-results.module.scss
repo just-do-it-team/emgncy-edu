@@ -1,0 +1,136 @@
+.screen {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  height: calc(100dvh - var(--app-shell-header-height, 0px) - 2 * var(--mantine-spacing-md));
+  min-height: 480px;
+  background: var(--mantine-color-white);
+  border: 1px solid var(--mantine-color-povLine-6);
+}
+
+.listColumn {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--mantine-color-povLine-6);
+}
+
+.attemptsColumn {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.sectionBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  background: var(--pov-section);
+}
+
+.sectionTitle {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.sectionHint {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--mantine-color-povDark2-6);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.search {
+  flex: none;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--mantine-color-povLine-6);
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.student {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+  background: var(--mantine-color-white);
+  border: 0;
+  border-left: 3px solid transparent;
+  border-bottom: 1px solid var(--mantine-color-povLine-6);
+  cursor: pointer;
+}
+
+.student:hover {
+  background: var(--mantine-color-povLight-6);
+}
+
+.student:focus-visible {
+  outline: 2px solid var(--mantine-color-povDark-6);
+  outline-offset: -2px;
+}
+
+.studentSelected {
+  background: var(--mantine-color-povLight-6);
+  border-left-color: var(--mantine-color-povDark-6);
+}
+
+.studentName {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.studentMeta {
+  display: block;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--mantine-color-povDark2-6);
+}
+
+.tableScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.numeric {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.reviewableRow {
+  cursor: pointer;
+}
+
+.muted {
+  color: var(--mantine-color-povDark2-6);
+}
+
+.state {
+  padding: 12px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.stateHint {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--mantine-color-povDark2-6);
+}

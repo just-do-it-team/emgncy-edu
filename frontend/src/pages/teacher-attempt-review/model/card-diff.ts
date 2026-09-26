@@ -12,7 +12,7 @@ import {
   type ResponseStatusEntry,
   type SelectedFeature,
 } from "@/entities/attempt";
-import { charSpans, type CharSpan } from "./char-diff";
+import { charSpans, type CharSpan } from "@/shared/lib";
 
 export interface DiffRow {
   field: string;

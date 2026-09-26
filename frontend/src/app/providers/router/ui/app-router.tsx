@@ -16,6 +16,8 @@ import { TeacherGroupsPage } from "@/pages/teacher-groups";
 import { TeacherAnalyticsPage } from "@/pages/teacher-analytics";
 import { TeacherMaterialsPage } from "@/pages/teacher-materials";
 import { TeacherAttemptReviewPage } from "@/pages/teacher-attempt-review";
+import { TeacherSessionReviewPage } from "@/pages/teacher-session-review";
+import { TeacherStudentResultsPage } from "@/pages/teacher-student-results";
 import { StudentOverviewPage } from "@/pages/student-overview";
 import { StudentResultsPage } from "@/pages/student-results";
 import { useSessionExpiry, useSessionStore, type UserRole } from "@/entities/session";
@@ -34,11 +36,7 @@ const AppRouter: FC = () => {
       <Navigate
         replace
         to={homePath}
-        state={
-          role === null && location.pathname === "/student/arm"
-            ? { returnTo: location.pathname + location.search }
-            : undefined
-        }
+        state={role === null ? { returnTo: location.pathname + location.search } : undefined}
       />
     );
 
@@ -89,8 +87,10 @@ const AppRouter: FC = () => {
           <Route path="scenarios" element={<TeacherScenariosPage />} />
           <Route path="scenarios/:scenarioId" element={<TeacherScenarioCardPage />} />
           <Route path="groups" element={<TeacherGroupsPage />} />
+          <Route path="students" element={<TeacherStudentResultsPage />} />
           <Route path="analytics" element={<TeacherAnalyticsPage />} />
           <Route path="materials" element={<TeacherMaterialsPage />} />
+          <Route path="attempts/:sessionId/review" element={<TeacherSessionReviewPage />} />
           <Route path="*" element={<Navigate replace to={RouteNames.TEACHER} />} />
         </Route>
 
