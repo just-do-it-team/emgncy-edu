@@ -214,7 +214,7 @@ Content-Type: application/json
    POST /api/v1/card-services/{cardServiceId}/statuses
    Content-Type: application/json
 
-   {"status":"RESPONSE_STARTED","expected_card_version":4,"occurred_at":"2026-09-21T10:02:00Z","author_id":"student-uuid","comment":"Расчёт выехал","request_id":"status-uuid"}
+   {"status":"RESPONSE_STARTED","expected_card_version":4,"occurred_at":"2026-09-21T10:02:00Z","author_id":"student-uuid","comment":"Расчёт выехал","unit_number":"АЦ-12","request_id":"status-uuid"}
    ```
 
    Далее допустимы переходы `ARRIVED` → `WORK_IN_PROGRESS` →

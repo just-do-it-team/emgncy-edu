@@ -1957,8 +1957,13 @@ class SimulationApplicationService:
                         }
                     )
                 for index, expected_change in enumerate(expected_changes):
+                    evaluated_change = {
+                        key: value
+                        for key, value in expected_change.items()
+                        if key != "unit_number"
+                    }
                     checks += self._compare_expected(
-                        expected_change,
+                        evaluated_change,
                         actual_changes[index] if index < len(actual_changes) else None,
                         f"service_status_history.{service_code}.{index}",
                         discrepancies,

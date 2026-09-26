@@ -397,6 +397,7 @@ class ServiceStatusHistory(Base):
         ForeignKey("source_system.id", ondelete="RESTRICT")
     )
     comment: Mapped[str | None] = mapped_column(Text)
+    unit_number: Mapped[str | None] = mapped_column(String(64))
     external_event_id: Mapped[str | None] = mapped_column(String(255))
 
 

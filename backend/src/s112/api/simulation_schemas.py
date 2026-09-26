@@ -36,7 +36,10 @@ class ExpectedCardState(BaseModel):
     classification: OperatorClassification
     description: str
     questionnaire: CardQuestionnaire | None = None
+    applicant_full_name: str | None = Field(default=None, max_length=255)
     automatic_phone_number: str | None = Field(default=None, max_length=64)
+    provided_phone_number: str | None = Field(default=None, max_length=64)
+    location_phone_number: str | None = Field(default=None, max_length=64)
     reported_address: str | None = None
     incident_address: str | None = None
     victims_count: int | None = Field(default=None, ge=0)
@@ -68,10 +71,11 @@ class ExpectedServiceStatusChange(BaseModel):
 
     status: ServiceResponseStatus
     comment: str | None = Field(default=None, max_length=10_000)
+    unit_number: str | None = Field(default=None, max_length=64)
 
-    @field_validator("comment")
+    @field_validator("comment", "unit_number")
     @classmethod
-    def normalize_comment(cls, value: str | None) -> str | None:
+    def normalize_optional_text(cls, value: str | None) -> str | None:
         if value is None:
             return None
         normalized = value.strip()

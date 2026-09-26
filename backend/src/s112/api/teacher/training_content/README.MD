@@ -91,7 +91,10 @@ type ExpectedCard = {
   classification: Classification;
   description: string;
   questionnaire: Questionnaire | null;
+  applicant_full_name: string | null;
   automatic_phone_number: string | null;
+  provided_phone_number: string | null;
+  location_phone_number: string | null;
   reported_address: string | null;
   incident_address: string | null;
   victims_count: number | null;
@@ -108,6 +111,7 @@ type OutboundCall = {
 type ExpectedServiceStatusChange = {
   status: ServiceResponseStatus;
   comment: string | null;
+  unit_number: string | null; // номер реагирующего подразделения, максимум 64 символа
 };
 
 type ExpectedResult = {
@@ -179,6 +183,13 @@ type IncomingCallTemplateCreate = {
   сама по себе не озвучивается после ответа на звонок;
 - достоверные обстоятельства происшествия задаются в `expected_result.card`;
   dialogue worker передаёт этот эталонный объект модели как закрытый контекст;
+- ФИО заявителя, названный им номер для обратной связи и телефон по месту
+  происшествия задаются только в `expected_result.card` полями
+  `applicant_full_name`, `provided_phone_number` и `location_phone_number`.
+  Эти поля не входят в `initial_call` и становятся известны обучаемому только
+  из голосовых ответов модели; после разговора обучаемый переносит их в карточку;
+- `initial_call.automatic_phone_number` — отображаемый оператору АОН. Он не
+  заменяет номера, которые заявитель сообщает голосом;
 - разговор и формулировки вопросов обучаемого не оцениваются — оценивается
   только созданная по итогам разговора карточка;
 - `outbound_call` для входящего звонка не передаётся: используйте `null` или
@@ -252,6 +263,8 @@ type CardTemplateCreate = {
 - длина `expected_text` — `1..10000` символов после удаления пробелов по краям;
 - длина каждого комментария — не более `10000` символов; пустая строка после
   `trim` сохраняется как `null`;
+- `unit_number` — номер назначенного расчёта, экипажа или бригады длиной до
+  `64` символов. Поле может быть `null`, например до начала реагирования;
 - `service_status_history` задаёт точный ожидаемый порядок изменений статуса и
   комментарии оператора;
 - множество ключей `service_status_history` должно в точности совпадать с
@@ -260,6 +273,7 @@ type CardTemplateCreate = {
 - последний статус истории службы должен совпадать со значением
   `expected_result.card.service_statuses[serviceCode]`;
 - при оценке сравниваются порядок, статус и точный текст комментария;
+  `unit_number` сохраняется в истории, но на оценку не влияет;
 - для сценария одной ДДС в `services`, `service_statuses` и
   `service_status_history` должен присутствовать только код этой ДДС.
 
