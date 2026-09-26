@@ -87,7 +87,10 @@ async def list_incoming_calls(
         and member.position_code is not None
     ):
         raise HTTPException(status_code=403, detail="Operator 112 access is required")
-    statement = select(TrainingCall).where(TrainingCall.training_session_id == session_id)
+    statement = select(TrainingCall).where(
+        TrainingCall.training_session_id == session_id,
+        TrainingCall.direction == "INBOUND",
+    )
     if member.member_role == WorkspaceMemberRole.PARTICIPANT.value:
         statement = statement.where(
             or_(

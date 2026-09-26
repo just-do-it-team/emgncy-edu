@@ -1160,6 +1160,18 @@ class TrainingCallResponse(OrmModel):
     last_error: str | None
 
 
+class OutgoingCallResponse(OrmModel):
+    id: uuid.UUID
+    training_session_id: uuid.UUID
+    workspace_id: uuid.UUID
+    incident_card_id: uuid.UUID
+    direction: Literal["OUTBOUND"]
+    status: str
+    operator_user_id: uuid.UUID
+    answered_at: datetime
+    completed_at: datetime | None
+
+
 class CallTranscriptUtterance(BaseModel):
     id: uuid.UUID
     speaker: Literal["OPERATOR", "CALLER", "RESPONSE_LEAD"]

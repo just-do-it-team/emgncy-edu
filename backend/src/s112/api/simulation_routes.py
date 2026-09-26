@@ -16,6 +16,7 @@ from s112.api.common.training.session_data import router as session_data_router
 from s112.api.student.assigned_scenarios.api import router as assigned_scenarios_router
 from s112.api.student.audio_messages.api import router as audio_messages_router
 from s112.api.student.incoming_calls.api import router as incoming_calls_router
+from s112.api.student.outgoing_calls.api import router as outgoing_calls_router
 from s112.api.student.scenario_session.api import router as scenario_session_router
 from s112.api.student.training_history.api import router as student_history_router
 from s112.api.teacher.active_sessions.api import router as active_sessions_router
@@ -38,6 +39,7 @@ router.include_router(call_recording_router)
 router.include_router(scenario_session_router)
 router.include_router(audio_messages_router)
 router.include_router(incoming_calls_router)
+router.include_router(outgoing_calls_router)
 
 
 __all__ = [

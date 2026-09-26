@@ -1006,6 +1006,13 @@ class TrainingCall(Base):
         ),
         Index("ix_training_call_due", "status", "scheduled_at"),
         Index("ix_training_call_workspace", "workspace_id", "status"),
+        Index(
+            "uq_training_call_outgoing_card",
+            "incident_card_id",
+            unique=True,
+            postgresql_where=text("direction = 'OUTBOUND'"),
+            sqlite_where=text("direction = 'OUTBOUND'"),
+        ),
         CheckConstraint("direction IN ('INBOUND', 'OUTBOUND')", name="direction_valid"),
     )
 
@@ -1039,7 +1046,7 @@ class TrainingCall(Base):
         String(32), nullable=False, default=TrainingCallStatus.PENDING.value
     )
     incident_card_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("incident_card.id", ondelete="SET NULL"), unique=True
+        ForeignKey("incident_card.id", ondelete="SET NULL")
     )
     ringing_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

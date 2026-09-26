@@ -112,6 +112,7 @@ class AudioMessageService:
         lock_session: bool = False,
         require_active: bool = True,
         require_active_call: bool = True,
+        call_direction: str = "INBOUND",
     ) -> tuple[SimulationWorkspace, TrainingSession, TrainingCall]:
         workspace = await session.get(SimulationWorkspace, workspace_id)
         if workspace is None or workspace.training_session_id is None:
@@ -123,10 +124,9 @@ class AudioMessageService:
             or member.left_at is not None
             or member.member_role != WorkspaceMemberRole.PARTICIPANT.value
         ):
+            if call_direction == "OUTBOUND":
+                raise NotFoundError("Outgoing call not found")
             raise ValidationError("Active student workspace membership is required")
-
-        if member.position_code is not None:
-            raise ValidationError("Operator 112 access is required for incoming calls")
 
         session_statement = select(TrainingSession).where(
             TrainingSession.id == workspace.training_session_id
@@ -145,13 +145,40 @@ class AudioMessageService:
             )
         )
         if training_call is None:
-            raise NotFoundError("Incoming call not found")
+            raise NotFoundError("Training call not found")
+        if training_call.direction != call_direction:
+            raise NotFoundError("Training call not found")
+        if call_direction == "OUTBOUND":
+            if member.position_code is None:
+                raise NotFoundError("Outgoing call not found")
+            if training_call.operator_user_id != user_id:
+                raise NotFoundError("Outgoing call not found")
+            visible_service = await session.scalar(
+                select(CardService.id)
+                .join(EmergencyService, EmergencyService.id == CardService.service_id)
+                .where(
+                    CardService.card_id == training_call.incident_card_id,
+                    CardService.is_active.is_(True),
+                    EmergencyService.code == member.position_code,
+                    EmergencyService.is_active.is_(True),
+                )
+                .limit(1)
+            )
+            if visible_service is None:
+                raise NotFoundError("Outgoing call not found")
+        else:
+            if member.position_code is not None:
+                raise ValidationError("Operator 112 access is required for incoming calls")
+            if training_call.assigned_operator_user_id not in {None, user_id}:
+                raise NotFoundError("Incoming call not found")
+            if training_call.operator_user_id not in {None, user_id}:
+                raise NotFoundError("Incoming call not found")
         if (
             require_active_call
             and training_call.status != TrainingCallStatus.ACTIVE.value
         ):
-            raise ConflictError("Audio can be sent only during an active incoming call")
-        if require_active_call and training_call.operator_user_id != user_id:
+            raise ConflictError("Audio can be sent only during an active call")
+        if call_direction == "INBOUND" and require_active_call and training_call.operator_user_id != user_id:
             raise ConflictError("Only the answering operator can speak in this call")
         if require_active:
             self.assert_context_active(workspace, training_session)
@@ -320,6 +347,7 @@ class AudioMessageService:
         idempotency_key: str,
         stored: StoredAudioObject,
         client_sent_at: datetime | None,
+        call_direction: str = "INBOUND",
     ) -> tuple[AudioMessage, bool]:
         workspace, training_session, training_call = await self.validate_call_context(
             session,
@@ -328,6 +356,8 @@ class AudioMessageService:
             user_id=user_id,
             lock_session=True,
             require_active=False,
+            require_active_call=False,
+            call_direction=call_direction,
         )
         replay = await self.find_replay(
             session,
@@ -343,6 +373,14 @@ class AudioMessageService:
                 direction=AudioMessageDirection.OUTBOUND.value,
             )
             return replay, True
+        await self.validate_call_context(
+            session,
+            workspace_id=workspace_id,
+            call_id=call_id,
+            user_id=user_id,
+            call_direction=call_direction,
+            require_active=False,
+        )
         self.assert_context_active(workspace, training_session)
 
         latest = await session.scalar(
@@ -550,6 +588,7 @@ class AudioMessageService:
         workspace_id: uuid.UUID,
         call_id: uuid.UUID,
         user_id: uuid.UUID,
+        call_direction: str = "INBOUND",
     ) -> list[AudioMessage]:
         await self.validate_call_context(
             session,
@@ -558,6 +597,7 @@ class AudioMessageService:
             user_id=user_id,
             require_active=False,
             require_active_call=False,
+            call_direction=call_direction,
         )
         return list(
             await session.scalars(
