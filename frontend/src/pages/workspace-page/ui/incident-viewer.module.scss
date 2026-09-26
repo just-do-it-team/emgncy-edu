@@ -1,11 +1,3 @@
-.modalContent {
-  background: var(--pov-card-bg);
-}
-
-.modalBody {
-  padding: 0;
-}
-
 .viewer {
   display: flex;
   flex-direction: column;
@@ -15,6 +7,66 @@
   color: var(--pov-card-text);
   font-size: 15px;
   line-height: 1.2;
+
+  &[data-dds] {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+    overflow: hidden;
+
+    .canvas {
+      min-height: 0;
+      overflow: auto;
+      scrollbar-width: none;
+
+      &::-webkit-scrollbar {
+        display: none;
+      }
+    }
+
+    .footer {
+      position: relative;
+      flex: 0 0 80px;
+      min-width: 0;
+    }
+
+    .services {
+      flex: 1;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
+
+      &::-webkit-scrollbar {
+        display: none;
+      }
+    }
+
+    .service {
+      flex: 0 0 130px;
+      width: 130px;
+    }
+
+    .serviceContent {
+      width: 100%;
+      gap: 2px;
+    }
+
+    .serviceName {
+      max-width: 100%;
+      overflow: hidden;
+      font-size: 13px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .serviceStatus {
+      width: 100%;
+      font-size: 11px;
+      line-height: 12px;
+      overflow-wrap: anywhere;
+      white-space: normal;
+    }
+  }
 }
 
 .canvas {

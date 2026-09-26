@@ -183,6 +183,27 @@
     top: 14px;
   }
 }
+
+.header[data-dds] {
+  grid-template-columns: minmax(0, 1fr) 430px;
+  min-height: 127px;
+
+  .searchPanel {
+    padding-top: 7px;
+    padding-bottom: 18px;
+  }
+
+  .accountTop {
+    height: 85px;
+    padding-top: 15px;
+  }
+
+  .clock {
+    top: 5px;
+    font-size: 60px;
+  }
+}
+
 .connection {
   position: absolute;
   left: 300px;
@@ -263,6 +284,17 @@
     }
   }
 }
+
+@media (max-width: 900px) {
+  .header[data-dds] {
+    grid-template-columns: 1fr;
+
+    .accountPanel {
+      grid-row: 1;
+    }
+  }
+}
+
 @media (max-width: 650px) {
   .header[data-operator] {
     grid-template-columns: minmax(0, 1fr);

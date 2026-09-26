@@ -15,6 +15,7 @@ import {
   useInfiniteQuery,
   useQuery,
   useQueryClient,
+  useQueries,
 } from "@tanstack/react-query";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useSessionStore } from "@/entities/session";
@@ -26,6 +27,7 @@ import {
   notifyTrainingError,
   trainingApi,
   type CardListItem,
+  type ApiCard,
   type LaunchContext,
   type TrainingSession,
 } from "@/entities/training";
@@ -222,6 +224,34 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     );
     return cardItems.filter((card) => completedCardIds.has(card.card_id));
   }, [cardItems, calls.data, ctx.mode]);
+  const cardsNeedingDetails =
+    ctx.mode === "DDS" ? visibleCards.filter((card) => !card.description) : [];
+  const ddsCardDetails = useQueries({
+    queries: cardsNeedingDetails.map((card) => ({
+      queryKey: [...baseKey, "card", card.card_id],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        trainingApi.card(ctx, card.card_id, signal),
+      refetchOnWindowFocus: false,
+      meta: { showGlobalError: false },
+    })),
+  });
+  const detailsById = new Map<string, ApiCard>();
+  cardsNeedingDetails.forEach((card, index) => {
+    const details = ddsCardDetails[index]?.data;
+    if (details) detailsById.set(card.card_id, details);
+  });
+  const selectedCardItem = visibleCards.find(
+    (card) => card.card_id === selectedId,
+  );
+  const selectedSummary =
+    ctx.mode === "DDS" && selectedCardItem
+      ? listIncident(
+          selectedCardItem,
+          [],
+          ctx.positionCode,
+          detailsById.get(selectedCardItem.card_id),
+        )
+      : undefined;
   const reference = useQuery({
     queryKey: ["student-api", "reference", ctx.mode],
     queryFn: async ({ signal }) => {
@@ -434,12 +464,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     if (canComplete) setFinishOpen(false);
   }, [canComplete]);
   return (
-    <div
-      className={classes.page}
-      data-operator-editing={
-        ctx.mode === "ARM112" && editingCard ? true : undefined
-      }
-    >
+    <div className={classes.page} data-card-open={editingCard || undefined}>
       <Modal
         opened={finishOpen}
         onClose={() => setFinishOpen(false)}
@@ -568,8 +593,9 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
         <WorkspaceHeader
           role="student"
           operatorMode={ctx.mode === "ARM112"}
+          ddsMode={ctx.mode === "DDS"}
           onCreateCard={
-            canCreateCallCard
+            canCreateCallCard && !editingCard
               ? () => setOpenCardRequest((value) => value + 1)
               : undefined
           }
@@ -595,7 +621,12 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
             incidents={[
               ...(callDraft ? [callDraft.incident] : []),
               ...visibleCards.map((c) =>
-                listIncident(c, reference.data?.kinds ?? [], ctx.positionCode),
+                listIncident(
+                  c,
+                  reference.data?.kinds ?? [],
+                  ctx.positionCode,
+                  detailsById.get(c.card_id),
+                ),
               ),
             ]}
             operatorMode={ctx.mode === "ARM112"}
@@ -640,6 +671,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
           kinds={reference.data.kinds}
           directory={reference.data.services}
           readOnly={!active || exiting || reference.isError}
+          summary={selectedSummary}
           onClose={() => setSelectedId(null)}
           onChanged={refresh}
         />

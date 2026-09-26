@@ -1,0 +1,73 @@
+.tiles {
+  min-width: 0;
+  width: max-content;
+  flex-shrink: 0;
+}
+
+.tile {
+  :global(.mantine-Button-label) {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+  }
+}
+
+.historyPanel {
+  max-width: calc(100vw - 20px);
+  border: 0;
+  border-radius: 0;
+  background: var(--mantine-color-povBlue-6);
+  color: var(--mantine-color-white);
+}
+
+.historyList {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.historyEntry {
+  display: grid;
+  grid-template-columns: 145px 1fr;
+  gap: 4px 12px;
+  padding: 7px 0;
+  border-top: 1px solid rgb(255 255 255 / 28%);
+  font-size: 12px;
+
+  > span {
+    grid-column: 2;
+    overflow-wrap: anywhere;
+  }
+}
+
+.editorInner {
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding-bottom: 95px;
+  padding-left: clamp(15px, 6vw, 125px);
+}
+
+.editorContent {
+  margin: 0;
+  border-radius: 0;
+}
+
+.editorFields {
+  display: grid;
+  grid-template-columns:
+    minmax(160px, 1.1fr) minmax(120px, 1fr) minmax(200px, 1.4fr)
+    auto;
+  gap: 10px;
+  align-items: end;
+}
+
+@media (max-width: 750px) {
+  .editorInner {
+    padding: 12px;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .editorFields {
+    grid-template-columns: 1fr;
+  }
+}
