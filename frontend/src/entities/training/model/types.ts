@@ -149,6 +149,14 @@ export interface IncomingCall {
   answered_at: string | null;
   completed_at: string | null;
 }
+export interface OutgoingCall {
+  id: string;
+  direction: "OUTBOUND";
+  status: string;
+  incident_card_id: string;
+  answered_at: string | null;
+  completed_at: string | null;
+}
 export interface CardCreate extends CardPatch {
   classification: OperatorClassification;
 }

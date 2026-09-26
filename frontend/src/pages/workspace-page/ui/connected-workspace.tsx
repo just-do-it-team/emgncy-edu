@@ -36,6 +36,7 @@ import { listIncident } from "../model/api-card-adapter";
 import type { OperatorCardEntry } from "../model/operator-cards";
 import { ConnectedCard } from "./connected-card";
 import { IncomingCalls } from "./incoming-calls";
+import { OutgoingCalls } from "./outgoing-calls";
 import { useWorkspaceEvents } from "./use-workspace-events";
 import { useTrainingPresence } from "./use-training-presence";
 import classes from "./workspace-page.module.scss";
@@ -497,8 +498,11 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
           </Group>
         </Stack>
       </Modal>
-      <Group justify="space-between" className={classes.trainingBar}>
-        <Group>
+      <Group
+        justify="space-between"
+        className={`${classes.trainingBar} ${classes.liveTrainingBar}`}
+      >
+        <Group className={classes.trainingLeft}>
           <Button
             size="lg"
             color={
@@ -514,10 +518,22 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
           >
             Завершить занятие
           </Button>
-          <Text fw={600}>{ctx.title}</Text>
+          <Text fw={600} className={classes.trainingTitle}>
+            {ctx.title}
+          </Text>
         </Group>
-        <div id="workspace-call-controls" className={classes.callControlSlot} />
-        <Group>
+        <div id="workspace-call-controls" className={classes.callControlSlot}>
+          {ctx.mode === "DDS" && (
+            <OutgoingCalls
+              ctx={ctx}
+              cardId={selectedId}
+              active={active && !exiting}
+              onChanged={refresh}
+              onBusyChange={setCallBusy}
+            />
+          )}
+        </div>
+        <Group className={classes.trainingRight}>
           <Badge>
             {ctx.mode === "DDS"
               ? `ДДС · ${ctx.positionCode ?? "служба не назначена"}`

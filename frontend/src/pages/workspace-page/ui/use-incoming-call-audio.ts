@@ -14,21 +14,31 @@ export function useIncomingCallAudio(
   ctx: LaunchContext,
   callId: string | null,
   active: boolean,
+  interlocutor = "заявителя",
+  speaker = "заявитель",
 ) {
   const [status, setStatus] = useState("Подключение микрофона…");
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
-  const pendingUpload = useRef<{ blob: Blob; key: string } | null>(null);
+  const pendingUpload = useRef<{
+    blob: Blob;
+    key: string;
+    callId: string;
+  } | null>(null);
   const terminalSpeech = useRef<string | null>(null);
+  const playedGreeting = useRef<string | null>(null);
 
   useEffect(() => {
     if (!callId || !active) return;
+    setError(null);
+    setStatus("Подключение микрофона…");
     let disposed = false;
     let stream: MediaStream | null = null;
     let context: AudioContext | null = null;
     let analyser: AnalyserNode | null = null;
     let recorder: MediaRecorder | null = null;
     let monitor: number | null = null;
+    let greetingPoll: number | null = null;
     let audio: HTMLAudioElement | null = null;
     let objectUrl: string | null = null;
     let silenceSince: number | null = null;
@@ -40,6 +50,8 @@ export function useIncomingCallAudio(
     let nextSegment = 1;
     let lastFailure: string | null = null;
     let playing = false;
+    let greetingBusy = false;
+    let greetingFailed = false;
     const segments = new Map<number, TtsSegment>();
     const mimeType =
       typeof MediaRecorder === "undefined"
@@ -48,6 +60,8 @@ export function useIncomingCallAudio(
 
     function fail(message: string) {
       if (!disposed) {
+        if (ctx.mode === "DDS" && playedGreeting.current !== callId)
+          greetingFailed = true;
         if (lastFailure !== message) {
           lastFailure = message;
           notifyTrainingError(new Error(message));
@@ -67,6 +81,7 @@ export function useIncomingCallAudio(
         disposed ||
         !stream ||
         !mimeType ||
+        (ctx.mode === "DDS" && playedGreeting.current !== callId) ||
         waitingId ||
         recorder?.state === "recording"
       )
@@ -91,7 +106,7 @@ export function useIncomingCallAudio(
 
     async function send(blob: Blob, key: string) {
       if (!callId || disposed) return;
-      pendingUpload.current = { blob, key };
+      pendingUpload.current = { blob, key, callId };
       setStatus("Отправка реплики…");
       try {
         const message = await trainingApi.uploadCallAudio(
@@ -108,7 +123,7 @@ export function useIncomingCallAudio(
         segments.clear();
         setError(null);
         lastFailure = null;
-        setStatus("Ожидание ответа заявителя…");
+        setStatus(`Ожидание ответа ${interlocutor}…`);
         await sync();
       } catch (cause) {
         fail(
@@ -117,12 +132,11 @@ export function useIncomingCallAudio(
       }
     }
 
-    async function playSegment(segment: TtsSegment) {
-      const blob = await trainingApi.ttsSegmentContent(ctx.userId, segment.id);
+    async function playAudio(blob: Blob) {
       if (disposed) return;
       objectUrl = URL.createObjectURL(blob);
       audio = new Audio(objectUrl);
-      setStatus("Говорит заявитель…");
+      setStatus(`Говорит ${speaker}…`);
       try {
         const finished = new Promise<void>((resolve, reject) => {
           if (!audio) return reject(new Error("Аудио недоступно"));
@@ -137,6 +151,11 @@ export function useIncomingCallAudio(
         if (objectUrl) URL.revokeObjectURL(objectUrl);
         objectUrl = null;
       }
+    }
+
+    async function playSegment(segment: TtsSegment) {
+      const blob = await trainingApi.ttsSegmentContent(ctx.userId, segment.id);
+      await playAudio(blob);
     }
 
     async function pump() {
@@ -170,9 +189,83 @@ export function useIncomingCallAudio(
 
     async function sync() {
       if (!callId || disposed) return;
+      if (
+        ctx.mode === "DDS" &&
+        greetingFailed &&
+        playedGreeting.current !== callId
+      )
+        return;
       try {
         const messages = await trainingApi.callAudioMessages(ctx, callId);
         if (disposed) return;
+        if (
+          ctx.mode === "DDS" &&
+          playedGreeting.current !== callId &&
+          !greetingFailed
+        ) {
+          if (greetingBusy) return;
+          greetingBusy = true;
+          try {
+            const greeting = messages.find(
+              (item) => item.kind === "TTS" && !item.reply_to_message_id,
+            );
+            if (!greeting) {
+              setStatus("Ожидание ответа бригады…");
+              return;
+            }
+            if (
+              greeting.status === "FAILED" ||
+              greeting.generation_status === "FAILED"
+            ) {
+              fail(greeting.last_error ?? "Не удалось получить ответ бригады.");
+              return;
+            }
+            const count = greeting.final_segment_count ?? 0;
+            if (greeting.generation_status === "COMPLETED" && count > 0) {
+              const available = await trainingApi.ttsSegments(
+                ctx.userId,
+                greeting.id,
+              );
+              if (disposed) return;
+              const failedSegment = available.find(
+                (segment) => segment.status === "FAILED",
+              );
+              if (failedSegment) {
+                fail(
+                  failedSegment.last_error ??
+                    "Не удалось озвучить ответ бригады.",
+                );
+                return;
+              }
+              const ordered = Array.from({ length: count }, (_, index) =>
+                available.find((segment) => segment.segment_no === index + 1),
+              );
+              if (ordered.some((segment) => segment?.status !== "COMPLETED")) {
+                setStatus("Ожидание ответа бригады…");
+                return;
+              }
+              for (const segment of ordered) {
+                await playSegment(segment!);
+                if (disposed) return;
+              }
+            } else if (
+              greeting.status === "COMPLETED" &&
+              greeting.content_url
+            ) {
+              await playAudio(
+                await trainingApi.audioContent(ctx.userId, greeting.id),
+              );
+              if (disposed) return;
+            } else {
+              setStatus("Ожидание ответа бригады…");
+              return;
+            }
+            playedGreeting.current = callId;
+            if (greetingPoll !== null) window.clearInterval(greetingPoll);
+          } finally {
+            greetingBusy = false;
+          }
+        }
         const lastSpeech = [...messages]
           .reverse()
           .find((item) => item.kind === "STT");
@@ -188,7 +281,7 @@ export function useIncomingCallAudio(
           startRecording();
           return;
         }
-        setStatus("Ожидание ответа заявителя…");
+        setStatus(`Ожидание ответа ${interlocutor}…`);
         const response = messages.find(
           (item) => item.reply_to_message_id === waitingId,
         );
@@ -202,7 +295,7 @@ export function useIncomingCallAudio(
         if (!response) return;
         if (response.generation_status === "FAILED") {
           failReply(
-            response.last_error ?? "Не удалось получить ответ заявителя.",
+            response.last_error ?? `Не удалось получить ответ ${interlocutor}.`,
           );
           return;
         }
@@ -218,7 +311,8 @@ export function useIncomingCallAudio(
             segments.set(segment.segment_no, segment);
           if (segment.status === "FAILED") {
             failReply(
-              segment.last_error ?? "Не удалось озвучить ответ заявителя.",
+              segment.last_error ??
+                `Не удалось озвучить ответ ${interlocutor}.`,
             );
             return;
           }
@@ -237,7 +331,19 @@ export function useIncomingCallAudio(
         return;
       }
       const data = detail.data;
-      if (!data || data.training_call_id !== callId || !waitingId) return;
+      if (!data || data.training_call_id !== callId) return;
+      if (ctx.mode === "DDS" && playedGreeting.current !== callId) {
+        if (
+          detail.type === "training.tts_completed" ||
+          detail.type === "training.tts_segment_ready" ||
+          detail.type === "training.tts_segment_failed" ||
+          detail.type === "training.dialogue_finished" ||
+          detail.type === "training.dialogue_failed"
+        )
+          void sync();
+        return;
+      }
+      if (!waitingId) return;
       if (
         detail.type === "training.audio_processing_failed" &&
         data.audio_message_id === waitingId
@@ -250,7 +356,7 @@ export function useIncomingCallAudio(
         detail.type === "training.dialogue_failed" ||
         detail.type === "training.tts_segment_failed"
       ) {
-        failReply("Не удалось получить голосовой ответ заявителя.");
+        failReply(`Не удалось получить голосовой ответ ${interlocutor}.`);
         return;
       }
       if (detail.type === "training.tts_segment_ready") {
@@ -311,11 +417,22 @@ export function useIncomingCallAudio(
             if (Date.now() - silenceSince >= silenceMs) recorder.stop();
           }
         }, 60);
-        if (pendingUpload.current) {
+        if (pendingUpload.current?.callId === callId) {
           const { blob, key } = pendingUpload.current;
           await send(blob, key);
         } else {
+          pendingUpload.current = null;
           await sync();
+        }
+        if (ctx.mode === "DDS" && playedGreeting.current !== callId) {
+          greetingPoll = window.setInterval(() => {
+            if (
+              playedGreeting.current !== callId &&
+              !greetingBusy &&
+              !greetingFailed
+            )
+              void sync();
+          }, 1500);
         }
       } catch (cause) {
         fail(
@@ -332,13 +449,14 @@ export function useIncomingCallAudio(
       disposed = true;
       window.removeEventListener(callAudioEventName, onEvent);
       if (monitor !== null) window.clearInterval(monitor);
+      if (greetingPoll !== null) window.clearInterval(greetingPoll);
       if (recorder?.state === "recording") recorder.stop();
       audio?.pause();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       stream?.getTracks().forEach((track) => track.stop());
       void context?.close();
     };
-  }, [active, callId, ctx, retry]);
+  }, [active, callId, ctx, interlocutor, retry, speaker]);
 
   return {
     status,

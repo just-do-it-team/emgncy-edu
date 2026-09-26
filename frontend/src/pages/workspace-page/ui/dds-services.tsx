@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  ActionIcon,
   Alert,
   Button,
   Group,
@@ -11,7 +12,14 @@ import {
   TextInput,
 } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronUp, Pencil, X } from "lucide-react";
+import {
+  Check,
+  ChevronRight,
+  ChevronUp,
+  ChevronsUpDown,
+  Pencil,
+  X,
+} from "lucide-react";
 import {
   allowedServiceStatuses,
   apiError,
@@ -63,32 +71,61 @@ export function DdsServices({
   const services = card.services.filter(
     (service) => service.is_active && service.is_visible,
   );
+  const [expanded, setExpanded] = useState(false);
   if (services.length === 0) return <Text size="sm">Службы не назначены</Text>;
+  const renderService = (service: CardService) => (
+    <DdsService
+      key={service.id}
+      primary={services[0].id === service.id}
+      ctx={ctx}
+      service={service}
+      info={directory.find((item) => item.id === service.service_id)}
+      readOnly={readOnly}
+      onStatus={onStatus}
+    />
+  );
   return (
-    <Group gap={0} wrap="nowrap" className={classes.tiles}>
-      {services.map((service) => (
-        <DdsService
-          key={service.id}
-          ctx={ctx}
-          service={service}
-          info={directory.find((item) => item.id === service.service_id)}
-          readOnly={readOnly}
-          onStatus={onStatus}
-        />
-      ))}
-    </Group>
+    <div className={classes.serviceArea}>
+      <div
+        className={`${classes.serviceViewport} ${expanded ? classes.expanded : ""}`}
+      >
+        <div className={classes.tiles}>
+          {expanded && (
+            <div className={classes.serviceRow}>
+              {services.slice(8).map(renderService)}
+            </div>
+          )}
+          <div className={classes.serviceRow}>
+            {services.slice(0, 8).map(renderService)}
+          </div>
+        </div>
+        {services.length > 8 && (
+          <ActionIcon
+            className={classes.expandButton}
+            variant="outline"
+            aria-label={expanded ? "Свернуть службы" : "Показать все службы"}
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
+          >
+            <ChevronsUpDown size={22} />
+          </ActionIcon>
+        )}
+      </div>
+    </div>
   );
 }
 
 function DdsService({
   ctx,
   service,
+  primary,
   info,
   readOnly,
   onStatus,
 }: {
   ctx: LaunchContext;
   service: CardService;
+  primary: boolean;
   info?: EmergencyService;
   readOnly: boolean;
   onStatus: Props["onStatus"];
@@ -144,6 +181,20 @@ function DdsService({
       : time(currentStatusTime);
   const name = info?.name ?? "Служба";
 
+  function startEditing() {
+    setOpened(false);
+    setError(null);
+    if (!unit) {
+      const previousUnit = history.data
+        ?.slice()
+        .reverse()
+        .find((entry) => entry.comment?.startsWith("Наряд № "))
+        ?.comment?.match(/^Наряд № ([^.]+)/)?.[1];
+      if (previousUnit) setUnit(previousUnit);
+    }
+    setEditing(true);
+  }
+
   async function save() {
     if (
       busy ||
@@ -180,50 +231,57 @@ function DdsService({
         shadow="md"
       >
         <Popover.Target>
-          <Button
-            className={`${viewerClasses.service} ${classes.tile}`}
-            data-highlighted={opened || undefined}
-            aria-label={`${name}: ${statusLabels[service.current_status] ?? service.current_status}`}
-            aria-expanded={opened}
-            onClick={() => setOpened((value) => !value)}
-          >
-            <span className={viewerClasses.serviceContent}>
-              <ChevronUp size={12} aria-hidden="true" />
-              <span className={viewerClasses.serviceName}>{name}</span>
-              <span className={viewerClasses.serviceStatus}>
-                {lastTime}{" "}
-                {statusLabels[service.current_status] ?? service.current_status}
+          <div className={classes.tileShell}>
+            <Button
+              className={`${viewerClasses.service} ${classes.tile}`}
+              data-highlighted={opened || undefined}
+              aria-label={`${name}: ${statusLabels[service.current_status] ?? service.current_status}`}
+              aria-expanded={opened}
+              onClick={() => setOpened((value) => !value)}
+            >
+              <span
+                className={`${viewerClasses.serviceContent} ${classes.tileContent}`}
+              >
+                <ChevronUp size={12} aria-hidden="true" />
+                <span
+                  className={`${viewerClasses.serviceName} ${primary ? classes.primaryName : ""}`}
+                  title={name}
+                >
+                  {name}
+                </span>
+                <span className={viewerClasses.serviceStatus}>
+                  {lastTime}{" "}
+                  {statusLabels[service.current_status] ??
+                    service.current_status}
+                </span>
               </span>
-            </span>
-          </Button>
+            </Button>
+            {options.length > 0 && (
+              <ActionIcon
+                className={classes.editButton}
+                variant="transparent"
+                aria-label={`Изменить статус службы ${name}`}
+                title="Изменить статус"
+                onClick={startEditing}
+              >
+                <Pencil size={14} />
+              </ActionIcon>
+            )}
+          </div>
         </Popover.Target>
         <Popover.Dropdown className={classes.historyPanel}>
           <Group justify="space-between" wrap="nowrap" mb="xs">
             <Text fw={700} size="sm">
               {name}
             </Text>
-            {options.length > 0 && (
-              <Button
-                size="compact-xs"
-                variant="subtle"
-                color="white"
-                leftSection={<Pencil size={14} />}
-                onClick={() => {
-                  setError(null);
-                  if (!unit) {
-                    const previousUnit = history.data
-                      ?.slice()
-                      .reverse()
-                      .find((entry) => entry.comment?.startsWith("Наряд № "))
-                      ?.comment?.match(/^Наряд № ([^.]+)/)?.[1];
-                    if (previousUnit) setUnit(previousUnit);
-                  }
-                  setEditing(true);
-                }}
-              >
-                Изменить статус
-              </Button>
-            )}
+            <ActionIcon
+              variant="transparent"
+              color="white"
+              aria-label="Закрыть историю службы"
+              onClick={() => setOpened(false)}
+            >
+              <X size={16} />
+            </ActionIcon>
           </Group>
           {history.isPending && <Text size="sm">Загрузка истории…</Text>}
           {history.isError && (
@@ -237,13 +295,19 @@ function DdsService({
           <div className={classes.historyList}>
             {history.data?.map((entry) => (
               <div key={entry.id} className={classes.historyEntry}>
-                <time dateTime={entry.occurred_at}>
-                  {dateTime(entry.occurred_at)}
-                </time>
-                <strong>
+                <ChevronRight size={14} aria-hidden="true" />
+                <span>
+                  <time dateTime={entry.occurred_at}>
+                    {dateTime(entry.occurred_at)}
+                  </time>{" "}
                   {statusLabels[entry.status_code] ?? entry.status_code}
-                </strong>
-                {entry.comment && <span>{entry.comment}</span>}
+                </span>
+                {entry.comment && (
+                  <span className={classes.historyComment}>
+                    <ChevronRight size={14} aria-hidden="true" />
+                    {entry.comment}
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -273,13 +337,16 @@ function DdsService({
         classNames={{
           inner: classes.editorInner,
           content: classes.editorContent,
+          body: classes.editorBody,
         }}
+        withCloseButton={false}
         closeOnClickOutside={!busy}
         closeOnEscape={!busy}
         zIndex={1000}
       >
         <div className={classes.editorFields}>
           <Select
+            variant="unstyled"
             aria-label="Статус реагирования"
             placeholder="Статус"
             data={options.map((value) => ({
@@ -292,6 +359,7 @@ function DdsService({
             comboboxProps={{ withinPortal: true, zIndex: 1100 }}
           />
           <TextInput
+            variant="unstyled"
             aria-label="Номер наряда"
             placeholder="Номер наряда"
             value={unit}
@@ -300,6 +368,7 @@ function DdsService({
             disabled={busy}
           />
           <Textarea
+            variant="unstyled"
             aria-label={
               requiresReason
                 ? "Причина отказа"
@@ -323,7 +392,12 @@ function DdsService({
             maxRows={4}
             disabled={busy}
           />
-          <Group gap="xs" wrap="nowrap" align="end">
+          <Group
+            gap={0}
+            wrap="nowrap"
+            align="stretch"
+            className={classes.editorActions}
+          >
             <Button
               aria-label="Сохранить статус"
               title="Сохранить статус"
