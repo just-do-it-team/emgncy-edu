@@ -74,7 +74,8 @@ class Settings(BaseSettings):
     tts_startup_timeout_seconds: float = Field(default=180.0, ge=1.0)
     tts_model_path: str = "/models/Qwen3-TTS-12Hz-0.6B-Base-Q8_0.gguf"
     tts_mmproj_path: str = "/models/mmproj-Qwen3-TTS-12Hz-0.6B-Base-F16.gguf"
-    tts_reference_audio_path: str = "/models/reference.wav"
+    tts_references_dir: str = "/models/refs"
+    tts_default_voice_id: str = "reference.mp3"
     tts_language: str = "ru"
     tts_timeout_seconds: float = Field(default=180.0, ge=1.0)
     tts_gpu_layers: int = 99

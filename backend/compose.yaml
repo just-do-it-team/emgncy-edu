@@ -475,7 +475,8 @@ services:
       S112_TTS_WORKER_BINARY: /opt/speech/bin/qwen-tts-worker
       S112_TTS_MODEL_PATH: /models/Qwen3-TTS-12Hz-0.6B-Base-Q8_0.gguf
       S112_TTS_MMPROJ_PATH: /models/mmproj-Qwen3-TTS-12Hz-0.6B-Base-F16.gguf
-      S112_TTS_REFERENCE_AUDIO_PATH: /models/reference.wav
+      S112_TTS_REFERENCES_DIR: /models/refs
+      S112_TTS_DEFAULT_VOICE_ID: ${TTS_DEFAULT_VOICE_ID:-reference.mp3}
       S112_TTS_LANGUAGE: ${S112_TTS_LANGUAGE:-ru}
       S112_TTS_TIMEOUT_SECONDS: ${S112_TTS_TIMEOUT_SECONDS:-180}
       S112_TTS_STARTUP_TIMEOUT_SECONDS: ${S112_TTS_STARTUP_TIMEOUT_SECONDS:-180}
@@ -511,8 +512,8 @@ services:
         bind:
           create_host_path: false
       - type: bind
-        source: ${TTS_REFERENCE_AUDIO_FILE:-./reference.wav}
-        target: /models/reference.wav
+        source: ${TTS_REFS_DIR:-./refs}
+        target: /models/refs
         read_only: true
         bind:
           create_host_path: false

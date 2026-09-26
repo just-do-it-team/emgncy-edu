@@ -21,6 +21,7 @@ from s112.api.simulation_schemas import (
     ExpertAssessmentUpdate,
     ExpectedResult,
     GroupScenarioAssignmentCreate,
+    InitialIncomingCall,
     LearningGroupCreate,
     LearningGroupMembersUpdate,
     LearningGroupUpdate,
@@ -2496,6 +2497,8 @@ class SimulationApplicationService:
                 if isinstance(template, CardTemplate)
                 else None
             )
+            if isinstance(template, IncomingCallTemplate):
+                InitialIncomingCall.model_validate(template.initial_call)
             expected_result = ExpectedResult.model_validate(template.expected_result)
         except PydanticValidationError as exc:
             raise ValidationError(

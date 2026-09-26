@@ -26,6 +26,7 @@ model_gate = asyncio.Lock()
 
 class TTSRequest(BaseModel):
     text: str = Field(min_length=1, max_length=100_000)
+    voice_id: str | None = Field(default=None, min_length=1, max_length=128)
 
     @field_validator("text")
     @classmethod
@@ -89,7 +90,7 @@ async def synthesize(request: TTSRequest) -> Response:
     try:
         async with model_gate:
             audio, sample_rate = await asyncio.to_thread(
-                speech.synthesize, request.text
+                speech.synthesize, request.text, request.voice_id
             )
     except SpeechServiceError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

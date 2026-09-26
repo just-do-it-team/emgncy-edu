@@ -8,10 +8,14 @@
 
 #include <cstdio>
 #include <cstdint>
+#include <cstdlib>
+#include <filesystem>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -22,6 +26,25 @@
 namespace {
 
 constexpr size_t MAX_PROMPT_BYTES = 4 * 1024 * 1024;
+
+bool valid_voice_id(const std::string & value) {
+    if (value.empty() || value.size() > 128) {
+        return false;
+    }
+    const size_t dot = value.rfind('.');
+    if (dot == std::string::npos || dot == 0 ||
+            (value.substr(dot) != ".wav" && value.substr(dot) != ".mp3")) {
+        return false;
+    }
+    for (size_t i = 0; i < dot; ++i) {
+        const char ch = value[i];
+        if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+                (ch >= '0' && ch <= '9') || (i > 0 && (ch == '_' || ch == '-')))) {
+            return false;
+        }
+    }
+    return true;
+}
 
 struct synthesis_result {
     std::vector<char> audio;
@@ -50,7 +73,7 @@ struct progress_timings {
 
 void print_usage(int, char ** argv) {
     LOG("\nexample usage:\n");
-    LOG("\n    %s -m backbone.gguf -mm mmproj.gguf --tts-speaker-file speaker.wav --tts-lang ru\n",
+    LOG("\n    S112_TTS_REFERENCES_DIR=/models/refs %s -m backbone.gguf -mm mmproj.gguf --tts-lang ru\n",
         argv[0]);
     LOG("\nThe worker reads framed SYNTH requests from stdin and writes WAV responses to stdout.\n\n");
 }
@@ -202,20 +225,35 @@ int run_worker(common_params & params) {
         return 1;
     }
 
-    mtmd::bitmap_ptr speaker_bitmap;
-    if (!params.tts_speaker_file.empty()) {
+    const char * references_dir = std::getenv("S112_TTS_REFERENCES_DIR");
+    if (!references_dir || !std::filesystem::is_directory(references_dir)) {
+        LOG_ERR("S112_TTS_REFERENCES_DIR is not a directory\n");
+        return 1;
+    }
+    std::map<std::string, mtmd::bitmap_ptr> speaker_bitmaps;
+    for (const auto & entry : std::filesystem::directory_iterator(references_dir)) {
+        const std::string voice_id = entry.path().filename().string();
+        if (!valid_voice_id(voice_id) || entry.is_symlink() || !entry.is_regular_file()) {
+            continue;
+        }
         auto wrapper = mtmd_helper_bitmap_init_from_file(
             mctx.get(),
-            params.tts_speaker_file.c_str(),
+            entry.path().string().c_str(),
             false,
             mtmd_helper_init_opt_default()
         );
         if (!wrapper.bitmap) {
             LOG_ERR("failed to load speaker file %s\n",
-                    params.tts_speaker_file.c_str());
+                    entry.path().string().c_str());
             return 1;
         }
-        speaker_bitmap.reset(wrapper.bitmap);
+        mtmd::bitmap_ptr bitmap;
+        bitmap.reset(wrapper.bitmap);
+        speaker_bitmaps.emplace(voice_id, std::move(bitmap));
+    }
+    if (speaker_bitmaps.empty()) {
+        LOG_ERR("no .wav or .mp3 speaker references found\n");
+        return 1;
     }
 
     mtmd_helper::gen_audio gen(lctx, mctx.get());
@@ -230,10 +268,11 @@ int run_worker(common_params & params) {
 
         std::istringstream parser(header);
         std::string command;
+        std::string voice_id;
         size_t prompt_size = 0;
-        parser >> command >> prompt_size;
+        parser >> command >> voice_id >> prompt_size;
         parser >> std::ws;
-        if (command != "SYNTH" || !parser.eof() || prompt_size == 0
+        if (command != "SYNTH" || !parser.eof() || !valid_voice_id(voice_id) || prompt_size == 0
                 || prompt_size > MAX_PROMPT_BYTES) {
             send_error("invalid request header");
             continue;
@@ -245,10 +284,16 @@ int run_worker(common_params & params) {
             return 1;
         }
 
+        const auto speaker = speaker_bitmaps.find(voice_id);
+        if (speaker == speaker_bitmaps.end()) {
+            send_error("unknown voice_id");
+            continue;
+        }
+
         synthesis_result result;
         std::string error;
         if (!synthesize(
-                params, *llama_init, lctx, gen, speaker_bitmap.get(),
+                params, *llama_init, lctx, gen, speaker->second.get(),
                 prompt, result, error)) {
             send_error(error);
             continue;

@@ -20,6 +20,7 @@ from s112.common.config import Settings
 
 
 logger = logging.getLogger(__name__)
+VOICE_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*\.(?:wav|mp3)\Z")
 
 
 class SpeechServiceError(RuntimeError):
@@ -241,8 +242,9 @@ class SpeechService:
             raise SpeechServiceError("Речь не распознана")
         return text
 
-    def synthesize(self, text: str) -> tuple[bytes, int]:
+    def synthesize(self, text: str, voice_id: str | None = None) -> tuple[bytes, int]:
         with self._tts_lock:
+            selected_voice_id = self._resolve_voice_id(voice_id)
             segments = _split_tts_text(text)
             clips: list[bytes] = []
             sample_rate: int | None = None
@@ -253,7 +255,7 @@ class SpeechService:
                     len(segments),
                     len(segment),
                 )
-                audio, current_rate = self._synthesize_segment(segment)
+                audio, current_rate = self._synthesize_segment(segment, selected_voice_id)
                 audio, has_speech, before, after = _trim_wav_tail(audio)
                 if before - after >= 0.25:
                     logger.info(
@@ -262,7 +264,7 @@ class SpeechService:
                         after,
                     )
                 if not has_speech:
-                    audio, current_rate = self._synthesize_segment(segment)
+                    audio, current_rate = self._synthesize_segment(segment, selected_voice_id)
                     audio, has_speech, _, _ = _trim_wav_tail(audio)
                     if not has_speech:
                         raise SpeechServiceError(
@@ -282,7 +284,16 @@ class SpeechService:
                 return clips[0], sample_rate
             return _join_wav_clips(clips, pause_ms=120), sample_rate
 
-    def _synthesize_segment(self, text: str) -> tuple[bytes, int]:
+    def _resolve_voice_id(self, voice_id: str | None) -> str:
+        selected = self.settings.tts_default_voice_id if voice_id is None else voice_id
+        if not VOICE_ID_PATTERN.fullmatch(selected):
+            raise SpeechServiceError("voice_id must be a .wav or .mp3 filename in refs")
+        reference = Path(self.settings.tts_references_dir) / selected
+        if reference.is_symlink() or not reference.is_file():
+            raise SpeechServiceError(f"Unknown voice_id: {selected}")
+        return selected
+
+    def _synthesize_segment(self, text: str, voice_id: str) -> tuple[bytes, int]:
         self._start_tts_worker()
         process = self._tts_process
         responses = self._tts_responses
@@ -291,7 +302,7 @@ class SpeechService:
 
         prompt = text.encode("utf-8")
         try:
-            process.stdin.write(f"SYNTH {len(prompt)}\n".encode("ascii"))
+            process.stdin.write(f"SYNTH {voice_id} {len(prompt)}\n".encode("ascii"))
             process.stdin.write(prompt)
             process.stdin.flush()
         except (BrokenPipeError, OSError) as exc:
@@ -343,11 +354,13 @@ class SpeechService:
         with self._tts_lock:
             if self.tts_loaded:
                 return
+            self._resolve_voice_id(None)
             self._stop_tts_worker()
             self._tts_stderr_lines.clear()
             try:
                 process = subprocess.Popen(
                     self._build_tts_worker_command(),
+                    env={**os.environ, "S112_TTS_REFERENCES_DIR": self.settings.tts_references_dir},
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
@@ -515,8 +528,6 @@ class SpeechService:
             self.settings.tts_mmproj_path,
             "--tts-lang",
             self.settings.tts_language,
-            "--tts-speaker-file",
-            self.settings.tts_reference_audio_path,
             "-ngl",
             str(self.settings.tts_gpu_layers),
             "-c",

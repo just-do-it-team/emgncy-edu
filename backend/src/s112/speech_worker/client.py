@@ -59,11 +59,14 @@ class SpeechModelClient:
         except (httpx.HTTPError, ValueError) as exc:
             raise SpeechModelAPIError(f"STT request failed: {exc}") from exc
 
-    async def synthesize(self, text: str) -> tuple[bytes, int]:
+    async def synthesize(self, text: str, voice_id: str | None = None) -> tuple[bytes, int]:
         try:
+            payload = {"text": text}
+            if voice_id is not None:
+                payload["voice_id"] = voice_id
             response = await self._client.post(
                 "/api/v1/tts",
-                json={"text": text},
+                json=payload,
             )
             response.raise_for_status()
             sample_rate = int(response.headers["X-Sample-Rate"])
