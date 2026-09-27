@@ -1,27 +1,39 @@
-import { RequestError } from "@/shared/api";
-import { USE_MOCKS } from "@/shared/config";
-import type { Scenario, ScenarioListItem } from "../model/scenario";
-import { scenarioListMocks, scenarioMocks } from "./scenario-mocks";
+import {
+  api,
+  RequestError,
+  toScenarioDetail,
+  toScenarioListItem,
+  type ScenarioDetail,
+  type ScenarioListItem,
+  type TrainingScenarioDetailDto,
+  type TrainingScenarioDto,
+} from "@/shared/api";
+import { CARD_API_URL, mocks } from "@/shared/config";
+import { scenarioDetailMocks } from "./scenario.mocks";
 
-function notImplemented(endpoint: string): never {
-  throw new RequestError(
-    501,
-    `${endpoint}: ручка на бэкенде не реализована, контракт — docs/api/scenarios.md. Для работы на моках задайте VITE_USE_MOCKS=true`,
+export async function fetchScenarios(signal?: AbortSignal): Promise<ScenarioListItem[]> {
+  if (mocks.scenarios) return scenarioDetailMocks.map(toScenarioListItem);
+
+  const { data } = await api.get<TrainingScenarioDto[]>(`${CARD_API_URL}/training-scenarios`, {
+    signal,
+  });
+
+  return data.map(toScenarioListItem);
+}
+
+export async function fetchScenario(scenarioId: string, signal?: AbortSignal): Promise<ScenarioDetail> {
+  if (mocks.scenarios) {
+    const found = scenarioDetailMocks.find((item) => item.id === scenarioId);
+
+    if (!found) throw new RequestError(404, "Сценарий не найден");
+
+    return toScenarioDetail(found);
+  }
+
+  const { data } = await api.get<TrainingScenarioDetailDto>(
+    `${CARD_API_URL}/training-scenarios/${scenarioId}`,
+    { signal },
   );
-}
 
-export async function fetchScenarios(): Promise<ScenarioListItem[]> {
-  if (!USE_MOCKS) notImplemented("GET /api/v1/training-scenarios");
-
-  return scenarioListMocks;
-}
-
-export async function fetchScenario(scenarioId: string): Promise<Scenario> {
-  if (!USE_MOCKS) notImplemented("GET /api/v1/training-scenarios/{scenario_id}");
-
-  const scenario = scenarioMocks.find((item) => item.scenario_id === scenarioId);
-
-  if (!scenario) throw new RequestError(404, `Сценарий ${scenarioId} не найден`);
-
-  return scenario;
+  return toScenarioDetail(data);
 }

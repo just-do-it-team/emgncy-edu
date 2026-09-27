@@ -1,11 +1,14 @@
 import type { ActionEvent, EmergencyService, FieldChange } from "@/shared/api";
 import {
+  actionTypeLabel,
+  callStageLabels,
   cardFieldLabel,
   cardStatusLabel,
   formatJsonValue,
   responseStatusLabel,
   serviceLabel,
-} from "./review-labels";
+  sessionStageLabels,
+} from "@/entities/expert-review";
 
 export interface ActionLine {
   label: string;
@@ -13,33 +16,6 @@ export interface ActionLine {
 }
 
 const STRUCTURED_FIELDS = new Set(["classification", "questionnaire"]);
-
-const actionTypeLabels: Record<string, string> = {
-  CARD_CREATED: "создание карточки",
-  CARD_RELEASED: "выпуск карточки",
-  CARD_UPDATED: "изменение карточки",
-  CARD_FEATURES_UPDATED: "изменение классификации",
-  CARD_STATUS_CHANGED: "смена статуса карточки",
-  CARD_SERVICE_ADDED: "добавление службы",
-  CARD_OPENED: "раскрытие карточки",
-  CARD_ACCEPTED: "принятие карточки",
-  CARD_REJECTED: "отклонение карточки",
-  SERVICE_STATUS_CHANGED: "смена статуса реагирования",
-};
-
-const callStageLabels = {
-  ringing: "входящий вызов",
-  answered: "вызов принят",
-  card_linked: "карточка создана из вызова",
-  completed: "вызов завершён",
-} as const;
-
-const sessionStageLabels = {
-  started: "попытка начата",
-  completed: "попытка завершена",
-  aborted: "попытка прервана",
-  expert_assessment: "сохранена оценка преподавателя",
-} as const;
 
 function changeLine(change: FieldChange): ActionLine {
   return {
@@ -132,11 +108,11 @@ export function actionLines(
     case "rejected":
       return [
         {
-          label: `${actionTypeLabels[event.actionType] ?? event.actionType}: отклонено сервером`,
+          label: `${actionTypeLabel(event.actionType) ?? event.actionType}: отклонено сервером`,
           value: null,
         },
       ];
     case "unknown":
-      return [{ label: actionTypeLabels[event.actionType] ?? event.actionType, value: null }];
+      return [{ label: actionTypeLabel(event.actionType) ?? event.actionType, value: null }];
   }
 }

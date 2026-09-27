@@ -21,7 +21,7 @@ export interface NavItem {
 export const roleLabels: Record<NavRole, string> = {
   admin: "Администратор",
   teacher: "Преподаватель",
-  student: "Обучающийся",
+  student: "Обучаемый",
 };
 
 export const navigation: Record<NavRole, NavItem[]> = {
@@ -30,7 +30,7 @@ export const navigation: Record<NavRole, NavItem[]> = {
     { key: "lessons", label: "Занятия", icon: CalendarClock, path: "/teacher/lessons" },
     { key: "scenarios", label: "Сценарии", icon: ClipboardList, path: "/teacher/scenarios" },
     { key: "groups", label: "Группы", icon: Users, path: "/teacher/groups" },
-    { key: "students", label: "Обучающиеся", icon: GraduationCap, path: "/teacher/students" },
+    { key: "students", label: "Обучаемые", icon: GraduationCap, path: "/teacher/students" },
     { key: "analytics", label: "Аналитика", icon: BarChart3, path: "/teacher/analytics" },
     { key: "materials", label: "Материалы", icon: BookOpen, path: "/teacher/materials" },
   ],

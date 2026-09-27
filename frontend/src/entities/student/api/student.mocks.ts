@@ -2,6 +2,20 @@ import type { StudentTrainingHistoryItemDto, TeacherStudentDto } from "@/shared/
 
 export const studentsMock: TeacherStudentDto[] = [
   {
+    id: "1a3c5e7b-9d2f-4c6a-8e0b-2d4f6a8c0e91",
+    username: "a.timofeev",
+    display_name: "Тимофеев Артём Сергеевич",
+    is_blocked: false,
+    groups: [{ id: "2b7e9c41-5a3d-4f86-9e1b-7c4a2d8f6e03", name: "УМЦ-112, группа 4" }],
+  },
+  {
+    id: "4f6b8d0a-2c4e-4a6b-8d0f-6b8d0f2a4c85",
+    username: "k.belova",
+    display_name: "Белова Ксения Андреевна",
+    is_blocked: false,
+    groups: [{ id: "2b7e9c41-5a3d-4f86-9e1b-7c4a2d8f6e03", name: "УМЦ-112, группа 4" }],
+  },
+  {
     id: "0b1d3f5a-7c9e-4b2d-8f4a-6c8e0a2b4d63",
     username: "a.kovaleva",
     display_name: "Ковалёва Анна Сергеевна",

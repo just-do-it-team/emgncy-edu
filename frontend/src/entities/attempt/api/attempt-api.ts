@@ -1,4 +1,5 @@
 import { USE_MOCKS } from "@/shared/config";
+import { localDayKey } from "@/shared/lib";
 import { AttemptRequestError } from "./attempt-request-error";
 import type { Attempt } from "../model/attempt";
 import type { AttemptSummary } from "../model/attempt-summary";
@@ -39,9 +40,9 @@ export async function fetchTodayAttempts(): Promise<AttemptSummary[]> {
     notImplemented("GET /api/v1/lessons/attempts?day=today");
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDayKey(new Date());
 
-  return attemptSummaryMocks.filter((summary) => summary.completed_at.slice(0, 10) === today);
+  return attemptSummaryMocks.filter((summary) => localDayKey(summary.completed_at) === today);
 }
 
 export async function fetchMyAttempts(): Promise<AttemptSummary[]> {

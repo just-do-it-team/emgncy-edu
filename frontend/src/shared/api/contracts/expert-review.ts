@@ -1,5 +1,6 @@
 import { decimal } from "./decimal";
 import type { JsonObject, JsonValue } from "./json";
+import type { AssignmentParticipantStatus, LaunchPolicy } from "./assignments";
 import { toActionTimeline, type ActionEvent, type TrainingActionDto } from "./training-actions";
 
 export type ParticipantRole = "OPERATOR_112" | "DDS";
@@ -107,6 +108,46 @@ export interface ExpertReviewContextDto {
   actions: TrainingActionDto[];
 }
 
+export interface SessionTrainingCallDto {
+  id: string;
+  training_session_id: string;
+  workspace_id: string;
+  scenario_item_key: string;
+  trigger_type: string;
+  trigger_config: JsonObject;
+  call_payload: JsonObject;
+  direction: string;
+  operator_user_id: string | null;
+  assigned_operator_user_id: string | null;
+  interlocutor_role: string;
+  status: string;
+  incident_card_id: string | null;
+  scheduled_at: string | null;
+  ringing_at: string | null;
+  answered_at: string | null;
+  completed_at: string | null;
+  attempts: number;
+  last_error: string | null;
+}
+
+export interface ScheduledCardDto {
+  id: string;
+  training_session_id: string;
+  workspace_id: string;
+  scenario_card_key: string;
+  trigger_type: string;
+  trigger_config: JsonObject;
+  status: string;
+  incident_card_id: string | null;
+  scheduled_at: string | null;
+  emitted_at: string | null;
+  attempts: number;
+  last_error: string | null;
+  generator_key: string | null;
+  generation_index: number | null;
+  source_template_id: string | null;
+}
+
 export interface ExpertAssessmentRequestDto {
   teacher_id: string;
   score: string;
@@ -116,7 +157,7 @@ export interface ExpertAssessmentRequestDto {
 
 export interface AssignmentParticipantDto {
   user_id: string;
-  status: string;
+  status: AssignmentParticipantStatus;
   position_code: string | null;
   participant_role: ParticipantRole;
   ready_at: string | null;
@@ -131,7 +172,7 @@ export interface ScenarioAssignmentDto {
   assignment_batch_id: string | null;
   assigned_by: string;
   workspace_mode: string;
-  launch_policy: string;
+  launch_policy: LaunchPolicy;
   max_attempts: number;
   status: string;
   available_from: string | null;
@@ -248,7 +289,7 @@ export function toReviewSession(dto: TrainingSessionDto): ReviewSession {
   };
 }
 
-function earliestAnswer(calls: ExpertReviewCallDto[]): string | null {
+function earliestAnswer(calls: Pick<ExpertReviewCallDto, "answered_at">[]): string | null {
   const answered = calls
     .map((call) => call.answered_at)
     .filter((answeredAt): answeredAt is string => answeredAt !== null)
@@ -307,5 +348,48 @@ export function toReviewAssignment(dto: ScenarioAssignmentDto): ReviewAssignment
       positionCode: participant.position_code,
       status: participant.status,
     })),
+  };
+}
+
+const INBOUND_CALL = "INBOUND";
+
+export interface LimitedReviewSources {
+  session: TrainingSessionDto;
+  calls: SessionTrainingCallDto[];
+  cards: ScheduledCardDto[];
+  actions: TrainingActionDto[];
+  participantIds: string[];
+}
+
+export function toLimitedReviewContext(sources: LimitedReviewSources): ExpertReviewContext {
+  const inbound = sources.calls.filter((call) => call.direction === INBOUND_CALL);
+
+  return {
+    session: toReviewSession(sources.session),
+    scenarioSnapshot: {},
+    participantIds: sources.participantIds,
+    cards: sources.cards.map((card) => ({
+      scenarioCardKey: card.scenario_card_key,
+      incidentCardId: card.incident_card_id,
+      expectedResult: {},
+      currentState: null,
+      automaticResult: null,
+    })),
+    incomingCalls: inbound.map((call) => ({
+      scenarioItemKey: call.scenario_item_key,
+      trainingCallId: call.id,
+      incidentCardId: call.incident_card_id,
+      status: call.status,
+      ringingAt: call.ringing_at,
+      answeredAt: call.answered_at,
+      completedAt: call.completed_at,
+      expectedResult: {},
+      currentState: null,
+      automaticResult: null,
+    })),
+    actions: toActionTimeline(
+      sources.actions,
+      earliestAnswer(inbound.map((call) => ({ answered_at: call.answered_at }))),
+    ),
   };
 }

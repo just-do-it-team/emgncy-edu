@@ -1,0 +1,7 @@
+.row:has(a[data-row-link]) {
+  cursor: pointer;
+}
+
+.row:has(a[data-row-link]):focus-within {
+  background-color: var(--tr-hover-bg, var(--table-hover-color));
+}

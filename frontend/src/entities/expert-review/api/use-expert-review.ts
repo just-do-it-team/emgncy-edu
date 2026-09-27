@@ -1,7 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ExpertAssessmentRequestDto, ExpertReviewContext } from "@/shared/api";
 import {
   fetchExpertReviewContext,
+  fetchLimitedReviewContext,
   fetchReviewAssignment,
   updateExpertAssessment,
 } from "./expert-review-api";
@@ -12,10 +13,26 @@ const CONTEXT_GC_MS = 5 * 60 * 1000;
 const ASSIGNMENT_STALE_MS = 5 * 60 * 1000;
 const ASSIGNMENT_GC_MS = 30 * 60 * 1000;
 
-export function useExpertReviewContext(trainingSessionId: string, teacherId: string) {
-  return useQuery({
+export function expertReviewContextQuery(trainingSessionId: string, teacherId: string) {
+  return queryOptions({
     queryKey: expertReviewKeys.context(trainingSessionId, teacherId),
     queryFn: ({ signal }) => fetchExpertReviewContext(trainingSessionId, teacherId, signal),
+    staleTime: CONTEXT_STALE_MS,
+    gcTime: CONTEXT_GC_MS,
+    retry: false,
+    meta: { showGlobalError: false },
+  });
+}
+
+export function useExpertReviewContext(trainingSessionId: string, teacherId: string) {
+  return useQuery(expertReviewContextQuery(trainingSessionId, teacherId));
+}
+
+export function useLimitedReviewContext(trainingSessionId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: expertReviewKeys.limitedContext(trainingSessionId),
+    queryFn: ({ signal }) => fetchLimitedReviewContext(trainingSessionId, signal),
+    enabled,
     staleTime: CONTEXT_STALE_MS,
     gcTime: CONTEXT_GC_MS,
     retry: false,

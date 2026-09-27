@@ -14,3 +14,7 @@ export { TablePagination } from "./table-pagination";
 export { usePagination } from "./use-pagination";
 export { TextInput } from "./text-input";
 export type { TextInputProps } from "./text-input";
+export { tooltipEvents } from "./tooltip-events";
+export { SortableTh } from "./sortable-th";
+export { FilteredEmpty } from "./filtered-empty";
+export { LinkRow } from "./link-row";

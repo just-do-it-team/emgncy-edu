@@ -20,7 +20,12 @@ export type {
   TrainingActionDto,
   TrainingActionResult,
 } from "./training-actions";
-export { toExpertReviewContext, toReviewAssignment, toReviewSession } from "./expert-review";
+export {
+  toExpertReviewContext,
+  toLimitedReviewContext,
+  toReviewAssignment,
+  toReviewSession,
+} from "./expert-review";
 export type {
   AssignmentParticipant,
   AssignmentParticipantDto,
@@ -37,6 +42,9 @@ export type {
   ExpertReviewCardDto,
   ExpertReviewContext,
   ExpertReviewContextDto,
+  LimitedReviewSources,
+  ScheduledCardDto,
+  SessionTrainingCallDto,
   ExpertReviewUtteranceDto,
   ParticipantRole,
   ReviewAssignment,
@@ -48,9 +56,6 @@ export type {
 } from "./expert-review";
 export { toGroup } from "./groups";
 export type { Group, GroupDto, GroupMemberDto, GroupStudent } from "./groups";
-export type { LessonDto, LessonStatusDto } from "./lessons";
-export { toLessonResult } from "./lesson-results";
-export type { LessonResult, LessonResultDto } from "./lesson-results";
 export type { EmergencyService, EmergencyServiceDto } from "./emergency-services";
 export { toTeacherStudent } from "./students";
 export type {
@@ -61,3 +66,37 @@ export type {
 } from "./students";
 export { toTrainingHistoryItem } from "./training-history";
 export type { StudentTrainingHistoryItemDto, TrainingHistoryItem } from "./training-history";
+export { toMonitoredSession } from "./teacher-monitoring";
+export type {
+  MonitoredParticipant,
+  MonitoredSession,
+  TeacherMonitoringParticipantDto,
+  TeacherMonitoringSessionDto,
+} from "./teacher-monitoring";
+export { toScenarioDetail, toScenarioListItem } from "./training-scenarios";
+export type {
+  OperatorClassificationDto,
+  ProceduralGeneration,
+  ScenarioClassification,
+  ScenarioCompletionPolicy,
+  ScenarioDetail,
+  ScenarioItem,
+  ScenarioItemDetailDto,
+  ScenarioItemType,
+  ScenarioListItem,
+  ScenarioMode,
+  ScenarioService,
+  ScenarioServiceDetailDto,
+  ScenarioStatus,
+  ScenarioTrigger,
+  ScenarioWorkspaceMode,
+  TrainingScenarioDetailDto,
+  TrainingScenarioDto,
+} from "./training-scenarios";
+export { toTeacherAssignment } from "./assignments";
+export type {
+  AssignmentParticipantStatus,
+  LaunchPolicy,
+  TeacherAssignment,
+  TeacherAssignmentParticipant,
+} from "./assignments";
