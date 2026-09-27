@@ -608,7 +608,7 @@ class CardTemplate(Base):
     __table_args__ = (
         UniqueConstraint("template_key", "version", name="uq_card_template_key_version"),
         CheckConstraint("version >= 1", name="version_positive"),
-        CheckConstraint("difficulty BETWEEN 1 AND 5", name="difficulty_range"),
+        CheckConstraint("difficulty BETWEEN 1 AND 4", name="difficulty_range"),
         Index("ix_card_template_active_name", "is_active", "name"),
     )
 
@@ -638,7 +638,7 @@ class IncomingCallTemplate(Base):
             "template_key", "version", name="uq_incoming_call_template_key_version"
         ),
         CheckConstraint("version >= 1", name="version_positive"),
-        CheckConstraint("difficulty BETWEEN 1 AND 5", name="difficulty_range"),
+        CheckConstraint("difficulty BETWEEN 1 AND 4", name="difficulty_range"),
         Index("ix_incoming_call_template_active_name", "is_active", "name"),
     )
 
@@ -662,7 +662,7 @@ class IncomingCallTemplate(Base):
 class TrainingScenario(Base, TimestampMixin):
     __tablename__ = "training_scenario"
     __table_args__ = (
-        CheckConstraint("difficulty BETWEEN 1 AND 5", name="difficulty_range"),
+        CheckConstraint("difficulty BETWEEN 1 AND 4", name="difficulty_range"),
         CheckConstraint("estimated_duration_seconds > 0", name="duration_positive"),
         CheckConstraint("cards_count >= 0", name="cards_count_nonnegative"),
         CheckConstraint("min_participants >= 1", name="min_participants_positive"),
@@ -670,6 +670,9 @@ class TrainingScenario(Base, TimestampMixin):
             "max_participants >= min_participants", name="participant_range"
         ),
         CheckConstraint("revision >= 1", name="revision_positive"),
+        CheckConstraint(
+            "passing_score BETWEEN 0 AND 100", name="passing_score_range"
+        ),
         CheckConstraint(
             "completion_policy IN ('STUDENT_CONFIRM', 'AUTO_WHEN_READY', 'TEACHER_ONLY')",
             name="completion_policy_valid",
@@ -682,6 +685,9 @@ class TrainingScenario(Base, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text)
     difficulty: Mapped[int] = mapped_column(Integer, nullable=False)
     estimated_duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    passing_score: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, default=Decimal("100")
+    )
     cards_count: Mapped[int] = mapped_column(Integer, nullable=False)
     workspace_mode: Mapped[str] = mapped_column(
         String(32), nullable=False, default=WorkspaceMode.INDIVIDUAL.value
@@ -693,6 +699,9 @@ class TrainingScenario(Base, TimestampMixin):
     )
     min_participants: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     max_participants: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    required_participant_positions: Mapped[list[str | None] | None] = mapped_column(
+        JsonType
+    )
     definition: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(

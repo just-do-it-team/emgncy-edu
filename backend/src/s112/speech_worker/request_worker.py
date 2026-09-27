@@ -178,9 +178,12 @@ class SpeechRequestWorker:
                             segment.completed_at = utcnow()
                             parent = await session.scalar(select(AudioMessage).where(AudioMessage.id == segment.audio_message_id).with_for_update())
                             parent.status = "FAILED"
+                            parent.generation_status = "FAILED"
                             parent.last_error = segment.last_error
                             parent.completed_at = utcnow()
                             self._add_segment_result(session, segment, parent, event_id, success=False)
+                            if self._is_outgoing_greeting(parent):
+                                self._add_greeting_notification(session, parent, "training.dialogue_failed", {"error": parent.last_error})
                             training_session = await session.scalar(select(TrainingSession).where(TrainingSession.id == parent.training_session_id).with_for_update())
                             await ScenarioCompletionService(self.settings.kafka_topic).refresh(session, training_session)
                             session.add(EventInbox(consumer_name=self.consumer_name, event_id=event_id))
@@ -207,17 +210,59 @@ class SpeechRequestWorker:
                     segment.sample_rate = sample_rate
                     segment.completed_at = utcnow()
                     await session.flush()
+                    if self._is_outgoing_greeting(parent):
+                        parent.generation_status = "COMPLETED"
+                        parent.final_segment_count = 1
                     if parent.generation_status == "COMPLETED":
                         remaining = await session.scalar(select(func.count()).select_from(TtsSegment).where(TtsSegment.audio_message_id == parent.id, TtsSegment.status != "COMPLETED"))
                         if remaining == 0:
                             parent.status = "COMPLETED"
                             parent.completed_at = utcnow()
                     self._add_segment_result(session, segment, parent, event_id, success=True)
+                    if self._is_outgoing_greeting(parent) and parent.status == "COMPLETED":
+                        self._add_greeting_notification(session, parent, "training.dialogue_finished", {"final_segment_count": 1})
                     if parent.status == "COMPLETED":
                         training_session = await session.scalar(select(TrainingSession).where(TrainingSession.id == parent.training_session_id).with_for_update())
                         await ScenarioCompletionService(self.settings.kafka_topic).refresh(session, training_session)
                     session.add(EventInbox(consumer_name=self.consumer_name, event_id=event_id))
             return
+
+    @staticmethod
+    def _is_outgoing_greeting(message: AudioMessage) -> bool:
+        return (
+            message.training_call_id is not None
+            and message.idempotency_key == f"outgoing-greeting:{message.training_call_id}"
+        )
+
+    def _add_greeting_notification(
+        self, session: Any, message: AudioMessage, event_type: str, data: dict[str, Any]
+    ) -> None:
+        notification_id = uuid.uuid4()
+        session.add(OutboxEvent(
+            id=notification_id,
+            aggregate_type="dialogue_notification",
+            aggregate_id=str(message.id),
+            aggregate_version=1,
+            event_type=event_type,
+            topic=self.settings.kafka_topic,
+            message_key=str(message.training_call_id),
+            payload={
+                "schema_version": 1,
+                "event_id": str(notification_id),
+                "event_type": event_type,
+                "aggregate_type": "audio_message",
+                "aggregate_id": str(message.id),
+                "aggregate_version": 1,
+                "workspace_id": str(message.workspace_id),
+                "data": {
+                    "training_call_id": str(message.training_call_id),
+                    "audio_message_id": str(message.id),
+                    "reply_to_message_id": None,
+                    "generation_id": str(message.generation_id),
+                    **data,
+                },
+            },
+        ))
 
     def _add_segment_result(self, session: Any, segment: TtsSegment, parent: AudioMessage, request_id: uuid.UUID, *, success: bool) -> None:
         result_id = uuid.uuid4()

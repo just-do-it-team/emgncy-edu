@@ -17,6 +17,7 @@ from s112.common.enums import (
     ScenarioItemType,
     ScenarioMode,
     ScenarioStatus,
+    ScenarioTriggerActionType,
     ScenarioTriggerType,
     ServiceResponseStatus,
     WorkspaceMode,
@@ -150,7 +151,7 @@ class AfterActionTriggerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     card_key: str = Field(min_length=1, max_length=100)
-    action_type: str = Field(min_length=1, max_length=100)
+    action_type: ScenarioTriggerActionType = Field(strict=False)
     delay_seconds: int = Field(default=0, ge=0)
 
 
@@ -353,7 +354,7 @@ class ResolvedProceduralCardTemplate(BaseModel):
     template_id: uuid.UUID
     template_key: uuid.UUID
     template_version: int = Field(ge=1)
-    difficulty: int = Field(ge=1, le=5)
+    difficulty: int = Field(ge=1, le=4)
     initial_card: CardCreate
     expected_result: ExpectedResult
 
@@ -397,12 +398,14 @@ class ScenarioSnapshot(BaseModel):
     scenario_revision: int = Field(ge=1)
     name: str
     description: str | None
-    difficulty: int = Field(ge=1, le=5)
+    difficulty: int = Field(ge=1, le=4)
     estimated_duration_seconds: int = Field(gt=0)
+    passing_score: Decimal = Field(ge=0, le=100, max_digits=5, decimal_places=2)
     workspace_mode: WorkspaceMode
     completion_policy: ScenarioCompletionPolicy
     min_participants: int = Field(ge=1)
     max_participants: int = Field(ge=1)
+    required_participant_positions: list[str | None] | None = None
     definition: ResolvedScenarioDefinition
 
 
@@ -433,7 +436,7 @@ class CardTemplateCreate(BaseModel):
     version: int = Field(default=1, ge=1)
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
-    difficulty: int = Field(default=1, ge=1, le=5)
+    difficulty: int = Field(default=1, ge=1, le=4)
     initial_card: CardCreate
     expected_result: ExpectedResult
     created_by: uuid.UUID
@@ -468,7 +471,7 @@ class IncomingCallTemplateCreate(BaseModel):
     version: int = Field(default=1, ge=1)
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
-    difficulty: int = Field(default=1, ge=1, le=5)
+    difficulty: int = Field(default=1, ge=1, le=4)
     initial_call: InitialIncomingCall
     expected_result: ExpectedResult
     created_by: uuid.UUID
@@ -505,15 +508,35 @@ class IncomingCallTemplateDeleteRequest(BaseModel):
 class TrainingScenarioCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
-    difficulty: int = Field(ge=1, le=5)
+    difficulty: int = Field(ge=1, le=4)
     estimated_duration_seconds: int = Field(gt=0)
+    passing_score: Decimal = Field(
+        default=Decimal("100"), ge=0, le=100, max_digits=5, decimal_places=2
+    )
     workspace_mode: WorkspaceMode = WorkspaceMode.INDIVIDUAL
     completion_policy: ScenarioCompletionPolicy | None = None
     min_participants: int = Field(default=1, ge=1, le=100)
     max_participants: int = Field(default=1, ge=1, le=100)
+    required_participant_positions: list[str | None] | None = Field(
+        default=None, min_length=1, max_length=100
+    )
     definition: ScenarioDefinition
     status: ScenarioStatus = ScenarioStatus.DRAFT
     created_by: uuid.UUID
+
+    @field_validator("required_participant_positions")
+    @classmethod
+    def normalize_required_positions(
+        cls, value: list[str | None] | None
+    ) -> list[str | None] | None:
+        if value is None:
+            return None
+        normalized = [item.strip() if item is not None else None for item in value]
+        if any(item == "" for item in normalized):
+            raise ValueError("required participant position_code must not be blank")
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("required participant positions must be unique")
+        return normalized
 
     @model_validator(mode="after")
     def validate_participants(self) -> "TrainingScenarioCreate":
@@ -523,6 +546,14 @@ class TrainingScenarioCreate(BaseModel):
             self.min_participants != 1 or self.max_participants != 1
         ):
             raise ValueError("INDIVIDUAL scenario requires exactly one participant")
+        if self.required_participant_positions is not None:
+            required_count = len(self.required_participant_positions)
+            if self.workspace_mode is WorkspaceMode.INDIVIDUAL and required_count != 1:
+                raise ValueError("INDIVIDUAL scenario requires exactly one position")
+            if required_count > self.min_participants:
+                raise ValueError(
+                    "min_participants must cover every required participant position"
+                )
         if self.completion_policy is None:
             self.completion_policy = (
                 ScenarioCompletionPolicy.TEACHER_ONLY
@@ -547,14 +578,40 @@ class TrainingScenarioUpdate(BaseModel):
     updated_by: uuid.UUID
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
-    difficulty: int | None = Field(default=None, ge=1, le=5)
+    difficulty: int | None = Field(default=None, ge=1, le=4)
     estimated_duration_seconds: int | None = Field(default=None, gt=0)
+    passing_score: Decimal | None = Field(
+        default=None, ge=0, le=100, max_digits=5, decimal_places=2
+    )
     workspace_mode: WorkspaceMode | None = None
     completion_policy: ScenarioCompletionPolicy | None = None
     min_participants: int | None = Field(default=None, ge=1, le=100)
     max_participants: int | None = Field(default=None, ge=1, le=100)
+    required_participant_positions: list[str | None] | None = Field(
+        default=None, min_length=1, max_length=100
+    )
     definition: ScenarioDefinition | None = None
     status: ScenarioStatus | None = None
+
+    @field_validator("required_participant_positions")
+    @classmethod
+    def normalize_required_positions(
+        cls, value: list[str | None] | None
+    ) -> list[str | None] | None:
+        if value is None:
+            return None
+        normalized = [item.strip() if item is not None else None for item in value]
+        if any(item == "" for item in normalized):
+            raise ValueError("required participant position_code must not be blank")
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("required participant positions must be unique")
+        return normalized
+
+    @model_validator(mode="after")
+    def reject_null_passing_score(self) -> "TrainingScenarioUpdate":
+        if "passing_score" in self.model_fields_set and self.passing_score is None:
+            raise ValueError("passing_score cannot be null")
+        return self
 
 
 class ScenarioDeleteRequest(BaseModel):
@@ -568,11 +625,13 @@ class TrainingScenarioResponse(OrmModel):
     description: str | None
     difficulty: int
     estimated_duration_seconds: int
+    passing_score: Decimal
     cards_count: int
     workspace_mode: str
     completion_policy: str
     min_participants: int
     max_participants: int
+    required_participant_positions: list[str | None] | None
     definition: dict[str, Any]
     revision: int
     status: str
@@ -611,6 +670,26 @@ class TrainingScenarioDetailResponse(TrainingScenarioResponse):
     items: list[ScenarioItemDetail] = Field(default_factory=list)
 
 
+class ScenarioRevisionTarget(BaseModel):
+    scenario_id: uuid.UUID
+    expected_revision: int = Field(ge=1)
+
+
+class TemplateScenarioUpgradeRequest(BaseModel):
+    updated_by: uuid.UUID
+    scenarios: list[ScenarioRevisionTarget] = Field(min_length=1, max_length=100)
+
+    @field_validator("scenarios")
+    @classmethod
+    def validate_unique_scenarios(
+        cls, value: list[ScenarioRevisionTarget]
+    ) -> list[ScenarioRevisionTarget]:
+        scenario_ids = [item.scenario_id for item in value]
+        if len(scenario_ids) != len(set(scenario_ids)):
+            raise ValueError("scenarios must contain unique scenario_id values")
+        return value
+
+
 class ScenarioAssignmentCreate(BaseModel):
     scenario_id: uuid.UUID
     participant_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
@@ -638,7 +717,9 @@ class ScenarioAssignmentCreate(BaseModel):
             user_id: code.strip() if code is not None else None
             for user_id, code in self.participant_positions.items()
         }
-        dds_positions = [code for code in self.participant_positions.values() if code is not None]
+        dds_positions = [
+            code for code in self.participant_positions.values() if code is not None
+        ]
         if len(dds_positions) != len(set(dds_positions)):
             raise ValueError("Only one participant may occupy each DDS position")
         if self.available_from and self.due_at and self.due_at <= self.available_from:
@@ -673,7 +754,10 @@ class ScenarioAssignmentResponse(OrmModel):
     scenario_id: uuid.UUID
     scenario_name: str
     scenario_revision: int
+    passing_score: Decimal
     assignment_batch_id: uuid.UUID | None = None
+    group_id: uuid.UUID | None = None
+    group_name: str | None = None
     assigned_by: uuid.UUID
     workspace_mode: str
     launch_policy: str
@@ -692,6 +776,7 @@ class StudentAssignedScenarioMetadata(BaseModel):
     description: str | None = None
     difficulty: int
     estimated_duration_seconds: int
+    passing_score: Decimal
     cards_count: int
     workspace_mode: str
     completion_policy: str
@@ -977,9 +1062,6 @@ class GroupScenarioAssignmentCreate(BaseModel):
             user_id: code.strip() if code is not None else None
             for user_id, code in self.participant_positions.items()
         }
-        dds_positions = [code for code in self.participant_positions.values() if code is not None]
-        if len(dds_positions) != len(set(dds_positions)):
-            raise ValueError("Only one participant may occupy each DDS position")
         if self.available_from and self.due_at and self.due_at <= self.available_from:
             raise ValueError("due_at must be later than available_from")
         return self

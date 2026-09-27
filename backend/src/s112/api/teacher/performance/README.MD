@@ -123,12 +123,16 @@ Frontend может показывать `path`, `expected`, `actual` и пер�
 элемента нет. Содержимое `expected_result` зависит от шаблона, поэтому
 расхождения возникают только по проверяемым полям.
 
+Общий `session.result` содержит `passing_score`. Итоговый `session.passed`
+равен `true`, если средний балл всех оценённых карточек и входящих звонков не
+ниже этого порога. Для старых snapshots без поля используется порог `100`.
+
 Реальные группы `discrepancies[].path` в текущем расчёте:
 
 | Источник | Возможные `path` |
 | --- | --- |
-| Поля карточки | `card.classification.record_id`, `card.classification.group_code`, `card.classification.feature_1_code`, `card.classification.feature_2_code`, `card.classification.feature_3_code`, `card.classification.final_incident_type`, `card.classification.routing_flags.<key>`, `card.classification.excluded_service_codes`, `card.description`, `card.questionnaire`, `card.questionnaire.questions`, `card.questionnaire.answers`, `card.automatic_phone_number`, `card.reported_address`, `card.incident_address`, `card.victims_count`, `card.current_status`, `card.services`, `card.service_statuses.<code>` |
-| История статусов ДДС | `service_status_history.<code>.length`, `service_status_history.<code>.<index>.status`, `service_status_history.<code>.<index>.comment` |
+| Поля карточки | `card.classification.record_id`, `card.classification.group_code`, `card.classification.feature_1_code`, `card.classification.feature_2_code`, `card.classification.feature_3_code`, `card.classification.final_incident_type`, `card.classification.routing_flags.<key>`, `card.classification.excluded_service_codes`, `card.questionnaire`, `card.questionnaire.questions`, `card.questionnaire.answers`, `card.applicant_full_name`, `card.automatic_phone_number`, `card.reported_address`, `card.incident_address`, `card.victims_count`, `card.current_status`, `card.services`, `card.service_statuses.<code>` |
+| История статусов ДДС | `service_status_history.<code>.length`, `service_status_history.<code>.<index>.status` |
 | Открытие и решение ДДС | `service_handling.<code>.opened_at`, `service_handling.<code>.open_deadline`, `service_handling.<code>.decision`, `service_handling.<code>.decision_deadline` |
 | Исходящий звонок | `expected_result.outbound_call` |
 
@@ -139,6 +143,12 @@ Frontend может показывать `path`, `expected`, `actual` и пер�
 `questions` или `answers`. Для входящего звонка проверяются только поля
 `expected_result.card`; история статусов, тайминг ДДС и исходящий звонок к
 его `automatic_result` не добавляются.
+
+`card.description` и текст комментариев ДДС не входят в автоматический балл:
+до появления семантической оценки их буквальное сравнение давало ложные
+расхождения. ФИО сравнивается без учёта регистра, пунктуации, лишних пробелов и
+разницы `ё/е`. Адрес дополнительно приводит `улица/ул.`, `дом/д.` и
+`корпус/корп.` к единому виду, после чего сравнивается строго.
 
 `reason=value_mismatch` используется для сравнения полей и истории статусов.
 Для открытия и решения возможны `card_not_opened`,

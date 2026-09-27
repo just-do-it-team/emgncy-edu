@@ -67,6 +67,7 @@ def _student_assignment_response(
             description=snapshot.get("description"),
             difficulty=int(snapshot["difficulty"]),
             estimated_duration_seconds=int(snapshot["estimated_duration_seconds"]),
+            passing_score=snapshot.get("passing_score", 100),
             cards_count=len(cards) + generated_cards,
             workspace_mode=assignment.workspace_mode,
             completion_policy=SimulationApplicationService._snapshot_completion_policy(assignment),

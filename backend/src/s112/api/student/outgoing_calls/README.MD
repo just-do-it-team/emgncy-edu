@@ -25,6 +25,15 @@ Content-Type: application/json
 `direction: "OUTBOUND"`, `status`, `operator_user_id`, `answered_at` и
 `completed_at`.
 
+При первом создании звонка сервер сразу ставит в очередь голосовое приветствие
+руководителя бригады. В списке сообщений звонка оно имеет `kind: "TTS"`,
+`speaker_role: "COMMANDER"`, `direction: "INBOUND"` и
+`reply_to_message_id: null`. Повторный POST не создаёт новое приветствие.
+Пока аудио готовится, `generation_status` и `status` равны `PROCESSING`.
+После успешной генерации оба поля равны `COMPLETED`, а
+`final_segment_count` равен `1`. При окончательной ошибке оба поля равны
+`FAILED`, причина доступна в `last_error`.
+
 После `POST /api/v1/outgoing-calls/{callId}/complete` единая запись разговора
 собирается в фоне. Статус доступен через
 `GET /api/v1/training-calls/{callId}/recording` с `X-User-Id`; при `READY`
@@ -55,5 +64,8 @@ POST принимает `multipart/form-data` с файлом `audio` и нео�
 `direction: "OUTBOUND"` и ссылками на звонок и карточку. После распознавания
 модель отвечает голосом руководителя группы реагирования. SSE-события и
 загрузка TTS-сегментов используются те же, что для входящего звонка.
+Для стартового приветствия также приходят `training.tts_segment_ready` и
+`training.dialogue_finished` либо события ошибки; готовый сегмент доступен
+через `GET /api/v1/audio-messages/{messageId}/tts-segments`.
 
 При включённой авторизации `user_id` или `X-User-Id` должен совпадать с JWT.

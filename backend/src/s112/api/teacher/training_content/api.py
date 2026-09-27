@@ -15,6 +15,7 @@ from s112.api.simulation_schemas import (
     IncomingCallTemplateDeleteRequest,
     IncomingCallTemplateResponse,
     ScenarioDeleteRequest,
+    TemplateScenarioUpgradeRequest,
     TrainingScenarioCreate,
     TrainingScenarioDetailResponse,
     TrainingScenarioResponse,
@@ -124,6 +125,27 @@ async def delete_card_template(
 
 
 @router.post(
+    "/card-templates/{template_id}/upgrade-scenarios",
+    response_model=list[TrainingScenarioResponse],
+)
+async def upgrade_card_template_scenarios(
+    template_id: uuid.UUID,
+    request: TemplateScenarioUpgradeRequest,
+    http_request: Request,
+    session: AsyncSession = Depends(get_write_session),
+    service: SimulationApplicationService = Depends(simulation_service),
+) -> list[TrainingScenario]:
+    _assert_actor_identity(http_request, request.updated_by)
+    try:
+        async with session.begin():
+            return await service.upgrade_card_template_scenarios(
+                session, template_id, request
+            )
+    except DomainError as exc:
+        raise_http_error(exc)
+
+
+@router.post(
     "/incoming-call-templates",
     response_model=IncomingCallTemplateResponse,
     status_code=status.HTTP_201_CREATED,
@@ -206,6 +228,27 @@ async def delete_incoming_call_template(
 
 
 @router.post(
+    "/incoming-call-templates/{template_id}/upgrade-scenarios",
+    response_model=list[TrainingScenarioResponse],
+)
+async def upgrade_incoming_call_template_scenarios(
+    template_id: uuid.UUID,
+    request: TemplateScenarioUpgradeRequest,
+    http_request: Request,
+    session: AsyncSession = Depends(get_write_session),
+    service: SimulationApplicationService = Depends(simulation_service),
+) -> list[TrainingScenario]:
+    _assert_actor_identity(http_request, request.updated_by)
+    try:
+        async with session.begin():
+            return await service.upgrade_incoming_call_template_scenarios(
+                session, template_id, request
+            )
+    except DomainError as exc:
+        raise_http_error(exc)
+
+
+@router.post(
     "/training-scenarios",
     response_model=TrainingScenarioResponse,
     status_code=status.HTTP_201_CREATED,
@@ -229,7 +272,7 @@ async def list_training_scenarios(
     http_request: Request,
     user_id: uuid.UUID = Header(alias="X-User-Id"),
     scenario_status: str | None = Query(default=None, alias="status"),
-    difficulty: int | None = Query(default=None, ge=1, le=5),
+    difficulty: int | None = Query(default=None, ge=1, le=4),
     include_archived: bool = False,
     session: AsyncSession = Depends(get_read_session),
 ) -> list[TrainingScenario]:

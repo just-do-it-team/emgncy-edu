@@ -74,6 +74,10 @@ class ValidationError(DomainError):
     pass
 
 
+class ForbiddenError(DomainError):
+    pass
+
+
 class CardApplicationService:
     def __init__(self, topic: str) -> None:
         self.topic = topic

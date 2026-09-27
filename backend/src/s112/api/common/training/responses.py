@@ -1,3 +1,5 @@
+import uuid
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,12 +43,27 @@ async def assignment_response(
             .order_by(AssignmentParticipant.user_id)
         )
     )
+    group_id: uuid.UUID | None = None
+    group_name: str | None = None
+    if assignment.assignment_batch_id is not None:
+        group = (
+            await session.execute(
+                select(LearningGroup.id, LearningGroup.name)
+                .join(AssignmentBatch, AssignmentBatch.group_id == LearningGroup.id)
+                .where(AssignmentBatch.id == assignment.assignment_batch_id)
+            )
+        ).one_or_none()
+        if group is not None:
+            group_id, group_name = group
     return ScenarioAssignmentResponse(
         id=assignment.id,
         scenario_id=assignment.scenario_id,
         scenario_name=str(assignment.scenario_snapshot.get("name", "")),
         scenario_revision=assignment.scenario_revision,
+        passing_score=assignment.scenario_snapshot.get("passing_score", 100),
         assignment_batch_id=assignment.assignment_batch_id,
+        group_id=group_id,
+        group_name=group_name,
         assigned_by=assignment.assigned_by,
         workspace_mode=assignment.workspace_mode,
         launch_policy=assignment.launch_policy,

@@ -7,6 +7,7 @@ from s112.api.service import (
     CardApplicationService,
     ConflictError,
     DomainError,
+    ForbiddenError,
     NotFoundError,
     ValidationError,
 )
@@ -18,7 +19,12 @@ def application_service(request: Request) -> CardApplicationService:
 
 
 def simulation_service(request: Request) -> SimulationApplicationService:
-    return SimulationApplicationService(request.app.state.settings.kafka_topic)
+    settings = request.app.state.settings
+    return SimulationApplicationService(
+        settings.kafka_topic,
+        settings.audio_tts_request_topic,
+        settings.seaweed_audio_prefix,
+    )
 
 
 def raise_http_error(exc: DomainError) -> None:
@@ -27,6 +33,8 @@ def raise_http_error(exc: DomainError) -> None:
         raise HTTPException(status_code=404, detail=detail) from exc
     if isinstance(exc, ConflictError):
         raise HTTPException(status_code=409, detail=detail) from exc
+    if isinstance(exc, ForbiddenError):
+        raise HTTPException(status_code=403, detail=detail) from exc
     if isinstance(exc, ValidationError):
         raise HTTPException(status_code=422, detail=detail) from exc
     raise HTTPException(status_code=400, detail=detail) from exc

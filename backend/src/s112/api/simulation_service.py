@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -14,7 +15,12 @@ from s112.api.scenario_completion import (
     CompletionNotReadyError,
     ScenarioCompletionService,
 )
-from s112.api.service import ConflictError, NotFoundError, ValidationError
+from s112.api.service import (
+    ConflictError,
+    ForbiddenError,
+    NotFoundError,
+    ValidationError,
+)
 from s112.api.simulation_schemas import (
     CardTemplateCreate,
     CardTemplateDeleteRequest,
@@ -32,6 +38,7 @@ from s112.api.simulation_schemas import (
     ScenarioDefinition,
     ScenarioDeleteRequest,
     ScenarioSnapshot,
+    TemplateScenarioUpgradeRequest,
     TrainingScenarioCreate,
     TrainingScenarioUpdate,
     TrainingCallActionRequest,
@@ -84,6 +91,7 @@ from s112.domain.models import (
     TrainingCardResult,
     TrainingScenario,
     TrainingSession,
+    TtsSegment,
     UserAccount,
     WorkspaceMember,
 )
@@ -118,19 +126,25 @@ PROCEDURAL_PRESETS: dict[int, dict[str, int]] = {
     2: {"initial_delay_seconds": 5, "release_interval_seconds": 120, "max_active": 1},
     3: {"initial_delay_seconds": 5, "release_interval_seconds": 90, "max_active": 2},
     4: {"initial_delay_seconds": 0, "release_interval_seconds": 60, "max_active": 3},
-    5: {"initial_delay_seconds": 0, "release_interval_seconds": 30, "max_active": 4},
 }
 
 
 class SimulationApplicationService:
-    def __init__(self, topic: str = "card.events") -> None:
+    def __init__(
+        self,
+        topic: str = "card.events",
+        audio_tts_request_topic: str = "audio.tts.requested.v1",
+        seaweed_audio_prefix: str = "/audio",
+    ) -> None:
         self.topic = topic
+        self.audio_tts_request_topic = audio_tts_request_topic
+        self.seaweed_audio_prefix = seaweed_audio_prefix
         self.completion = ScenarioCompletionService(topic)
 
     async def create_template(
         self, session: AsyncSession, request: CardTemplateCreate
     ) -> CardTemplate:
-        await self._require_user_role(
+        actor = await self._require_user_role(
             session, request.created_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
         )
         await self._validate_template_content(
@@ -148,6 +162,11 @@ class SimulationApplicationService:
         )
         if existing is not None:
             raise ConflictError("This template version already exists")
+        owners = set(await session.scalars(
+            select(CardTemplate.created_by).where(CardTemplate.template_key == template_key)
+        ))
+        if owners and owners != {actor.id}:
+            raise ForbiddenError("Only the template author can create a new version")
 
         card_payload = request.initial_card.model_dump(mode="json", exclude_none=True)
         card_payload.pop("workspace_id", None)
@@ -172,7 +191,7 @@ class SimulationApplicationService:
         template_id: uuid.UUID,
         request: CardTemplateDeleteRequest,
     ) -> None:
-        await self._require_user_role(
+        actor = await self._require_user_role(
             session, request.deleted_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
         )
         template = await session.scalar(
@@ -182,6 +201,7 @@ class SimulationApplicationService:
         )
         if template is None:
             raise NotFoundError("Card template not found")
+        self._require_template_owner(template, actor)
         if not template.is_active:
             return
 
@@ -218,7 +238,7 @@ class SimulationApplicationService:
     async def create_incoming_call_template(
         self, session: AsyncSession, request: IncomingCallTemplateCreate
     ) -> IncomingCallTemplate:
-        await self._require_user_role(
+        actor = await self._require_user_role(
             session, request.created_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
         )
         await self._validate_template_content(
@@ -236,6 +256,13 @@ class SimulationApplicationService:
         )
         if existing is not None:
             raise ConflictError("This incoming call template version already exists")
+        owners = set(await session.scalars(
+            select(IncomingCallTemplate.created_by).where(
+                IncomingCallTemplate.template_key == template_key
+            )
+        ))
+        if owners and owners != {actor.id}:
+            raise ForbiddenError("Only the template author can create a new version")
 
         template = IncomingCallTemplate(
             template_key=template_key,
@@ -257,7 +284,7 @@ class SimulationApplicationService:
         template_id: uuid.UUID,
         request: IncomingCallTemplateDeleteRequest,
     ) -> None:
-        await self._require_user_role(
+        actor = await self._require_user_role(
             session, request.deleted_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
         )
         template = await session.scalar(
@@ -267,6 +294,7 @@ class SimulationApplicationService:
         )
         if template is None:
             raise NotFoundError("Incoming call template not found")
+        self._require_template_owner(template, actor)
         if not template.is_active:
             return
 
@@ -291,6 +319,159 @@ class SimulationApplicationService:
         template.is_active = False
         await session.flush()
 
+    async def upgrade_card_template_scenarios(
+        self,
+        session: AsyncSession,
+        template_id: uuid.UUID,
+        request: TemplateScenarioUpgradeRequest,
+    ) -> list[TrainingScenario]:
+        actor = await self._require_user_role(
+            session, request.updated_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
+        )
+        template = await session.get(CardTemplate, template_id)
+        if template is None or not template.is_active:
+            raise NotFoundError("Active card template not found")
+        return await self._upgrade_template_scenarios(
+            session,
+            template,
+            request,
+            ScenarioItemType.INCIDENT_CARD,
+            actor,
+        )
+
+    async def upgrade_incoming_call_template_scenarios(
+        self,
+        session: AsyncSession,
+        template_id: uuid.UUID,
+        request: TemplateScenarioUpgradeRequest,
+    ) -> list[TrainingScenario]:
+        actor = await self._require_user_role(
+            session, request.updated_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
+        )
+        template = await session.get(IncomingCallTemplate, template_id)
+        if template is None or not template.is_active:
+            raise NotFoundError("Active incoming call template not found")
+        return await self._upgrade_template_scenarios(
+            session,
+            template,
+            request,
+            ScenarioItemType.INCOMING_CALL,
+            actor,
+        )
+
+    async def _upgrade_template_scenarios(
+        self,
+        session: AsyncSession,
+        target_template: CardTemplate | IncomingCallTemplate,
+        request: TemplateScenarioUpgradeRequest,
+        item_type: ScenarioItemType,
+        actor: UserAccount,
+    ) -> list[TrainingScenario]:
+        requested_revisions = {
+            item.scenario_id: item.expected_revision for item in request.scenarios
+        }
+        scenarios = list(
+            await session.scalars(
+                select(TrainingScenario)
+                .where(TrainingScenario.id.in_(list(requested_revisions)))
+                .order_by(TrainingScenario.id)
+                .with_for_update()
+            )
+        )
+        scenarios_by_id = {scenario.id: scenario for scenario in scenarios}
+        missing_ids = set(requested_revisions) - set(scenarios_by_id)
+        if missing_ids:
+            raise NotFoundError(
+                "Training scenarios not found: "
+                + ", ".join(sorted(str(item) for item in missing_ids))
+            )
+
+        template_model = (
+            CardTemplate
+            if item_type is ScenarioItemType.INCIDENT_CARD
+            else IncomingCallTemplate
+        )
+        updated: list[TrainingScenario] = []
+        for requested in request.scenarios:
+            scenario = scenarios_by_id[requested.scenario_id]
+            self._require_scenario_owner(scenario, actor)
+            if scenario.status != ScenarioStatus.DRAFT.value:
+                raise ConflictError(
+                    f"Scenario {scenario.id} must be returned to DRAFT before upgrade"
+                )
+            if scenario.revision != requested.expected_revision:
+                raise ConflictError(
+                    f"Scenario {scenario.id} revision conflict: expected "
+                    f"{requested.expected_revision}, actual {scenario.revision}"
+                )
+
+            definition = ScenarioDefinition.model_validate(scenario.definition)
+            changed = False
+            for item in definition.cards:
+                if (
+                    item.item_type is not item_type
+                    or item.source_type is not ScenarioCardSourceType.TEMPLATE
+                    or item.template_id is None
+                ):
+                    continue
+                referenced = await session.get(template_model, item.template_id)
+                if (
+                    referenced is None
+                    or referenced.template_key != target_template.template_key
+                ):
+                    continue
+                if referenced.version > target_template.version:
+                    raise ValidationError(
+                        f"Scenario {scenario.id} already references a newer template version"
+                    )
+                if referenced.version < target_template.version:
+                    item.template_id = target_template.id
+                    changed = True
+
+            generator = definition.procedural_generation
+            if (
+                item_type is ScenarioItemType.INCIDENT_CARD
+                and generator is not None
+                and generator.template_pool.template_ids is not None
+            ):
+                upgraded_pool: list[uuid.UUID] = []
+                for template_id in generator.template_pool.template_ids:
+                    referenced = await session.get(CardTemplate, template_id)
+                    upgraded_id = template_id
+                    if (
+                        referenced is not None
+                        and referenced.template_key == target_template.template_key
+                    ):
+                        if referenced.version > target_template.version:
+                            raise ValidationError(
+                                f"Scenario {scenario.id} already references a newer "
+                                "template version"
+                            )
+                        if referenced.version < target_template.version:
+                            upgraded_id = target_template.id
+                            changed = True
+                    if upgraded_id not in upgraded_pool:
+                        upgraded_pool.append(upgraded_id)
+                generator.template_pool.template_ids = upgraded_pool
+
+            if not changed:
+                raise ValidationError(
+                    f"Scenario {scenario.id} does not reference an earlier version "
+                    "of this template"
+                )
+            await self._validate_template_references(
+                session, definition, scenario.difficulty
+            )
+            scenario.definition = strip_scenario_card_runtime_fields(
+                definition.model_dump(mode="json", exclude_none=True)
+            )
+            scenario.updated_by = request.updated_by
+            scenario.revision += 1
+            updated.append(scenario)
+
+        await session.flush()
+        return updated
+
     async def create_scenario(
         self, session: AsyncSession, request: TrainingScenarioCreate
     ) -> TrainingScenario:
@@ -299,6 +480,15 @@ class SimulationApplicationService:
         )
         await self._validate_template_references(
             session, request.definition, request.difficulty
+        )
+        await self._validate_required_participant_positions(
+            session, request.required_participant_positions
+        )
+        self._validate_participant_range(
+            request.workspace_mode.value,
+            request.min_participants,
+            request.max_participants,
+            request.required_participant_positions,
         )
         procedural_count = (
             request.definition.procedural_generation.target_count
@@ -310,6 +500,7 @@ class SimulationApplicationService:
             description=request.description,
             difficulty=request.difficulty,
             estimated_duration_seconds=request.estimated_duration_seconds,
+            passing_score=request.passing_score,
             cards_count=len(request.definition.cards) + procedural_count,
             workspace_mode=request.workspace_mode.value,
             completion_policy=self._resolve_completion_policy(
@@ -318,6 +509,7 @@ class SimulationApplicationService:
             ),
             min_participants=request.min_participants,
             max_participants=request.max_participants,
+            required_participant_positions=request.required_participant_positions,
             definition=strip_scenario_card_runtime_fields(
                 request.definition.model_dump(mode="json", exclude_none=True)
             ),
@@ -336,7 +528,7 @@ class SimulationApplicationService:
         scenario_id: uuid.UUID,
         request: TrainingScenarioUpdate,
     ) -> TrainingScenario:
-        await self._require_user_role(
+        actor = await self._require_user_role(
             session, request.updated_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
         )
         scenario = await session.scalar(
@@ -346,11 +538,23 @@ class SimulationApplicationService:
         )
         if scenario is None:
             raise NotFoundError("Training scenario not found")
+        self._require_scenario_owner(scenario, actor)
         if scenario.revision != request.expected_revision:
             raise ConflictError(
                 f"Scenario revision conflict: expected {request.expected_revision}, "
                 f"actual {scenario.revision}"
             )
+        if scenario.status == ScenarioStatus.PUBLISHED.value:
+            changed_fields = request.model_fields_set - {"expected_revision", "updated_by"}
+            if changed_fields != {"status"} or request.status is not ScenarioStatus.DRAFT:
+                raise ConflictError(
+                    "A published scenario can only be returned to draft status"
+                )
+            scenario.status = ScenarioStatus.DRAFT.value
+            scenario.updated_by = request.updated_by
+            scenario.revision += 1
+            await session.flush()
+            return scenario
         if scenario.status != ScenarioStatus.DRAFT.value:
             raise ConflictError("Only a draft scenario can be edited")
         if request.status is ScenarioStatus.ARCHIVED:
@@ -387,7 +591,7 @@ class SimulationApplicationService:
                 if request.definition.procedural_generation is not None
                 else 0
             )
-        elif request.difficulty is not None:
+        elif request.difficulty is not None or request.status is ScenarioStatus.PUBLISHED:
             await self._validate_template_references(
                 session,
                 ScenarioDefinition.model_validate(scenario.definition),
@@ -398,6 +602,10 @@ class SimulationApplicationService:
             scenario.workspace_mode,
             scenario.min_participants,
             scenario.max_participants,
+            scenario.required_participant_positions,
+        )
+        await self._validate_required_participant_positions(
+            session, scenario.required_participant_positions
         )
         self._resolve_completion_policy(
             scenario.workspace_mode, scenario.completion_policy
@@ -413,7 +621,7 @@ class SimulationApplicationService:
         scenario_id: uuid.UUID,
         request: ScenarioDeleteRequest,
     ) -> None:
-        await self._require_user_role(
+        actor = await self._require_user_role(
             session, request.deleted_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
         )
         scenario = await session.scalar(
@@ -423,6 +631,7 @@ class SimulationApplicationService:
         )
         if scenario is None:
             raise NotFoundError("Training scenario not found")
+        self._require_scenario_owner(scenario, actor)
         if scenario.revision != request.expected_revision:
             raise ConflictError(
                 f"Scenario revision conflict: expected {request.expected_revision}, "
@@ -671,6 +880,18 @@ class SimulationApplicationService:
         ):
             raise ValidationError("Shared scenarios currently require TEACHER_START")
 
+        required_positions = set(scenario.required_participant_positions or [])
+        assigned_positions = set(request.participant_positions.values())
+        missing_positions = required_positions - assigned_positions
+        if missing_positions:
+            formatted = ", ".join(
+                "OPERATOR_112" if item is None else item
+                for item in sorted(missing_positions, key=lambda item: item or "")
+            )
+            raise ValidationError(
+                f"Assignment does not cover required participant positions: {formatted}"
+            )
+
         definition = ScenarioDefinition.model_validate(scenario.definition)
         await self._validate_template_references(session, definition, scenario.difficulty)
         operator_ids = {
@@ -781,10 +1002,12 @@ class SimulationApplicationService:
             "description": scenario.description,
             "difficulty": scenario.difficulty,
             "estimated_duration_seconds": scenario.estimated_duration_seconds,
+            "passing_score": float(scenario.passing_score),
             "workspace_mode": scenario.workspace_mode,
             "completion_policy": scenario.completion_policy,
             "min_participants": scenario.min_participants,
             "max_participants": scenario.max_participants,
+            "required_participant_positions": scenario.required_participant_positions,
             "definition": {
                 "schema_version": definition.schema_version,
                 "mode": definition.mode.value,
@@ -1455,8 +1678,10 @@ class SimulationApplicationService:
             for item in training_calls
         ):
             raise CompletionNotReadyError(readiness)
+        assignment = await session.get(ScenarioAssignment, training_session.assignment_id)
+        passing_score = self._snapshot_passing_score(assignment)
         score, passed, result = await self._evaluate_session_work(
-            session, scheduled_cards, training_calls
+            session, scheduled_cards, training_calls, passing_score
         )
         now = utcnow()
         training_session.status = TrainingSessionStatus.COMPLETED.value
@@ -1495,7 +1720,6 @@ class SimulationApplicationService:
             )
         )
 
-        assignment = await session.get(ScenarioAssignment, training_session.assignment_id)
         if assignment is not None:
             if passed or training_session.attempt_number >= assignment.max_attempts:
                 assignment.status = AssignmentStatus.COMPLETED.value
@@ -1536,6 +1760,7 @@ class SimulationApplicationService:
         session: AsyncSession,
         scheduled_cards: list[SessionScheduledCard],
         training_calls: list[TrainingCall],
+        passing_score: Decimal,
     ) -> tuple[Decimal, bool, dict[str, Any]]:
         card_results: list[dict[str, Any]] = []
         call_results: list[dict[str, Any]] = []
@@ -1543,7 +1768,7 @@ class SimulationApplicationService:
         for item in scheduled_cards:
             if item.status != ScheduledCardStatus.EMITTED.value or item.incident_card_id is None:
                 continue
-            result = await self._evaluate_card(session, item)
+            result = await self._evaluate_card(session, item, passing_score)
             session.add(result)
             total_score += result.score
             card_results.append(
@@ -1562,7 +1787,9 @@ class SimulationApplicationService:
                 or item.incident_card_id is None
             ):
                 continue
-            result = await self._evaluate_incoming_call(session, item)
+            result = await self._evaluate_incoming_call(
+                session, item, passing_score
+            )
             total_score += result["score"]
             call_results.append(
                 {
@@ -1576,10 +1803,12 @@ class SimulationApplicationService:
             )
         evaluated_count = len(card_results) + len(call_results)
         score = total_score / evaluated_count if evaluated_count else Decimal("0")
-        passed = evaluated_count > 0 and all(
-            item["passed"] for item in [*card_results, *call_results]
-        )
-        return score, passed, {"cards": card_results, "incoming_calls": call_results}
+        passed = evaluated_count > 0 and score >= passing_score
+        return score, passed, {
+            "passing_score": float(passing_score),
+            "cards": card_results,
+            "incoming_calls": call_results,
+        }
 
     async def abort_individual_session(
         self,
@@ -1636,8 +1865,9 @@ class SimulationApplicationService:
                 .order_by(TrainingCall.scenario_item_key)
             )
         )
+        passing_score = self._snapshot_passing_score(assignment)
         score, work_passed, result = await self._evaluate_session_work(
-            session, scheduled_cards, training_calls
+            session, scheduled_cards, training_calls, passing_score
         )
         if reason is not None:
             result["abort_reason"] = reason
@@ -2106,7 +2336,10 @@ class SimulationApplicationService:
         }
 
     async def _evaluate_card(
-        self, session: AsyncSession, item: SessionScheduledCard
+        self,
+        session: AsyncSession,
+        item: SessionScheduledCard,
+        passing_score: Decimal,
     ) -> TrainingCardResult:
         card = await session.scalar(
             select(IncidentCard)
@@ -2285,7 +2518,7 @@ class SimulationApplicationService:
         return TrainingCardResult(
             session_scheduled_card_id=item.id,
             score=score.quantize(Decimal("0.01")),
-            passed=failures == 0,
+            passed=score >= passing_score,
             discrepancies=[
                 TrainingDiscrepancy.model_validate(entry).model_dump(mode="json")
                 for entry in discrepancies
@@ -2293,7 +2526,10 @@ class SimulationApplicationService:
         )
 
     async def _evaluate_incoming_call(
-        self, session: AsyncSession, item: TrainingCall
+        self,
+        session: AsyncSession,
+        item: TrainingCall,
+        passing_score: Decimal,
     ) -> dict[str, Any]:
         card = await session.scalar(
             select(IncidentCard)
@@ -2316,7 +2552,7 @@ class SimulationApplicationService:
         )
         return {
             "score": score.quantize(Decimal("0.01")),
-            "passed": not discrepancies,
+            "passed": score >= passing_score,
             "discrepancies": [
                 TrainingDiscrepancy.model_validate(entry).model_dump(mode="json")
                 for entry in discrepancies
@@ -2505,6 +2741,11 @@ class SimulationApplicationService:
             if incoming_call is not None
             else {"card": await self._card_state(session, card)}
         )
+        training_session = await session.scalar(
+            select(TrainingSession)
+            .where(TrainingSession.id == training_session.id)
+            .with_for_update()
+        )
         now = utcnow()
         item = TrainingCall(
             training_session_id=training_session.id,
@@ -2525,6 +2766,77 @@ class SimulationApplicationService:
         )
         session.add(item)
         await session.flush()
+        greeting_text = "Руководитель бригады, слушаю вас."
+        greeting_id = uuid.uuid4()
+        generation_id = uuid.uuid4()
+        sequence = await session.scalar(
+            select(func.max(AudioMessage.sequence_no)).where(
+                AudioMessage.training_session_id == training_session.id
+            )
+        )
+        session.add(
+            AudioMessage(
+                id=greeting_id,
+                training_session_id=training_session.id,
+                workspace_id=item.workspace_id,
+                incident_card_id=card.id,
+                training_call_id=item.id,
+                actor_user_id=None,
+                speaker_role="COMMANDER",
+                reply_to_message_id=None,
+                generation_id=generation_id,
+                generation_status="PROCESSING",
+                kind=AudioMessageKind.TTS.value,
+                direction="INBOUND",
+                status=AudioMessageStatus.PROCESSING.value,
+                sequence_no=int(sequence or 0) + 1,
+                revision=1,
+                idempotency_key=f"outgoing-greeting:{item.id}",
+                source_text=greeting_text,
+            )
+        )
+        segment_id = uuid.uuid4()
+        session.add(
+            TtsSegment(
+                id=segment_id,
+                audio_message_id=greeting_id,
+                generation_id=generation_id,
+                segment_no=1,
+                text=greeting_text,
+                status="QUEUED",
+                object_key=(
+                    f"{self.seaweed_audio_prefix.rstrip('/')}/"
+                    f"{training_session.id}/{greeting_id}/1.wav"
+                ),
+            )
+        )
+        event_id = uuid.uuid4()
+        session.add(
+            OutboxEvent(
+                id=event_id,
+                aggregate_type="tts_segment",
+                aggregate_id=str(segment_id),
+                aggregate_version=1,
+                event_type="audio.tts.segment.requested",
+                topic=self.audio_tts_request_topic,
+                message_key=str(item.id),
+                payload={
+                    "schema_version": 1,
+                    "event_id": str(event_id),
+                    "event_type": "audio.tts.segment.requested",
+                    "aggregate_type": "tts_segment",
+                    "aggregate_id": str(segment_id),
+                    "aggregate_version": 1,
+                    "correlation_id": str(item.id),
+                    "data": {
+                        "audio_message_id": str(greeting_id),
+                        "segment_id": str(segment_id),
+                        "generation_id": str(generation_id),
+                        "segment_no": 1,
+                    },
+                },
+            )
+        )
         self._add_training_call_action(
             session, item, user_id, "OUTGOING_CALL_STARTED", now,
             incident_card_id=card.id,
@@ -2694,6 +3006,10 @@ class SimulationApplicationService:
         path: str,
         discrepancies: list[dict[str, Any]],
     ) -> int:
+        if path == "card.description" or (
+            path.startswith("service_status_history.") and path.endswith(".comment")
+        ):
+            return 0
         if isinstance(expected, dict):
             checks = 0
             actual_dict = actual if isinstance(actual, dict) else {}
@@ -2709,7 +3025,11 @@ class SimulationApplicationService:
                     value, actual_dict.get(key), child_path, discrepancies
                 )
             return checks
-        if isinstance(expected, list) and isinstance(actual, list):
+        if path in {"card.reported_address", "card.incident_address"}:
+            matches = cls._normalize_address(expected) == cls._normalize_address(actual)
+        elif path == "card.applicant_full_name":
+            matches = cls._normalize_text(expected) == cls._normalize_text(actual)
+        elif isinstance(expected, list) and isinstance(actual, list):
             matches = sorted(expected, key=str) == sorted(actual, key=str)
         else:
             matches = expected == actual
@@ -2718,6 +3038,26 @@ class SimulationApplicationService:
                 {"path": path, "expected": expected, "actual": actual, "reason": "value_mismatch"}
             )
         return 1
+
+    @staticmethod
+    def _normalize_text(value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        normalized = value.casefold().replace("ё", "е")
+        normalized = re.sub(r"[^\w]+", " ", normalized, flags=re.UNICODE)
+        return " ".join(normalized.split())
+
+    @classmethod
+    def _normalize_address(cls, value: Any) -> Any:
+        normalized = cls._normalize_text(value)
+        if not isinstance(normalized, str):
+            return normalized
+        abbreviations = {
+            "улица": "ул",
+            "дом": "д",
+            "корпус": "корп",
+        }
+        return " ".join(abbreviations.get(token, token) for token in normalized.split())
 
     async def _training_call_context(
         self,
@@ -2993,7 +3333,7 @@ class SimulationApplicationService:
         if generator is None:
             return {}
         difficulty = int(scenario_snapshot["difficulty"])
-        preset = PROCEDURAL_PRESETS[difficulty]
+        preset = PROCEDURAL_PRESETS[min(difficulty, 4)]
         next_generation_at = started_at + timedelta(
             seconds=preset["initial_delay_seconds"]
         )
@@ -3078,6 +3418,20 @@ class SimulationApplicationService:
         return user
 
     @staticmethod
+    def _require_template_owner(
+        template: CardTemplate | IncomingCallTemplate, actor: UserAccount
+    ) -> None:
+        if template.created_by != actor.id:
+            raise ForbiddenError("Only the template author can deactivate it")
+
+    @staticmethod
+    def _require_scenario_owner(
+        scenario: TrainingScenario, actor: UserAccount
+    ) -> None:
+        if scenario.created_by != actor.id:
+            raise ForbiddenError("Only the scenario author can modify or archive it")
+
+    @staticmethod
     async def _assert_participants_not_running(
         session: AsyncSession, participant_ids: list[uuid.UUID]
     ) -> None:
@@ -3159,11 +3513,55 @@ class SimulationApplicationService:
         )
 
     @staticmethod
-    def _validate_participant_range(mode: str, minimum: int, maximum: int) -> None:
+    def _validate_participant_range(
+        mode: str,
+        minimum: int,
+        maximum: int,
+        required_positions: list[str | None] | None = None,
+    ) -> None:
         if maximum < minimum:
             raise ValidationError("max_participants must not be lower than min_participants")
         if mode == WorkspaceMode.INDIVIDUAL.value and (minimum != 1 or maximum != 1):
             raise ValidationError("INDIVIDUAL scenario requires exactly one participant")
+        if required_positions is not None:
+            required_count = len(required_positions)
+            if mode == WorkspaceMode.INDIVIDUAL.value and required_count != 1:
+                raise ValidationError("INDIVIDUAL scenario requires exactly one position")
+            if required_count > minimum:
+                raise ValidationError(
+                    "min_participants must cover every required participant position"
+                )
+
+    @staticmethod
+    async def _validate_required_participant_positions(
+        session: AsyncSession,
+        required_positions: list[str | None] | None,
+    ) -> None:
+        service_codes = {item for item in required_positions or [] if item is not None}
+        if not service_codes:
+            return
+        active_codes = set(
+            await session.scalars(
+                select(EmergencyService.code).where(
+                    EmergencyService.code.in_(service_codes),
+                    EmergencyService.is_active.is_(True),
+                )
+            )
+        )
+        missing = service_codes - active_codes
+        if missing:
+            raise ValidationError(
+                "Required participant positions contain unknown or inactive services: "
+                + ", ".join(sorted(missing))
+            )
+
+    @staticmethod
+    def _snapshot_passing_score(
+        assignment: ScenarioAssignment | None,
+    ) -> Decimal:
+        if assignment is None:
+            return Decimal("100")
+        return Decimal(str(assignment.scenario_snapshot.get("passing_score", 100)))
 
     @staticmethod
     def _resolve_completion_policy(mode: str, policy: str | None) -> str:
