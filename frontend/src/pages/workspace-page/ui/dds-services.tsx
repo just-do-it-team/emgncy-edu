@@ -1,9 +1,9 @@
 import { useState } from "react";
 import {
   ActionIcon,
-  Alert,
   Button,
   Group,
+  Loader,
   Modal,
   Popover,
   Select,
@@ -22,10 +22,10 @@ import {
 } from "lucide-react";
 import {
   allowedServiceStatuses,
-  apiError,
   notifyTrainingError,
   statusLabels,
   trainingApi,
+  trainingKeys,
   type ApiCard,
   type CardService,
   type EmergencyService,
@@ -132,20 +132,17 @@ function DdsService({
 }) {
   const [opened, setOpened] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [savingOptions, setSavingOptions] = useState<string[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const [unit, setUnit] = useState("");
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const history = useQuery({
-    queryKey: [
-      "student-api",
-      ctx.userId,
-      ctx.workspaceId,
-      "service-history",
+    queryKey: trainingKeys.serviceHistory(
+      ctx,
       service.id,
       service.current_status,
-    ],
+    ),
     queryFn: ({ signal }) =>
       trainingApi.serviceHistory(ctx, service.id, signal),
     refetchOnWindowFocus: false,
@@ -159,6 +156,7 @@ function DdsService({
     ownService && !readOnly && !awaitingReceipt
       ? allowedServiceStatuses(service.current_status, info.code)
       : [];
+  const formOptions = busy ? savingOptions : options;
   const requiresReason = status === "REJECTED" || status === "WORK_REFUSED";
   const requiresComment = requiresReason;
   const latest = history.data?.at(-1);
@@ -183,7 +181,6 @@ function DdsService({
 
   function startEditing() {
     setOpened(false);
-    setError(null);
     if (!unit) {
       const previousUnit = history.data
         ?.slice()
@@ -203,8 +200,8 @@ function DdsService({
       (requiresComment && !comment.trim())
     )
       return;
+    setSavingOptions(options);
     setBusy(true);
-    setError(null);
     try {
       const note = unit.trim() ? `Наряд № ${unit.trim()}` : "";
       const fullComment = [note, comment.trim()].filter(Boolean).join(". ");
@@ -214,7 +211,7 @@ function DdsService({
       setStatus(null);
       setComment("");
     } catch (err) {
-      setError(notifyTrainingError(err));
+      notifyTrainingError(err);
     } finally {
       setBusy(false);
     }
@@ -226,6 +223,7 @@ function DdsService({
         opened={opened}
         onChange={setOpened}
         position="top-start"
+        offset={0}
         width={560}
         withinPortal
         shadow="md"
@@ -285,12 +283,9 @@ function DdsService({
           </Group>
           {history.isPending && <Text size="sm">Загрузка истории…</Text>}
           {history.isError && (
-            <Alert color="red">
-              {apiError(history.error)}{" "}
-              <Button size="xs" onClick={() => void history.refetch()}>
-                Повторить
-              </Button>
-            </Alert>
+            <Button size="xs" onClick={() => void history.refetch()}>
+              Повторить загрузку истории
+            </Button>
           )}
           <div className={classes.historyList}>
             {history.data?.map((entry) => (
@@ -349,7 +344,7 @@ function DdsService({
             variant="unstyled"
             aria-label="Статус реагирования"
             placeholder="Статус"
-            data={options.map((value) => ({
+            data={formOptions.map((value) => ({
               value,
               label: statusLabels[value] ?? value,
             }))}
@@ -399,17 +394,22 @@ function DdsService({
             className={classes.editorActions}
           >
             <Button
-              aria-label="Сохранить статус"
-              title="Сохранить статус"
-              loading={busy}
+              aria-label={busy ? "Сохранение статуса" : "Сохранить статус"}
+              title={busy ? "Сохранение статуса" : "Сохранить статус"}
+              aria-busy={busy}
               disabled={
+                busy ||
                 !status ||
-                !options.includes(status) ||
+                !formOptions.includes(status) ||
                 (requiresComment && !comment.trim())
               }
               onClick={() => void save()}
             >
-              <Check size={18} />
+              {busy ? (
+                <Loader size={16} color="currentColor" />
+              ) : (
+                <Check size={18} />
+              )}
             </Button>
             <Button
               variant="default"
@@ -426,11 +426,6 @@ function DdsService({
           <Text size="xs" mt="xs" c="dimmed">
             После сохранения этого статуса реагирование службы завершится.
           </Text>
-        )}
-        {error && (
-          <Alert color="red" mt="sm">
-            {error}
-          </Alert>
         )}
       </Modal>
     </>

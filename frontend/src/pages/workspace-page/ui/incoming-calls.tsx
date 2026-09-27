@@ -7,12 +7,15 @@ import {
   apiError,
   notifyTrainingError,
   trainingApi,
+  trainingKeys,
   type ApiCard,
   type EmergencyService,
   type LaunchContext,
 } from "@/entities/training";
 import { CreateServerCard } from "./create-server-card";
 import { useIncomingCallAudio } from "./use-incoming-call-audio";
+import { useCallRingtone } from "./use-call-ringtone";
+import incomingRingtone from "@/assets/audio/telephone-electronic-call.mp3";
 import {
   createOperatorCard,
   type OperatorCardDraft,
@@ -100,13 +103,7 @@ export function IncomingCalls({
   openCardRequest: number;
 }) {
   const queryClient = useQueryClient();
-  const queryKey = [
-    "student-api",
-    ctx.userId,
-    ctx.workspaceId,
-    "incoming-calls",
-    ctx.sessionId,
-  ];
+  const queryKey = trainingKeys.incomingCalls(ctx);
   const calls = useQuery({
     queryKey,
     queryFn: ({ signal }) => trainingApi.incomingCalls(ctx, signal),
@@ -133,6 +130,17 @@ export function IncomingCalls({
   }, [ringNotBefore]);
 
   const ringingCall = calls.data?.find((call) => call.status === "RINGING");
+  const showIncomingCall =
+    ringDelayPassed && active && !!ringingCall && !creatingCallId && !busy;
+  const {
+    start: startRingtone,
+    stop: stopRingtone,
+    blocked: ringtoneBlocked,
+  } = useCallRingtone(incomingRingtone);
+  useEffect(() => {
+    if (showIncomingCall) startRingtone();
+    else stopRingtone();
+  }, [showIncomingCall, startRingtone, stopRingtone]);
   const unfinishedCall = calls.data?.find(
     (call) =>
       (call.status === "ACTIVE" || call.status === "COMPLETED") &&
@@ -214,6 +222,7 @@ export function IncomingCalls({
 
   async function answer(callId: string) {
     if (!active || busy || !calls.data) return;
+    stopRingtone();
     setBusy(true);
     onBusyChange(true);
     setError(null);
@@ -271,7 +280,6 @@ export function IncomingCalls({
       if (current.status === "ACTIVE") await act(callId, "complete");
     } catch (reason) {
       const message = `Карточка № ${card.card_number} сохранена. Не удалось связать её со звонком или подтвердить его завершение; повторите сохранение. ${apiError(reason)}`;
-      setError(message);
       throw new Error(message);
     }
     setCreatingCallId(null);
@@ -470,9 +478,7 @@ export function IncomingCalls({
           controlTarget,
         )}
       <Modal
-        opened={
-          ringDelayPassed && active && !!ringingCall && !creatingCallId && !busy
-        }
+        opened={showIncomingCall}
         onClose={() => {}}
         withCloseButton={false}
         closeOnClickOutside={false}
@@ -492,6 +498,11 @@ export function IncomingCalls({
           <Text size="lg" fw={600}>
             с номера {ringingCall?.caller_number ?? "не указан"}
           </Text>
+          {ringtoneBlocked && (
+            <Button variant="subtle" color="white" onClick={startRingtone}>
+              Включить звук звонка
+            </Button>
+          )}
           <Button
             size="lg"
             variant="outline"

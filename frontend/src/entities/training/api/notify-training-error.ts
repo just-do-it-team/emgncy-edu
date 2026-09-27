@@ -7,7 +7,8 @@ export function notifyTrainingError(error: unknown): string {
     title: "Ошибка",
     message,
     color: "red",
-    autoClose: 8000,
+    autoClose: 10000,
+    withCloseButton: true,
   });
   return message;
 }

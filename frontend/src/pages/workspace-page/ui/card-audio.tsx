@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { Accordion, Alert, Button, Stack, Text } from "@mantine/core";
+import { Accordion, Button, Stack, Text } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
 import {
-  apiError,
   formatApiDate,
   statusLabels,
   trainingApi,
+  trainingKeys,
   type AudioMessage,
   type LaunchContext,
 } from "@/entities/training";
@@ -23,7 +23,7 @@ export function CardAudio({
     defaultOpened ? "audio" : null,
   );
   const query = useQuery({
-    queryKey: ["student-api", ctx.userId, ctx.workspaceId, "audio", cardId],
+    queryKey: trainingKeys.audioMessages(ctx, cardId),
     queryFn: ({ signal }) => trainingApi.audioMessages(ctx, cardId, signal),
     enabled: opened !== null,
     refetchOnWindowFocus: false,
@@ -37,16 +37,13 @@ export function CardAudio({
           <Stack gap="sm">
             {query.isPending && <Text size="sm">Загрузка…</Text>}
             {query.isError && (
-              <Alert color="red">
-                {apiError(query.error)}{" "}
-                <Button
-                  size="xs"
-                  variant="subtle"
-                  onClick={() => void query.refetch()}
-                >
-                  Повторить
-                </Button>
-              </Alert>
+              <Button
+                size="xs"
+                variant="subtle"
+                onClick={() => void query.refetch()}
+              >
+                Повторить загрузку аудиосообщений
+              </Button>
             )}
             {query.data?.length === 0 && (
               <Text size="sm" c="dimmed">
@@ -77,7 +74,7 @@ function AudioItem({
   const [requested, setRequested] = useState(false);
   const [url, setUrl] = useState<string | null>(null);
   const query = useQuery({
-    queryKey: ["student-api", userId, "audio-content", message.id],
+    queryKey: trainingKeys.audioContent(userId, message.id),
     queryFn: ({ signal }) =>
       trainingApi.audioContent(userId, message.id, signal),
     enabled: requested,
@@ -116,11 +113,6 @@ function AudioItem({
         </Button>
       )}
       {url && <audio controls src={url} preload="metadata" />}
-      {query.isError && (
-        <Text c="red" size="xs">
-          {apiError(query.error)}
-        </Text>
-      )}
     </Stack>
   );
 }

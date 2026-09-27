@@ -18,6 +18,7 @@ import {
   useQueries,
 } from "@tanstack/react-query";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { CircleHelp } from "lucide-react";
 import { useSessionStore } from "@/entities/session";
 import { WorkspaceHeader } from "@/widgets/workspace-header";
 import {
@@ -26,6 +27,7 @@ import {
   isUuid,
   notifyTrainingError,
   trainingApi,
+  trainingKeys,
   type CardListItem,
   type ApiCard,
   type LaunchContext,
@@ -34,11 +36,12 @@ import {
 import { IncidentList } from "./incident-list";
 import { listIncident } from "../model/api-card-adapter";
 import type { OperatorCardEntry } from "../model/operator-cards";
-import { ConnectedCard } from "./connected-card";
+import { ConnectedCard, type CardSyncState } from "./connected-card";
 import { IncomingCalls } from "./incoming-calls";
 import { OutgoingCalls } from "./outgoing-calls";
 import { useWorkspaceEvents } from "./use-workspace-events";
 import { useTrainingPresence } from "./use-training-presence";
+import { ArmOnboarding } from "./arm-onboarding";
 import classes from "./workspace-page.module.scss";
 
 class PendingSessionError extends Error {}
@@ -100,13 +103,7 @@ function RestoredWorkspace({
   sessionId: string;
 }) {
   const context = useQuery({
-    queryKey: [
-      "student-api",
-      userId,
-      "launch-context",
-      assignmentId,
-      sessionId,
-    ],
+    queryKey: trainingKeys.launchContext(userId, assignmentId, sessionId),
     queryFn: async ({ signal }) => {
       const resolvedAssignmentId =
         assignmentId ||
@@ -176,12 +173,17 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
   const [cardOpen, setCardOpen] = useState(false);
   const [openCardRequest, setOpenCardRequest] = useState(0);
   const [finishAfterBusy, setFinishAfterBusy] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const onboardingButtonRef = useRef<HTMLButtonElement>(null);
   const backAction = useRef<() => void>(() => {});
   const [needsManualRefresh, setNeedsManualRefresh] = useState(false);
   const [manualRefreshing, setManualRefreshing] = useState(false);
-  const baseKey = ["student-api", ctx.userId, ctx.workspaceId];
+  const [cardSyncState, setCardSyncState] = useState<CardSyncState | null>(
+    null,
+  );
+  const baseKey = trainingKeys.workspace(ctx);
   const readiness = useQuery({
-    queryKey: [...baseKey, "readiness", ctx.sessionId],
+    queryKey: trainingKeys.readiness(ctx),
     queryFn: ({ signal }) => trainingApi.readiness(ctx, signal),
     refetchInterval: (query) =>
       query.state.data?.status === "RUNNING" &&
@@ -194,7 +196,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
   });
   const connection = useWorkspaceEvents(ctx, readiness.isSuccess);
   const cards = useInfiniteQuery({
-    queryKey: [...baseKey, "cards", "pages"],
+    queryKey: trainingKeys.cardPages(ctx),
     queryFn: ({ pageParam, signal }) =>
       trainingApi.cards(ctx, pageParam, signal),
     initialPageParam: null as string | null,
@@ -217,7 +219,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     return [...byId.values()];
   }, [cards.data]);
   const calls = useQuery({
-    queryKey: [...baseKey, "incoming-calls", ctx.sessionId],
+    queryKey: trainingKeys.incomingCalls(ctx),
     queryFn: ({ signal }) => trainingApi.incomingCalls(ctx, signal),
     enabled: ctx.mode === "ARM112",
     refetchOnWindowFocus: false,
@@ -237,7 +239,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     ctx.mode === "DDS" ? visibleCards.filter((card) => !card.description) : [];
   const ddsCardDetails = useQueries({
     queries: cardsNeedingDetails.map((card) => ({
-      queryKey: [...baseKey, "card", card.card_id],
+      queryKey: trainingKeys.card(ctx, card.card_id),
       queryFn: ({ signal }: { signal: AbortSignal }) =>
         trainingApi.card(ctx, card.card_id, signal),
       refetchOnWindowFocus: false,
@@ -262,7 +264,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
         )
       : undefined;
   const reference = useQuery({
-    queryKey: ["student-api", "reference", ctx.mode],
+    queryKey: trainingKeys.referenceMode(ctx.mode),
     queryFn: async ({ signal }) => {
       const services = await trainingApi.services(signal);
       const types =
@@ -291,10 +293,10 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
       setExiting(true);
       if (terminal) rememberFinished(ctx.userId, ctx.sessionId);
       void queryClient.invalidateQueries({
-        queryKey: ["student-api", ctx.userId, "assignments"],
+        queryKey: trainingKeys.assignments(ctx.userId),
       });
       void queryClient.invalidateQueries({
-        queryKey: ["student-api", ctx.userId, "history"],
+        queryKey: trainingKeys.history(ctx.userId),
       });
       navigate("/student", { replace: true });
     },
@@ -316,6 +318,11 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     presence === "interrupted" ||
     presence === "unavailable" ||
     requestConnectionLost;
+  const connectionActive =
+    presenceActive &&
+    !connectionLost &&
+    presence === "connected" &&
+    connection === "connected";
   useEffect(() => {
     if (connectionLost) setNeedsManualRefresh(true);
   }, [connectionLost]);
@@ -345,9 +352,13 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
   const alreadyFinished = ["COMPLETED", "ABORTED"].includes(
     readiness.data?.status ?? "",
   );
-  async function refresh() {
-    await queryClient.invalidateQueries({ queryKey: baseKey });
-  }
+  const activeCardSyncState =
+    cardSyncState?.cardId === selectedId ? cardSyncState : null;
+  const refresh = useCallback(async () => {
+    await queryClient.invalidateQueries({
+      queryKey: trainingKeys.workspace(ctx),
+    });
+  }, [ctx, queryClient]);
   async function refreshManually() {
     if (manualRefreshing) return;
     setManualRefreshing(true);
@@ -358,7 +369,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
           { throwOnError: true },
         ),
         queryClient.invalidateQueries(
-          { queryKey: ["student-api", "reference", ctx.mode] },
+          { queryKey: trainingKeys.referenceMode(ctx.mode) },
           { throwOnError: true },
         ),
       ]);
@@ -414,10 +425,10 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
         message: `Занятие ${session.passed ? "сдано" : "не сдано"}${score}`,
       });
       void queryClient.invalidateQueries({
-        queryKey: ["student-api", ctx.userId, "history"],
+        queryKey: trainingKeys.history(ctx.userId),
       });
       void queryClient.invalidateQueries({
-        queryKey: ["student-api", ctx.userId, "assignments"],
+        queryKey: trainingKeys.assignments(ctx.userId),
       });
       rememberFinished(ctx.userId, ctx.sessionId);
       navigate("/student", { replace: true });
@@ -472,6 +483,10 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
   useEffect(() => {
     if (canComplete) setFinishOpen(false);
   }, [canComplete]);
+  const closeOnboarding = useCallback(() => {
+    setOnboardingOpen(false);
+    onboardingButtonRef.current?.focus();
+  }, []);
   return (
     <div className={classes.page} data-card-open={editingCard || undefined}>
       <Modal
@@ -512,6 +527,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
       >
         <Group className={classes.trainingLeft}>
           <Button
+            data-tour="finish-training"
             size="lg"
             color={
               canComplete || readiness.data?.status === "COMPLETED"
@@ -539,7 +555,11 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
             {ctx.title}
           </Text>
         </Group>
-        <div id="workspace-call-controls" className={classes.callControlSlot}>
+        <div
+          id="workspace-call-controls"
+          className={classes.callControlSlot}
+          data-tour="call-controls"
+        >
           {ctx.mode === "DDS" && (
             <OutgoingCalls
               ctx={ctx}
@@ -556,39 +576,27 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
               ? `ДДС · ${ctx.positionCode ?? "служба не назначена"}`
               : "Оператор 112"}
           </Badge>
-          {presenceActive && (
-            <Badge
-              color={
-                connectionLost
-                  ? "yellow"
-                  : presence === "connected" && connection === "connected"
-                    ? "green"
-                    : "gray"
-              }
-              title={
-                connection === "disconnected"
-                  ? "Связь с событиями прервана. После восстановления соединения обновите данные."
-                  : requestConnectionLost
-                    ? "Не удалось загрузить данные. После восстановления соединения обновите их вручную."
-                    : presence === "unavailable"
-                      ? "Сервер пока не принимает подтверждение присутствия. Занятие остаётся открытым; повторяем запрос."
-                      : presence === "interrupted"
-                        ? "Не удалось подтвердить присутствие. Повторяем запрос каждые 5 секунд."
+          <Badge
+            data-tour="connection-status"
+            variant={connectionActive ? undefined : "filled"}
+            color={connectionActive ? "green" : "red"}
+            title={
+              connection === "disconnected"
+                ? "Связь с событиями прервана. После восстановления соединения обновите данные."
+                : requestConnectionLost
+                  ? "Не удалось загрузить данные. После восстановления соединения обновите их вручную."
+                  : presence === "unavailable"
+                    ? "Сервер пока не принимает подтверждение присутствия. Занятие остаётся открытым; повторяем запрос."
+                    : presence === "interrupted"
+                      ? "Не удалось подтвердить присутствие. Повторяем запрос каждые 5 секунд."
+                      : !connectionActive
+                        ? "Проверяем связь с занятием."
                         : undefined
-              }
-              aria-live="polite"
-            >
-              {connection === "disconnected" || requestConnectionLost
-                ? "Связь прервана"
-                : presence === "connected" && connection === "connected"
-                  ? "Связь активна"
-                  : presence === "checking" || connection === "connecting"
-                    ? "Проверка связи"
-                    : presence === "unavailable"
-                      ? "Проверка присутствия недоступна"
-                      : "Связь прервана"}
-            </Badge>
-          )}
+            }
+            aria-live="polite"
+          >
+            {connectionActive ? "Связь активна" : "Связь не активна"}
+          </Badge>
           {needsManualRefresh && (
             <Button
               size="lg"
@@ -598,6 +606,16 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
               onClick={() => void refreshManually()}
             >
               Обновить данные
+            </Button>
+          )}
+          {ctx.mode !== "DDS" && activeCardSyncState && (
+            <Button
+              size="sm"
+              variant="default"
+              loading={activeCardSyncState.busy}
+              onClick={activeCardSyncState.refresh}
+            >
+              Обновить карточку
             </Button>
           )}
           {hasWorkspaceQueryError && !needsManualRefresh && (
@@ -620,7 +638,32 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
               Повторить загрузку
             </Button>
           )}
+          <Button
+            ref={onboardingButtonRef}
+            className={classes.onboardingButton}
+            variant="subtle"
+            color="povBlue"
+            size="compact-md"
+            aria-label="Открыть обучение по АРМ"
+            aria-expanded={onboardingOpen}
+            aria-controls="arm-onboarding-dialog"
+            title="Обучение по АРМ"
+            onClick={() => setOnboardingOpen(true)}
+          >
+            <CircleHelp size={22} />
+          </Button>
         </Group>
+        {ctx.mode !== "DDS" && activeCardSyncState?.message && (
+          <Text
+            className={classes.trainingCardNotice}
+            size="sm"
+            fw={600}
+            c="red"
+            aria-live="polite"
+          >
+            {activeCardSyncState.message}
+          </Text>
+        )}
       </Group>
       {!editingCard && (
         <WorkspaceHeader
@@ -704,10 +747,17 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
           kinds={reference.data.kinds}
           directory={reference.data.services}
           readOnly={!active || exiting || reference.isError}
-          eventsConnected={connection === "connected"}
           summary={selectedSummary}
           onClose={() => setSelectedId(null)}
           onChanged={refresh}
+          onSyncStateChange={setCardSyncState}
+        />
+      )}
+      {onboardingOpen && (
+        <ArmOnboarding
+          mode={ctx.mode}
+          surface={editingCard ? "card" : "list"}
+          onClose={closeOnboarding}
         />
       )}
     </div>

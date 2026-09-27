@@ -12,6 +12,7 @@ import classes from "./server-classification.module.scss";
 import {
   apiError,
   trainingApi,
+  trainingKeys,
   type CardFeatures,
   type EventKind,
   type FeatureSchema,
@@ -136,7 +137,7 @@ function FeatureLevel({
   onChange: (value: number | null) => void;
 }) {
   const query = useQuery({
-    queryKey: ["student-api", "reference", "features", level, parentId],
+    queryKey: trainingKeys.featureOptions(level, parentId),
     queryFn: ({ signal }) =>
       trainingApi.featureOptions(level, parentId, signal),
     staleTime: 300000,

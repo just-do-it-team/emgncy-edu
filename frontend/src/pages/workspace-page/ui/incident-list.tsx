@@ -124,6 +124,7 @@ function IncidentRow({
         </Table.Td>
         <Table.Td>
           <ActionIcon
+            data-tour="open-card"
             className={classes.rowIcon}
             aria-label={`Карточка происшествия ${incident.id}`}
             onClick={() => onOpenIncident(incident)}
@@ -166,7 +167,7 @@ export function IncidentList({
   const count = incidents.length;
 
   return (
-    <section aria-labelledby="incidents-title">
+    <section aria-labelledby="incidents-title" data-tour="incident-list">
       <Group justify="space-between" className={classes.listToolbar}>
         <Group gap={6}>
           <Title order={1} id="incidents-title" className={classes.listTitle}>

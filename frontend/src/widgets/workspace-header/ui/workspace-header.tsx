@@ -31,7 +31,7 @@ const capitalize = (value: string) =>
 const roleLabels: Record<UserRole, string> = {
   admin: "Администратор",
   teacher: "Преподаватель",
-  student: "Обучающийся",
+  student: "Обучаемый",
 };
 
 function shortName(displayName?: string) {
@@ -196,6 +196,7 @@ export function WorkspaceHeader({
       {operatorMode && (
         <div className={classes.createPanel}>
           <Button
+            data-tour="create-card"
             className={classes.createCard}
             onClick={onCreateCard}
             disabled={!onCreateCard}

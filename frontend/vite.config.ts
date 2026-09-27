@@ -18,8 +18,19 @@ function proxyEntry(
 }
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), "VITE_");
+  if (
+    command === "serve" &&
+    (!env.VITE_REALTIME_GATEWAY_URL ||
+      env.VITE_REALTIME_GATEWAY_URL.replace(/\/$/, "") ===
+        "/realtime-gateway") &&
+    !env.VITE_REALTIME_GATEWAY_PROXY_TARGET
+  ) {
+    throw new Error(
+      "Укажите VITE_REALTIME_GATEWAY_URL или VITE_REALTIME_GATEWAY_PROXY_TARGET для SSE.",
+    );
+  }
 
   return {
     plugins: [react()],
@@ -32,7 +43,7 @@ export default defineConfig(({ mode }) => {
         ...proxyEntry("/auth-api", env.VITE_AUTH_API_PROXY_TARGET),
         ...proxyEntry(
           "/realtime-gateway",
-          env.VITE_REALTIME_GATEWAY_PROXY_TARGET || "http://127.0.0.1:8081",
+          env.VITE_REALTIME_GATEWAY_PROXY_TARGET,
         ),
       },
     },

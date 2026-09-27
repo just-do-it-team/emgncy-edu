@@ -25,6 +25,7 @@ import {
   startKey,
   statusLabels,
   trainingApi,
+  trainingKeys,
   type Assignment,
 } from "@/entities/training";
 
@@ -42,12 +43,26 @@ export function ConnectedOverview() {
 }
 function Assignments({ userId }: { userId: string }) {
   const query = useQuery({
-    queryKey: ["student-api", userId, "assignments"],
+    queryKey: trainingKeys.assignments(userId),
     queryFn: ({ signal }) => trainingApi.assignments(userId, signal),
     refetchInterval: 15000,
     meta: { showGlobalError: false },
   });
-  const pagination = usePagination(query.data ?? []);
+  const now = Date.now();
+  const assignments = [...(query.data ?? [])].sort((left, right) => {
+    const leftAvailable =
+      !assignmentBlocker(left, left.attempts_used, now) &&
+      !assignmentLaunchContext(left, userId);
+    const rightAvailable =
+      !assignmentBlocker(right, right.attempts_used, now) &&
+      !assignmentLaunchContext(right, userId);
+    return (
+      Number(rightAvailable) - Number(leftAvailable) ||
+      Date.parse(right.created_at) - Date.parse(left.created_at) ||
+      left.id.localeCompare(right.id)
+    );
+  });
+  const pagination = usePagination(assignments);
   if (query.isPending) return <Loader size="sm" />;
   return (
     <Stack>
@@ -173,7 +188,7 @@ function AssignmentRow({
         useSessionStore.getState().profile?.userId === userId
       ) {
         void queryClient.invalidateQueries({
-          queryKey: ["student-api", userId, "assignments"],
+          queryKey: trainingKeys.assignments(userId),
         });
       }
     }

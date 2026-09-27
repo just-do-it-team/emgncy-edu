@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { getToken } from "@/entities/session";
 import {
   REALTIME_GATEWAY_URL,
   notifyTrainingError,
+  trainingKeys,
   type CompletionReadiness,
   type LaunchContext,
 } from "@/entities/training";
 import { publishCallAudioEvent } from "./call-audio-events";
+import { readSseStream } from "./read-sse-stream";
 
 type ConnectionState = "connecting" | "connected" | "disconnected";
 
@@ -38,54 +41,32 @@ export function useWorkspaceEvents(ctx: LaunchContext, ready: boolean) {
   const [connection, setConnection] = useState<ConnectionState>("connecting");
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready) {
+      setConnection("disconnected");
+      return;
+    }
     let disconnected = false;
-    const baseKey = ["student-api", ctx.userId, ctx.workspaceId];
-    const readinessKey = [...baseKey, "readiness", ctx.sessionId];
-    const callsKey = [...baseKey, "incoming-calls", ctx.sessionId];
-    const source = new EventSource(
-      `${REALTIME_GATEWAY_URL}/events?workspace_id=${encodeURIComponent(ctx.workspaceId)}`,
-    );
+    let reconnectTimer: number | undefined;
+    const controller = new AbortController();
+    const baseKey = trainingKeys.workspace(ctx);
+    const readinessKey = trainingKeys.readiness(ctx);
+    const callsKey = trainingKeys.incomingCalls(ctx);
     const resync = () => {
       void queryClient.invalidateQueries({ queryKey: baseKey });
     };
-    source.onopen = () => {
-      disconnected = false;
-      setConnection("connected");
-      publishCallAudioEvent({
-        workspaceId: ctx.workspaceId,
-        type: "stream.open",
-      });
-      // Recover changes between the initial REST snapshot and the SSE connection.
-      resync();
-    };
-    source.onerror = () => {
-      setConnection("disconnected");
-      if (!disconnected) {
-        disconnected = true;
-        notifyTrainingError(
-          new Error(
-            "Связь с событиями прервана. Обновите данные после восстановления соединения.",
-          ),
-        );
-      }
-      publishCallAudioEvent({
-        workspaceId: ctx.workspaceId,
-        type: "stream.error",
-      });
-    };
-    source.addEventListener("stream.gap", () => {
-      resync();
-      publishCallAudioEvent({
-        workspaceId: ctx.workspaceId,
-        type: "stream.gap",
-      });
-    });
-    source.addEventListener(
-      "training.session.completion-readiness-changed",
-      (event) => {
+
+    const onEvent = (eventName: string, data: string) => {
+      if (eventName === "stream.gap") {
+        resync();
+        publishCallAudioEvent({
+          workspaceId: ctx.workspaceId,
+          type: "stream.gap",
+        });
+      } else if (
+        eventName === "training.session.completion-readiness-changed"
+      ) {
         try {
-          const snapshot = JSON.parse(event.data).data as CompletionReadiness;
+          const snapshot = JSON.parse(data).data as CompletionReadiness;
           if (typeof snapshot.revision !== "number") return;
           queryClient.setQueryData<CompletionReadiness>(
             readinessKey,
@@ -98,19 +79,19 @@ export function useWorkspaceEvents(ctx: LaunchContext, ready: boolean) {
         } catch {
           resync();
         }
-      },
-    );
-    for (const eventName of cardEvents) {
-      source.addEventListener(eventName, () => {
-        void queryClient.invalidateQueries({ queryKey: [...baseKey, "cards"] });
-        void queryClient.invalidateQueries({ queryKey: [...baseKey, "card"] });
-      });
-    }
-    for (const eventName of audioEvents) {
-      source.addEventListener(eventName, (event) => {
-        void queryClient.invalidateQueries({ queryKey: [...baseKey, "audio"] });
+      } else if (cardEvents.includes(eventName)) {
+        void queryClient.invalidateQueries({
+          queryKey: trainingKeys.cards(ctx),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: trainingKeys.cardScope(ctx),
+        });
+      } else if (audioEvents.includes(eventName)) {
+        void queryClient.invalidateQueries({
+          queryKey: trainingKeys.audioScope(ctx),
+        });
         try {
-          const payload = JSON.parse(event.data) as {
+          const payload = JSON.parse(data) as {
             data?: Record<string, unknown>;
           };
           publishCallAudioEvent({
@@ -124,25 +105,79 @@ export function useWorkspaceEvents(ctx: LaunchContext, ready: boolean) {
             type: "stream.gap",
           });
         }
-      });
-    }
-    for (const eventName of [
-      "training.session_completed",
-      "training.session_aborted",
-    ]) {
-      source.addEventListener(eventName, () => {
+      } else if (
+        eventName === "training.session_completed" ||
+        eventName === "training.session_aborted"
+      ) {
         void queryClient.invalidateQueries({ queryKey: readinessKey });
         void queryClient.invalidateQueries({
-          queryKey: ["student-api", ctx.userId, "assignments"],
+          queryKey: trainingKeys.assignments(ctx.userId),
         });
         void queryClient.invalidateQueries({
-          queryKey: ["student-api", ctx.userId, "history"],
+          queryKey: trainingKeys.history(ctx.userId),
         });
-      });
+      }
+    };
+
+    async function connect() {
+      try {
+        const token = getToken();
+        const response = await fetch(
+          `${REALTIME_GATEWAY_URL}/events?workspace_id=${encodeURIComponent(ctx.workspaceId)}`,
+          {
+            headers: {
+              Accept: "text/event-stream",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            cache: "no-store",
+            signal: controller.signal,
+          },
+        );
+        if (!response.ok)
+          throw new Error(`Сервер событий ответил HTTP ${response.status}.`);
+        if (
+          !response.body ||
+          !response.headers.get("content-type")?.includes("text/event-stream")
+        )
+          throw new Error("Сервер не вернул поток событий.");
+
+        disconnected = false;
+        setConnection("connected");
+        publishCallAudioEvent({
+          workspaceId: ctx.workspaceId,
+          type: "stream.open",
+        });
+        // Recover changes between the initial REST snapshot and the SSE connection.
+        resync();
+        await readSseStream(response.body, onEvent);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setConnection("disconnected");
+        if (!disconnected) {
+          disconnected = true;
+          notifyTrainingError(
+            new Error(
+              `Связь с событиями прервана. ${error instanceof Error ? error.message : "Повторяем подключение."}`,
+            ),
+          );
+        }
+        publishCallAudioEvent({
+          workspaceId: ctx.workspaceId,
+          type: "stream.error",
+        });
+      } finally {
+        if (!controller.signal.aborted)
+          reconnectTimer = window.setTimeout(() => void connect(), 3000);
+      }
     }
 
-    return () => source.close();
-  }, [ctx.sessionId, ctx.userId, ctx.workspaceId, queryClient, ready]);
+    void connect();
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(reconnectTimer);
+    };
+  }, [ctx, queryClient, ready]);
 
   return connection;
 }
