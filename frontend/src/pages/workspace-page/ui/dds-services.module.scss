@@ -52,6 +52,10 @@
   }
 }
 
+.serviceRow > .tileShell:last-child .tile {
+  border-right: 1px solid var(--mantine-color-povLight-6);
+}
+
 .serviceArea .tile .tileContent {
   height: 100%;
   justify-content: space-evenly;
@@ -128,6 +132,7 @@
   margin: 0;
   border-radius: 0;
   padding: 0;
+  overflow: hidden;
 }
 
 .editorBody {
@@ -182,6 +187,11 @@
 }
 
 @media (max-width: 750px) {
+  .editorContent {
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+
   .editorInner {
     padding: 12px;
     align-items: center;
@@ -190,5 +200,12 @@
 
   .editorFields {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-height: 300px) {
+  .editorContent {
+    overflow-y: auto;
+    scrollbar-gutter: stable;
   }
 }

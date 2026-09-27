@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  Alert,
   Button,
   Group,
   Popover,
@@ -13,11 +12,11 @@ import { useQuery } from "@tanstack/react-query";
 import { Phone, Plus } from "lucide-react";
 import {
   allowedServiceStatuses,
-  apiError,
   notifyTrainingError,
   formatApiDate,
   statusLabels,
   trainingApi,
+  trainingKeys,
   type ApiCard,
   type CardService,
   type EmergencyService,
@@ -100,17 +99,13 @@ function ServerService({
   const [status, setStatus] = useState<string | null>(null);
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const query = useQuery({
-    queryKey: [
-      "student-api",
-      ctx.userId,
-      ctx.workspaceId,
-      "service-history",
+    queryKey: trainingKeys.serviceHistory(
+      ctx,
       service.id,
       service.current_status,
       service.added_at,
-    ],
+    ),
     queryFn: ({ signal }) =>
       trainingApi.serviceHistory(ctx, service.id, signal),
     enabled: opened,
@@ -131,14 +126,13 @@ function ServerService({
     )
       return;
     setBusy(true);
-    setError(null);
     try {
       await onStatus(service, status, comment.trim());
       setStatus(null);
       setComment("");
       await query.refetch();
     } catch (err) {
-      setError(notifyTrainingError(err));
+      notifyTrainingError(err);
     } finally {
       setBusy(false);
     }
@@ -187,16 +181,13 @@ function ServerService({
           </div>
           {query.isPending && <Text size="xs">Загрузка истории…</Text>}
           {query.isError && (
-            <Alert color="red">
-              {apiError(query.error)}{" "}
-              <Button
-                size="xs"
-                variant="subtle"
-                onClick={() => void query.refetch()}
-              >
-                Повторить
-              </Button>
-            </Alert>
+            <Button
+              size="xs"
+              variant="subtle"
+              onClick={() => void query.refetch()}
+            >
+              Повторить загрузку истории
+            </Button>
           )}
           {options.length > 0 ? (
             <>
@@ -239,7 +230,6 @@ function ServerService({
                 : "История реагирования. Изменения доступны ДДС назначенной службы."}
             </Text>
           )}
-          {error && <Alert color="red">{error}</Alert>}
         </Stack>
       </Popover.Dropdown>
     </Popover>
@@ -256,16 +246,14 @@ function AddService({
 }) {
   const [id, setId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   async function add() {
     if (!id || busy) return;
     setBusy(true);
-    setError(null);
     try {
       await onAdd(id);
       setId(null);
     } catch (err) {
-      setError(notifyTrainingError(err));
+      notifyTrainingError(err);
     } finally {
       setBusy(false);
     }
@@ -302,7 +290,6 @@ function AddService({
           >
             Добавить
           </Button>
-          {error && <Alert color="red">{error}</Alert>}
         </Stack>
       </Popover.Dropdown>
     </Popover>

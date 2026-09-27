@@ -1,13 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  Alert,
-  Button,
-  Group,
-  Loader,
-  Modal,
-  Stack,
-  Text,
-} from "@mantine/core";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Button, Loader, Stack, Text } from "@mantine/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   resolveClassification,
@@ -18,6 +10,7 @@ import {
   apiError,
   notifyTrainingError,
   trainingApi,
+  trainingKeys,
   type ApiCard,
   type CardService,
   type EmergencyService,
@@ -44,58 +37,82 @@ type Props = {
   kinds: EventKind[];
   directory: EmergencyService[];
   readOnly: boolean;
-  eventsConnected: boolean;
   summary?: Incident;
   onClose: () => void;
   onChanged: () => Promise<void>;
+  onSyncStateChange: (state: CardSyncState) => void;
+};
+export type CardSyncState = {
+  cardId: string;
+  message: string | null;
+  busy: boolean;
+  refresh: () => void;
 };
 export function ConnectedCard(props: Props) {
+  const { cardId, ctx, onClose, onSyncStateChange } = props;
   const queryClient = useQueryClient();
   const [editingProcessed, setEditingProcessed] = useState(false);
-  const queryKey = [
-    "student-api",
-    props.ctx.userId,
-    props.ctx.workspaceId,
-    "card",
-    props.cardId,
-  ];
+  const queryKey = trainingKeys.card(ctx, cardId);
   const query = useQuery({
     queryKey,
-    queryFn: ({ signal }) => trainingApi.card(props.ctx, props.cardId, signal),
-    refetchInterval:
-      props.ctx.mode === "DDS" && !props.eventsConnected ? 5000 : false,
+    queryFn: ({ signal }) => trainingApi.card(ctx, cardId, signal),
+    refetchInterval: ctx.mode === "DDS" ? 5000 : false,
     refetchOnMount: "always",
     refetchOnWindowFocus: false,
     meta: { showGlobalError: false },
   });
-  if (!query.data && props.ctx.mode === "ARM112")
+  const { refetch } = query;
+  const retryLoad = useCallback(() => {
+    void refetch();
+  }, [refetch]);
+  useEffect(() => {
+    if (query.data) return;
+    onSyncStateChange({
+      cardId,
+      message: query.isError ? "Не удалось загрузить карточку." : null,
+      busy: query.isFetching,
+      refresh: retryLoad,
+    });
+  }, [
+    cardId,
+    onSyncStateChange,
+    query.data,
+    query.error,
+    query.isError,
+    query.isFetching,
+    retryLoad,
+  ]);
+  useEffect(() => {
+    if (
+      !query.data ||
+      ctx.mode !== "ARM112" ||
+      query.data.current_status !== "PROCESSED" ||
+      editingProcessed
+    )
+      return;
+    onSyncStateChange({
+      cardId,
+      message: null,
+      busy: query.isFetching,
+      refresh: retryLoad,
+    });
+  }, [
+    cardId,
+    ctx.mode,
+    editingProcessed,
+    onSyncStateChange,
+    query.data,
+    query.isFetching,
+    retryLoad,
+  ]);
+  if (!query.data)
     return (
-      <Stack p="md">
-        {query.isPending ? (
-          <Loader size="sm" />
-        ) : (
-          <Alert color="red">
-            {apiError(query.error)}{" "}
-            <Button onClick={() => void query.refetch()}>Повторить</Button>
-          </Alert>
-        )}
-        <Button variant="default" onClick={props.onClose}>
+      <Stack p="md" align="flex-start">
+        {query.isFetching && <Loader size="sm" />}
+        <Button variant="default" onClick={onClose}>
           К списку карточек
         </Button>
       </Stack>
-    );
-  if (!query.data)
-    return (
-      <Modal opened onClose={props.onClose} title="Загрузка карточки">
-        {query.isPending ? (
-          <Loader size="sm" />
-        ) : (
-          <Alert color="red">
-            {apiError(query.error)}{" "}
-            <Button onClick={() => void query.refetch()}>Повторить</Button>
-          </Alert>
-        )}
-      </Modal>
     );
   if (
     props.ctx.mode === "ARM112" &&
@@ -135,6 +152,7 @@ function CardEditor({
   summary,
   onClose,
   onChanged,
+  onSyncStateChange,
   onSaved,
   startEditing = false,
 }: Props & {
@@ -145,18 +163,14 @@ function CardEditor({
   const [card, setCard] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [needsRefresh, setNeedsRefresh] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const outdated = initial.version > card.version;
   const disabled = readOnly || busy || needsRefresh || outdated;
   useEffect(() => {
-    if (
-      ctx.mode === "DDS" &&
-      initial.version > card.version &&
-      !busy &&
-      !needsRefresh
-    )
+    if (ctx.mode === "DDS" && initial.version > card.version && !busy) {
       setCard(initial);
-  }, [busy, card.version, ctx.mode, initial, needsRefresh]);
+      setNeedsRefresh(false);
+    }
+  }, [busy, card.version, ctx.mode, initial]);
   async function loadUpdatedCard(previousVersion: number) {
     for (let attempt = 0; attempt < 7; attempt++) {
       const fresh = await trainingApi.card(ctx, card.id);
@@ -167,20 +181,43 @@ function CardEditor({
       "Карточка сохранена, но обновлённая версия ещё недоступна. Обновите данные с сервера.",
     );
   }
-  async function reload() {
+  const reload = useCallback(async () => {
     setBusy(true);
-    setError(null);
     try {
       const fresh = await trainingApi.card(ctx, card.id);
       setCard(fresh);
       setNeedsRefresh(false);
       await onChanged();
     } catch (err) {
-      setError(notifyTrainingError(err));
+      setNeedsRefresh(true);
+      notifyTrainingError(err);
     } finally {
       setBusy(false);
     }
-  }
+  }, [card.id, ctx, onChanged]);
+  useEffect(() => {
+    if (ctx.mode !== "DDS" || !needsRefresh || busy) return;
+    const timer = window.setTimeout(() => void reload(), 5000);
+    return () => window.clearTimeout(timer);
+  }, [busy, ctx.mode, needsRefresh, reload]);
+  const syncMessage =
+    ctx.mode === "DDS"
+      ? null
+      : readOnly
+        ? "Карточка доступна только для просмотра."
+        : needsRefresh
+          ? "Перед следующей записью обновите карточку."
+          : outdated
+            ? "На сервере появилась новая версия карточки. Обновите данные перед записью."
+            : null;
+  useEffect(() => {
+    onSyncStateChange({
+      cardId: card.id,
+      message: syncMessage,
+      busy,
+      refresh: () => void reload(),
+    });
+  }, [busy, card.id, onSyncStateChange, reload, syncMessage]);
   async function save(draft: OperatorCardDraft) {
     if (disabled) throw new Error("Сначала обновите карточку.");
     const record = resolveClassification(
@@ -297,38 +334,9 @@ function CardEditor({
   );
   const info = (
     <Stack p="sm" gap="xs">
-      <Group justify="space-between">
-        <Text size="xs" c="dimmed">
-          Карточка № {card.card_number} · версия {card.version}
-        </Text>
-        <Button
-          size="xs"
-          variant="default"
-          loading={busy}
-          onClick={() => void reload()}
-        >
-          Обновить данные с сервера
-        </Button>
-      </Group>
-      {outdated && (
-        <Alert color="yellow">
-          На сервере появилась новая версия карточки. Обновите данные перед
-          записью; незавершённая форма сохранится.
-        </Alert>
-      )}
-      {needsRefresh && (
-        <Alert color="yellow">
-          Перед следующей записью обновите данные с сервера. Введённые поля
-          формы и выбранные признаки останутся в форме; проверьте их перед
-          повторным сохранением.
-        </Alert>
-      )}
-      {error && <Alert color="red">{error}</Alert>}
-      {readOnly && (
-        <Alert color="blue">
-          Просмотр: занятие завершено или состояние сессии недоступно.
-        </Alert>
-      )}
+      <Text size="xs" c="dimmed">
+        Карточка № {card.card_number} · версия {card.version}
+      </Text>
       <ServerCardStatus
         ctx={ctx}
         card={card}
@@ -393,21 +401,6 @@ function CardEditor({
             readOnly={disabled}
             onStatus={status}
           />
-        }
-        extraContent={
-          (outdated || needsRefresh || error || readOnly) && (
-            <Group p="sm" bg="white" justify="space-between">
-              <Text size="sm">
-                {error ||
-                  (readOnly
-                    ? "Карточка доступна только для просмотра."
-                    : "На сервере появилась новая версия карточки. Обновите данные перед записью.")}
-              </Text>
-              <Button size="xs" loading={busy} onClick={() => void reload()}>
-                Обновить карточку
-              </Button>
-            </Group>
-          )
         }
       />
     );

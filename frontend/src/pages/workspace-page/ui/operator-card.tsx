@@ -39,6 +39,7 @@ import {
   routingFlags,
   useServiceDirectory,
 } from "@/entities/incident";
+import { notifyTrainingError } from "@/entities/training";
 import classes from "./operator-card.module.scss";
 import type { EmergencyService } from "@/entities/training";
 import {
@@ -262,15 +263,8 @@ export function OperatorCard({
         error instanceof Error
           ? error.message
           : "Не удалось сохранить карточку.";
-      setSaveError(message);
-      if (remote) {
-        notifications.show({
-          title: "Ошибка",
-          message,
-          color: "red",
-          autoClose: 8000,
-        });
-      }
+      setSaveError(remote ? null : message);
+      if (remote) notifyTrainingError(new Error(message));
     } finally {
       setSaving(false);
     }
@@ -303,6 +297,7 @@ export function OperatorCard({
       >
         <header
           className={classes.topbar}
+          data-tour="card-header"
           data-remote={remote && !incomingCall ? true : undefined}
           data-incoming={incomingCall ? true : undefined}
         >
@@ -365,6 +360,7 @@ export function OperatorCard({
             <section
               className={classes.panel}
               aria-label="Заявитель и пострадавший"
+              data-tour="card-applicant"
             >
               <div className={classes.applicantRow}>
                 <TextInput
@@ -461,7 +457,10 @@ export function OperatorCard({
                 </Button>
               </Group>
             </section>
-            <section className={`${classes.panel} ${classes.description}`}>
+            <section
+              className={`${classes.panel} ${classes.description}`}
+              data-tour="card-description"
+            >
               <Textarea
                 label="Описание со слов заявителя"
                 placeholder="введите"
@@ -526,7 +525,10 @@ export function OperatorCard({
               </Group>
             </section>
             <div className={classes.incidentSelection}>
-              <section className={classes.panel}>
+              <section
+                className={classes.panel}
+                data-tour="card-classification"
+              >
                 <Select
                   label="Введите тип происшествия"
                   placeholder="ЧТО СЛУЧИЛОСЬ?"
@@ -693,7 +695,7 @@ export function OperatorCard({
       </fieldset>
       <footer className={classes.footer}>
         <strong>Службы:</strong>
-        <div className={classes.serviceArea}>
+        <div className={classes.serviceArea} data-tour="card-services">
           {remote && !incomingCall ? (
             <div
               className={`${classes.services} ${expandedServices ? classes.expandedServices : ""}`}
@@ -818,6 +820,7 @@ export function OperatorCard({
             </button>
           )}
           <Button
+            data-tour="card-save"
             className={classes.saveButton}
             variant="outline"
             color="white"
@@ -867,6 +870,7 @@ export function OperatorCard({
             <MessageSquare size={22} />
           </button>
           <Button
+            data-tour="card-close"
             variant="outline"
             color="white"
             px={10}

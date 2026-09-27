@@ -16,6 +16,7 @@ export function useIncomingCallAudio(
   active: boolean,
   interlocutor = "заявителя",
   speaker = "заявитель",
+  onGreetingStart?: (callId: string) => void,
 ) {
   const [status, setStatus] = useState("Подключение микрофона…");
   const [error, setError] = useState<string | null>(null);
@@ -132,7 +133,7 @@ export function useIncomingCallAudio(
       }
     }
 
-    async function playAudio(blob: Blob) {
+    async function playAudio(blob: Blob, beforePlay?: () => void) {
       if (disposed) return;
       objectUrl = URL.createObjectURL(blob);
       audio = new Audio(objectUrl);
@@ -144,6 +145,7 @@ export function useIncomingCallAudio(
           audio.onerror = () =>
             reject(new Error("Не удалось воспроизвести ответ"));
         });
+        beforePlay?.();
         await audio.play();
         await finished;
       } finally {
@@ -153,9 +155,9 @@ export function useIncomingCallAudio(
       }
     }
 
-    async function playSegment(segment: TtsSegment) {
+    async function playSegment(segment: TtsSegment, beforePlay?: () => void) {
       const blob = await trainingApi.ttsSegmentContent(ctx.userId, segment.id);
-      await playAudio(blob);
+      await playAudio(blob, beforePlay);
     }
 
     async function pump() {
@@ -244,8 +246,11 @@ export function useIncomingCallAudio(
                 setStatus("Ожидание ответа бригады…");
                 return;
               }
-              for (const segment of ordered) {
-                await playSegment(segment!);
+              for (const [index, segment] of ordered.entries()) {
+                await playSegment(
+                  segment!,
+                  index === 0 ? () => onGreetingStart?.(callId) : undefined,
+                );
                 if (disposed) return;
               }
             } else if (
@@ -254,6 +259,7 @@ export function useIncomingCallAudio(
             ) {
               await playAudio(
                 await trainingApi.audioContent(ctx.userId, greeting.id),
+                () => onGreetingStart?.(callId),
               );
               if (disposed) return;
             } else {
@@ -456,7 +462,7 @@ export function useIncomingCallAudio(
       stream?.getTracks().forEach((track) => track.stop());
       void context?.close();
     };
-  }, [active, callId, ctx, interlocutor, retry, speaker]);
+  }, [active, callId, ctx, interlocutor, onGreetingStart, retry, speaker]);
 
   return {
     status,

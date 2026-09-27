@@ -110,7 +110,7 @@ function IncidentViewerContent({
           <PhoneField label="АОН" value={details?.automaticNumber} />
           <PhoneField label="предоставленный" value={details?.providedNumber} />
           <PhoneField label="телефон на место" value={details?.locationPhone} />
-          <div className={classes.summary}>
+          <div className={classes.summary} data-tour="card-header">
             <Title
               order={1}
               id="incident-title"
@@ -139,6 +139,7 @@ function IncidentViewerContent({
           <section
             className={classes.leftColumn}
             aria-label="Заявитель и описание происшествия"
+            data-tour="card-description"
           >
             <Box className={classes.applicant}>
               <span>ФИО заявителя</span>
@@ -207,7 +208,7 @@ function IncidentViewerContent({
                 </ActionIcon>
               </Group>
             </div>
-            <Box className={classes.category}>
+            <Box className={classes.category} data-tour="card-classification">
               <Button className={classes.categoryTitle} fullWidth>
                 Происшествие{incident.type ? ` ${incident.type}` : ""}
               </Button>
@@ -225,7 +226,7 @@ function IncidentViewerContent({
 
       {extraContent}
       <Box component="footer" className={classes.footer}>
-        <div className={classes.services}>
+        <div className={classes.services} data-tour="card-services">
           <strong className={classes.servicesLabel}>Службы:</strong>
           {serverServices ??
             details?.services.map((service) => (
@@ -244,6 +245,7 @@ function IncidentViewerContent({
             <MdMessage size={24} />
           </ActionIcon>
           <ActionIcon
+            data-tour="card-close"
             className={classes.footerIcon}
             aria-label="Закрыть просмотр карточки"
             title="Закрыть просмотр карточки"

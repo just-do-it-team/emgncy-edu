@@ -15,7 +15,6 @@ import type {
   CompletionReadiness,
   EmergencyService,
   EventKind,
-  FeatureSchema,
   HistoryPage,
   LaunchContext,
   ReferenceOption,
@@ -28,7 +27,7 @@ import type {
 function requestConfig(userId?: string) {
   if (userId !== undefined && !isUuid(userId))
     throw new Error(
-      "Не удалось определить обучающегося. Войдите в систему повторно.",
+      "Не удалось определить обучаемого. Войдите в систему повторно.",
     );
   return {
     baseURL: `${STUDENT_API_URL}/api/v1`,
@@ -49,7 +48,7 @@ export function apiError(error: unknown): string {
         "Время начала занятия ещё не наступило.",
       "Assignment deadline has passed": "Срок прохождения занятия истёк.",
       "User is not assigned to this scenario":
-        "Это занятие не назначено текущему обучающемуся.",
+        "Это занятие не назначено текущему обучаемому.",
       "Training workspace is not active":
         "Занятие завершено или рабочее место неактивно. Обновите состояние занятия.",
       "Training session is not running":
@@ -67,7 +66,7 @@ export function apiError(error: unknown): string {
       "Create and link an incident card before completing the call":
         "Перед завершением звонка создайте и привяжите карточку.",
       "Actor role is not allowed for this workspace operation":
-        "Эта операция недоступна обучающемуся на бэкенде.",
+        "Эта операция недоступна обучаемому на бэкенде.",
     };
     if (typeof detail === "string" && messages[detail]) return messages[detail];
     if (
@@ -79,7 +78,7 @@ export function apiError(error: unknown): string {
     if (error.response?.status === 409)
       return "Данные изменились или действие уже выполнено. Обновите карточку перед повторной записью. Введённые данные сохранены в форме.";
     if (error.response?.status === 403)
-      return "Бэкенд не разрешает это действие для текущего обучающегося.";
+      return "Бэкенд не разрешает это действие для текущего обучаемого.";
     if (error.response?.status === 404)
       return "Объект не найден или больше недоступен.";
     if (error.response?.status === 422)
@@ -424,26 +423,6 @@ export const trainingApi = {
         signal,
       })
     ).data;
-  },
-  schema: async (features: CardFeatures, signal?: AbortSignal) => {
-    try {
-      return (
-        await api.get<FeatureSchema>("/feature-schemas/resolve", {
-          ...requestConfig(),
-          params: {
-            event_kind_id: features.event_kind_id,
-            first_order_feature_id: features.first_order_feature_id,
-            second_order_feature_id: features.second_order_feature_id,
-            third_order_feature_id: features.third_order_feature_id,
-          },
-          signal,
-        })
-      ).data;
-    } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.status === 404)
-        return null;
-      throw error;
-    }
   },
   audioMessages: async (
     ctx: LaunchContext,

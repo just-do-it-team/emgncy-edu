@@ -1,7 +1,6 @@
 import { useState } from "react";
 import {
   Accordion,
-  Alert,
   Button,
   Group,
   Select,
@@ -11,11 +10,11 @@ import {
 } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
 import {
-  apiError,
   notifyTrainingError,
   formatApiDate,
   statusLabels,
   trainingApi,
+  trainingKeys,
   type ApiCard,
   type LaunchContext,
 } from "@/entities/training";
@@ -35,16 +34,8 @@ export function ServerCardStatus({
   const [status, setStatus] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const query = useQuery({
-    queryKey: [
-      "student-api",
-      ctx.userId,
-      ctx.workspaceId,
-      "card-status-history",
-      card.id,
-      card.version,
-    ],
+    queryKey: trainingKeys.cardStatusHistory(ctx, card.id, card.version),
     queryFn: ({ signal }) =>
       trainingApi.cardStatusHistory(ctx, card.id, signal),
     enabled: !!opened,
@@ -53,13 +44,12 @@ export function ServerCardStatus({
   async function change() {
     if (busy || !status || readOnly) return;
     setBusy(true);
-    setError(null);
     try {
       await onChange(status, reason);
       setStatus(null);
       setReason("");
     } catch (err) {
-      setError(notifyTrainingError(err));
+      notifyTrainingError(err);
     } finally {
       setBusy(false);
     }
@@ -82,12 +72,9 @@ export function ServerCardStatus({
             ))}
             {query.isPending && <Text size="xs">Загрузка истории…</Text>}
             {query.isError && (
-              <Alert color="red">
-                {apiError(query.error)}{" "}
-                <Button size="xs" onClick={() => void query.refetch()}>
-                  Повторить
-                </Button>
-              </Alert>
+              <Button size="xs" onClick={() => void query.refetch()}>
+                Повторить загрузку истории
+              </Button>
             )}
             {ctx.mode === "ARM112" && (
               <Group align="end">
@@ -115,7 +102,6 @@ export function ServerCardStatus({
                 </Button>
               </Group>
             )}
-            {error && <Alert color="red">{error}</Alert>}
           </Stack>
         </Accordion.Panel>
       </Accordion.Item>

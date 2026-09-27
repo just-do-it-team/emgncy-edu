@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button, Group, Text } from "@mantine/core";
 import { Clock3, PhoneCall, PhoneOff } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -6,10 +6,13 @@ import {
   apiError,
   notifyTrainingError,
   trainingApi,
+  trainingKeys,
   type LaunchContext,
   type OutgoingCall,
 } from "@/entities/training";
 import { useIncomingCallAudio } from "./use-incoming-call-audio";
+import { useCallRingtone } from "./use-call-ringtone";
+import outgoingRingtone from "@/assets/audio/phone-ringing-sound.mp3";
 import classes from "./workspace-page.module.scss";
 
 function callDuration(startedAt: string | null, completedAt: string | null) {
@@ -35,13 +38,7 @@ export function OutgoingCalls({
   onBusyChange: (busy: boolean) => void;
 }) {
   const queryClient = useQueryClient();
-  const queryKey = [
-    "student-api",
-    ctx.userId,
-    ctx.workspaceId,
-    "outgoing-call",
-    cardId,
-  ];
+  const queryKey = trainingKeys.outgoingCall(ctx, cardId);
   const callQuery = useQuery({
     queryKey,
     queryFn: ({ signal }) => trainingApi.outgoingCall(ctx, cardId!, signal),
@@ -52,8 +49,24 @@ export function OutgoingCalls({
   });
   const [ongoingCall, setOngoingCall] = useState<OutgoingCall | null>(null);
   const [busy, setBusy] = useState(false);
+  const [dialing, setDialing] = useState(false);
+  const [greetingStartedCallId, setGreetingStartedCallId] = useState<
+    string | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [, setClockTick] = useState(0);
+  const {
+    start: startRingtone,
+    stop: stopRingtone,
+    blocked: ringtoneBlocked,
+  } = useCallRingtone(outgoingRingtone);
+  const onGreetingStart = useCallback(
+    (callId: string) => {
+      stopRingtone();
+      setGreetingStartedCallId(callId);
+    },
+    [stopRingtone],
+  );
 
   useEffect(() => onBusyChange(busy), [busy, onBusyChange]);
   useEffect(() => {
@@ -75,7 +88,14 @@ export function OutgoingCalls({
     active && talking,
     "руководителя бригады",
     "руководитель бригады",
+    onGreetingStart,
   );
+  const waitingForGreeting =
+    talking && !busy && greetingStartedCallId !== call?.id && !audio.error;
+  useEffect(() => {
+    if (active && (dialing || waitingForGreeting)) startRingtone();
+    else stopRingtone();
+  }, [active, dialing, waitingForGreeting, startRingtone, stopRingtone]);
 
   useEffect(() => {
     if (!talking) return;
@@ -88,6 +108,8 @@ export function OutgoingCalls({
 
   async function start() {
     if (!cardId || !active || busy || talking) return;
+    setDialing(true);
+    startRingtone();
     setBusy(true);
     setError(null);
     try {
@@ -99,25 +121,21 @@ export function OutgoingCalls({
       setError(notifyTrainingError(cause));
       void callQuery.refetch();
     } finally {
+      setDialing(false);
       setBusy(false);
     }
   }
 
   async function hangUp() {
     if (!call || !talking || busy) return;
+    stopRingtone();
     setBusy(true);
     setError(null);
     try {
       const completed = await trainingApi.completeOutgoingCall(ctx, call.id);
       setOngoingCall(null);
       queryClient.setQueryData(
-        [
-          "student-api",
-          ctx.userId,
-          ctx.workspaceId,
-          "outgoing-call",
-          completed.incident_card_id,
-        ],
+        trainingKeys.outgoingCall(ctx, completed.incident_card_id),
         completed,
       );
       await onChanged();
@@ -192,6 +210,16 @@ export function OutgoingCalls({
         </div>
       )}
       <div className={classes.callActions}>
+        {ringtoneBlocked && active && (dialing || waitingForGreeting) && (
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            className={classes.callRetry}
+            onClick={startRingtone}
+          >
+            Включить звук вызова
+          </Button>
+        )}
         {cardId && callQuery.isError && !talking && (
           <Button
             size="compact-xs"

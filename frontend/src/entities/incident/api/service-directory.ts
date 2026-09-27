@@ -1,5 +1,5 @@
-import axios from "axios";
 import { useQuery } from "@tanstack/react-query";
+import { api } from "@/shared/api";
 import { classifierServiceNames } from "../model/classifier";
 
 interface EmergencyService {
@@ -18,10 +18,11 @@ export function useServiceDirectory(enabled = true) {
     queryKey: ["arm-service-directory", baseURL ?? "local"],
     queryFn: async ({ signal }) => {
       if (!baseURL) return classifierServiceNames;
-      const { data } = await axios.get<EmergencyService[]>(
-        `${baseURL}/api/v1/services`,
-        { signal, timeout: 10000 },
-      );
+      const { data } = await api.get<EmergencyService[]>("/api/v1/services", {
+        baseURL,
+        signal,
+        timeout: 10000,
+      });
       return [
         ...new Set(
           data

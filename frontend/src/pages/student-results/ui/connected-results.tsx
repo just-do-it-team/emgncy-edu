@@ -17,6 +17,7 @@ import {
   formatApiDate,
   statusLabels,
   trainingApi,
+  trainingKeys,
 } from "@/entities/training";
 import { DEFAULT_PAGE_SIZE, TablePagination } from "@/shared/ui";
 
@@ -36,7 +37,7 @@ function Results({ userId }: { userId: string }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const query = useQuery({
-    queryKey: ["student-api", userId, "history", page, pageSize],
+    queryKey: trainingKeys.historyPage(userId, page, pageSize),
     queryFn: ({ signal }) =>
       trainingApi.history(userId, pageSize, (page - 1) * pageSize, signal),
     refetchInterval: 15000,
