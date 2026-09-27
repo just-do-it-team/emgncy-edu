@@ -4,13 +4,15 @@ import {
   completionPolicyLabels,
   difficultyLevel,
   difficultyOptions,
+  MAX_PASSING_SCORE,
   workspaceDefaults,
   type ScenarioDraft,
 } from "@/entities/scenario";
-import type { ScenarioWorkspaceMode } from "@/shared/api";
-import { ACK_TIMEOUT_SECONDS, CARD_FILL_NORM_SECONDS } from "@/shared/config";
+import type { ServiceOption } from "@/features/expected-result-form";
+import type { ScenarioTemplate, ScenarioWorkspaceMode } from "@/shared/api";
+import { REACTION_NORMS_TEXT } from "@/shared/config";
+import { ParticipantPositions } from "./participant-positions";
 
-const SECONDS_IN_MINUTE = 60;
 
 const workspaceOptions: { value: ScenarioWorkspaceMode; label: string }[] = [
   { value: "INDIVIDUAL", label: "Индивидуальное" },
@@ -21,7 +23,13 @@ function isWorkspaceMode(value: string): value is ScenarioWorkspaceMode {
   return value === "INDIVIDUAL" || value === "SHARED";
 }
 
-export function ScenarioParams({ form }: { form: UseFormReturnType<ScenarioDraft> }) {
+interface ScenarioParamsProps {
+  form: UseFormReturnType<ScenarioDraft>;
+  services: ServiceOption[];
+  templates: Map<string, ScenarioTemplate>;
+}
+
+export function ScenarioParams({ form, services, templates }: ScenarioParamsProps) {
   const draft = form.values;
   const shared = draft.workspaceMode === "SHARED";
   const count = (value: string | number) => (typeof value === "number" ? Math.round(value) : 0);
@@ -47,12 +55,23 @@ export function ScenarioParams({ form }: { form: UseFormReturnType<ScenarioDraft
           allowDeselect={false}
           data-path="difficulty"
         />
+        <NumberInput
+          size="xs"
+          w={220}
+          label="Порог зачёта"
+          description={`Средний балл, с которого попытка зачтена. ${MAX_PASSING_SCORE} — зачёт только без расхождений`}
+          min={0}
+          max={MAX_PASSING_SCORE}
+          decimalScale={2}
+          {...form.getInputProps("passingScore")}
+          value={Number.isNaN(draft.passingScore) ? "" : draft.passingScore}
+          onChange={(value) => form.setFieldValue("passingScore", typeof value === "number" ? value : Number.NaN)}
+        />
         <Text size="sm">
           <Text span size="sm" c="povDark2.6">
-            Нормативы:{" "}
+            Нормативы реакции:{" "}
           </Text>
-          реакция на карточку {ACK_TIMEOUT_SECONDS} с, обработка карточки {CARD_FILL_NORM_SECONDS / SECONDS_IN_MINUTE}{" "}
-          мин. Заданы нормативно и в сценарии не меняются.
+          {REACTION_NORMS_TEXT}. Дальнейшая работа по карточке нормативов не имеет; в сценарии не меняются.
         </Text>
 
         <Stack gap={6}>
@@ -105,6 +124,8 @@ export function ScenarioParams({ form }: { form: UseFormReturnType<ScenarioDraft
             <Text size="sm">Каждый обучаемый работает отдельно; {completionPolicyLabels[draft.completionPolicy]}.</Text>
           )}
         </Stack>
+
+        <ParticipantPositions form={form} services={services} templates={templates} />
       </Stack>
     </Paper>
   );

@@ -17,13 +17,12 @@ interface CallStreamProps {
 
 function ItemBody({ item, services }: { item: StreamItem; services: CallStreamProps["services"] }) {
   if (item.kind === "utterance") {
-    const { speaker, inputMode, text } = item.utterance;
+    const { speaker, text } = item.utterance;
 
     return (
       <>
         <span className={classes.speaker}>
           {speakerLabels[speaker]}
-          {inputMode === "TEXT" && <span className={classes.inputMode}>набрано текстом</span>}
           {item.startNote && (
             <span className={classes.inputMode} title={utteranceStartNotes[item.startNote].hint}>
               {utteranceStartNotes[item.startNote].label}

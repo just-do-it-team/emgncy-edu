@@ -1,12 +1,16 @@
-import { Paper, Stack, Table, Text, Title } from "@mantine/core";
-import { TriangleAlert } from "lucide-react";
+import { Paper, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
+import { Info } from "lucide-react";
 import {
   checkModeOf,
+  comparisonHints,
+  comparisonLabels,
   expectedCardFields,
-  literalComparisonWarning,
+  statusCommentComparison,
   type CheckMode,
+  type ComparisonMethod,
 } from "@/entities/scenario";
 import type { JsonObject, JsonValue, ScenarioItemType, ScenarioSourceType } from "@/shared/api";
+import { tooltipEvents } from "@/shared/ui";
 import {
   expectedCardOf,
   expectedValueLines,
@@ -24,20 +28,31 @@ const checkModeLabels: Record<CheckMode, string> = {
 
 const similarityFormatter = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 });
 
-function LiteralWarning() {
+function ComparisonNote({ label, hint }: { label: string; hint: string }) {
   return (
-    <Text size="xs" c="povDark2.6" className={classes.warning}>
-      <TriangleAlert size={12} aria-hidden="true" />
-      {literalComparisonWarning}
-    </Text>
+    <Tooltip label={hint} events={tooltipEvents} multiline w={320} color="povDark.6" radius={0}>
+      <Text size="xs" c="povDark2.6" className={classes.warning} tabIndex={0}>
+        <Info size={12} aria-hidden="true" />
+        {label}
+      </Text>
+    </Tooltip>
   );
 }
 
-function ModeCell({ mode }: { mode: CheckMode }) {
+function ModeCell({ mode, comparison }: { mode: CheckMode; comparison: ComparisonMethod }) {
+  if (mode !== "not_checked" && comparison === "not_scored") {
+    return <ComparisonNote label={comparisonLabels.not_scored} hint={comparisonHints.not_scored} />;
+  }
+
   return (
-    <Text size="sm" c={mode === "not_checked" ? "povDark2.6" : undefined} fw={mode === "checked" ? 500 : undefined}>
-      {checkModeLabels[mode]}
-    </Text>
+    <Stack gap={2}>
+      <Text size="sm" c={mode === "not_checked" ? "povDark2.6" : undefined} fw={mode === "checked" ? 500 : undefined}>
+        {checkModeLabels[mode]}
+      </Text>
+      {mode === "checked" && comparison === "normalized" && (
+        <ComparisonNote label="без учёта регистра и пунктуации" hint={comparisonHints.normalized} />
+      )}
+    </Stack>
   );
 }
 
@@ -64,7 +79,7 @@ function ExpectedCardTable({ sourceType, card, serviceNames }: ExpectedCardTable
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {expectedCardFields.map(({ field, label, literal }) => {
+          {expectedCardFields.map(({ field, label, comparison }) => {
             const mode = checkModeOf(sourceType, card, field);
 
             return (
@@ -79,11 +94,10 @@ function ExpectedCardTable({ sourceType, card, serviceNames }: ExpectedCardTable
                         {line}
                       </Text>
                     ))}
-                    {literal && mode === "checked" && <LiteralWarning />}
                   </Stack>
                 </Table.Td>
                 <Table.Td>
-                  <ModeCell mode={mode} />
+                  <ModeCell mode={mode} comparison={comparison} />
                 </Table.Td>
               </Table.Tr>
             );
@@ -140,7 +154,7 @@ function StatusHistory({ value, serviceNames }: { value: JsonValue | undefined; 
                               <Text size="sm" c="povDark2.6" className={classes.value}>
                                 Комментарий: {step.comment}
                               </Text>
-                              <LiteralWarning />
+                              <ComparisonNote label={statusCommentComparison} hint={comparisonHints.not_scored} />
                             </>
                           )}
                         </Stack>
@@ -148,7 +162,7 @@ function StatusHistory({ value, serviceNames }: { value: JsonValue | undefined; 
                     </Stack>
                   </Table.Td>
                   <Table.Td>
-                    <ModeCell mode="checked" />
+                    <ModeCell mode="checked" comparison="strict" />
                   </Table.Td>
                 </Table.Tr>
               ))}

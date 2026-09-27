@@ -192,15 +192,10 @@ export function validateExpected(
       : []),
     ...(draft.services.length === 0 ? [warning(`${prefix}.services`, "В эталоне нет ни одной службы.")] : []),
   ];
-  const descriptionIssues =
-    draft.fields.description.trim() === ""
-      ? [warning(`${prefix}.fields.description`, "Описание пустое: сервер сравнит его с пустой строкой.")]
-      : [];
 
   return [
     ...recordIssues,
     ...serviceIssues,
-    ...descriptionIssues,
     ...modeIssues(draft, source, prefix),
     ...lengthIssues(draft.fields, `${prefix}.fields`),
     ...(isDispatcherVariant(variant) ? dispatcherIssues(draft, prefix) : []),

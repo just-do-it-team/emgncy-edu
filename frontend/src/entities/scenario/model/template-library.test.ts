@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ScenarioListItem, ScenarioTemplate } from "@/shared/api";
-import { activeUsages, groupTemplates, templateUsages } from "./template-library.ts";
+import {
+  activeUsages,
+  groupTemplates,
+  templateUsages,
+  upgradeCandidates,
+  upgradeScenariosBody,
+} from "./template-library.ts";
 
 function template(id: string, templateKey: string, version: number, kind: ScenarioTemplate["kind"] = "card"): ScenarioTemplate {
   return {
@@ -28,7 +34,10 @@ function scenario(id: string, status: ScenarioListItem["status"], templateIds: s
   return {
     id,
     name: `Сценарий ${id}`,
+    revision: 3,
     difficulty: 1,
+    passingScore: 100,
+    requiredPositions: null,
     status,
     createdBy: "teacher",
     updatedAt: "2026-09-21T10:00:00+03:00",
@@ -80,5 +89,47 @@ describe("templateUsages", () => {
       activeUsages(usages).map((usage) => usage.scenarioId),
       ["s1", "s2"],
     );
+  });
+});
+
+describe("обновление черновиков до новой версии", () => {
+  const usage = (scenarioId: string, overrides: Partial<Parameters<typeof upgradeCandidates>[0][number]>) => ({
+    scenarioId,
+    scenarioName: `Сценарий ${scenarioId}`,
+    scenarioStatus: "DRAFT" as const,
+    scenarioRevision: 3,
+    scenarioCreatedBy: "teacher",
+    templateId: "a1",
+    version: 1,
+    outdated: true,
+    ...overrides,
+  });
+
+  it("кандидаты — только свои черновики на старой версии, без повторов", () => {
+    const candidates = upgradeCandidates(
+      [
+        usage("s1", {}),
+        usage("s1", { templateId: "a2", version: 2 }),
+        usage("s2", { scenarioCreatedBy: "other" }),
+        usage("s3", { scenarioStatus: "PUBLISHED" }),
+        usage("s4", { outdated: false }),
+      ],
+      "teacher",
+    );
+
+    assert.deepEqual(
+      candidates.map((item) => item.scenarioId),
+      ["s1"],
+    );
+  });
+
+  it("тело запроса: автор правки и ревизия каждого сценария", () => {
+    assert.deepEqual(upgradeScenariosBody("teacher", [usage("s1", {}), usage("s5", { scenarioRevision: 7 })]), {
+      updated_by: "teacher",
+      scenarios: [
+        { scenario_id: "s1", expected_revision: 3 },
+        { scenario_id: "s5", expected_revision: 7 },
+      ],
+    });
   });
 });

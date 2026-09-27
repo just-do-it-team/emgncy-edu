@@ -1,3 +1,4 @@
+import { decimal } from "./decimal";
 import type { JsonObject } from "./json";
 
 export type ScenarioStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
@@ -50,11 +51,13 @@ export interface TrainingScenarioDto {
   description: string | null;
   difficulty: number;
   estimated_duration_seconds: number;
+  passing_score: string;
   cards_count: number;
   workspace_mode: ScenarioWorkspaceMode;
   completion_policy: ScenarioCompletionPolicy;
   min_participants: number;
   max_participants: number;
+  required_participant_positions: ParticipantPosition[] | null;
   definition: ScenarioDefinitionDto;
   revision: number;
   status: ScenarioStatus;
@@ -109,14 +112,20 @@ export interface TrainingScenarioCreateDto {
   description: string | null;
   difficulty: number;
   estimated_duration_seconds: number;
+  passing_score: number;
   workspace_mode: ScenarioWorkspaceMode;
   completion_policy: ScenarioCompletionPolicy;
   min_participants: number;
   max_participants: number;
+  required_participant_positions: ParticipantPosition[] | null;
   definition: ScenarioDefinitionDto;
   status: ScenarioStatus;
   created_by: string;
 }
+
+export type ParticipantPosition = string | null;
+
+export const DEFAULT_PASSING_SCORE = 100;
 
 export interface ScenarioComposition {
   itemTypes: ScenarioItemType[];
@@ -126,7 +135,10 @@ export interface ScenarioComposition {
 export interface ScenarioListItem {
   id: string;
   name: string;
+  revision: number;
   difficulty: number;
+  passingScore: number;
+  requiredPositions: ParticipantPosition[] | null;
   status: ScenarioStatus;
   createdBy: string;
   updatedAt: string;
@@ -177,6 +189,8 @@ export interface ScenarioDetail {
   description: string | null;
   difficulty: number;
   estimatedDurationSeconds: number;
+  passingScore: number;
+  requiredPositions: ParticipantPosition[] | null;
   cardsCount: number;
   schemaVersion: number;
   mode: ScenarioMode;
@@ -216,7 +230,10 @@ export function toScenarioListItem(dto: TrainingScenarioDto): ScenarioListItem {
   return {
     id: dto.id,
     name: dto.name,
+    revision: dto.revision,
     difficulty: dto.difficulty,
+    passingScore: decimal(dto.passing_score) ?? DEFAULT_PASSING_SCORE,
+    requiredPositions: dto.required_participant_positions,
     status: dto.status,
     createdBy: dto.created_by,
     updatedAt: dto.updated_at,
@@ -232,6 +249,8 @@ export function toScenarioCopy(dto: TrainingScenarioDto, name: string, createdBy
     description: dto.description,
     difficulty: dto.difficulty,
     estimated_duration_seconds: dto.estimated_duration_seconds,
+    passing_score: decimal(dto.passing_score) ?? DEFAULT_PASSING_SCORE,
+    required_participant_positions: dto.required_participant_positions,
     workspace_mode: dto.workspace_mode,
     completion_policy: dto.completion_policy,
     min_participants: dto.min_participants,
@@ -266,6 +285,8 @@ export function toScenarioDetail(dto: TrainingScenarioDetailDto): ScenarioDetail
     description: dto.description,
     difficulty: dto.difficulty,
     estimatedDurationSeconds: dto.estimated_duration_seconds,
+    passingScore: decimal(dto.passing_score) ?? DEFAULT_PASSING_SCORE,
+    requiredPositions: dto.required_participant_positions,
     cardsCount: dto.cards_count,
     schemaVersion: dto.definition.schema_version,
     mode: dto.definition.mode,

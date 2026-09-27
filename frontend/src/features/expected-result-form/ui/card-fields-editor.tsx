@@ -1,13 +1,16 @@
 import type { ReactNode } from "react";
-import { Group, NumberInput, SimpleGrid, Stack, Text, TextInput, Textarea } from "@mantine/core";
-import { TriangleAlert } from "lucide-react";
+import { Group, NumberInput, SimpleGrid, Stack, Text, TextInput, Textarea, Tooltip } from "@mantine/core";
+import { Info, TriangleAlert } from "lucide-react";
 import {
-  literalComparisonWarning,
+  comparisonHints,
+  comparisonLabels,
+  comparisonOf,
   type CardFieldsDraft,
   type CheckMode,
   type OptionalCardField,
 } from "@/entities/scenario";
 import type { ScenarioSourceType } from "@/shared/api";
+import { tooltipEvents } from "@/shared/ui";
 import { AddressFields } from "./address-fields";
 import { CheckModeControl } from "./check-mode-control";
 import classes from "./expected-form.module.scss";
@@ -17,8 +20,6 @@ const workspaceGaps: Partial<Record<OptionalCardField, string>> = {
   reported_address: "АРМ обучаемого это поле не заполняет — при проверке будет расхождение всегда.",
   victims_count: "АРМ обучаемого это поле не заполняет — при проверке будет расхождение всегда.",
 };
-
-const literalFields = new Set<OptionalCardField>(["applicant_full_name", "reported_address", "incident_address"]);
 
 export interface CheckModes {
   source: ScenarioSourceType;
@@ -32,6 +33,21 @@ function Hint({ children }: { children: ReactNode }) {
       <TriangleAlert size={12} aria-hidden="true" />
       {children}
     </Text>
+  );
+}
+
+function ComparisonNote({ field }: { field: string }) {
+  const comparison = comparisonOf(field);
+
+  if (comparison === "strict") return null;
+
+  return (
+    <Tooltip label={comparisonHints[comparison]} events={tooltipEvents} multiline w={320} color="povDark.6" radius={0}>
+      <Text size="xs" c="povDark2.6" className={classes.hint} tabIndex={0}>
+        <Info size={12} aria-hidden="true" />
+        {comparisonLabels[comparison]}
+      </Text>
+    </Tooltip>
   );
 }
 
@@ -63,7 +79,7 @@ function FieldRow({ field, label, modes, knowledge, children }: FieldRowProps) {
             value={mode}
             onChange={(next) => modes.onChange(field, next)}
           />
-          {mode === "checked" && literalFields.has(field) && <Hint>{literalComparisonWarning}</Hint>}
+          {mode === "checked" && <ComparisonNote field={field} />}
           {mode === "checked" && gap && <Hint>{gap}</Hint>}
         </Group>
       )}
@@ -88,12 +104,12 @@ export function CardFieldsEditor({ form, path, value, modes, callerKnowledge }: 
         <Textarea
           size="xs"
           label="Описание со слов заявителя"
-          description={modes ? "Обязательное поле эталона, проверяется всегда" : undefined}
+          description={modes ? "Обязательное поле эталона" : undefined}
           autosize
           minRows={2}
           {...input("description")}
         />
-        {modes && <Hint>{literalComparisonWarning}</Hint>}
+        {modes && <ComparisonNote field="description" />}
         {callerKnowledge && (
           <Text size="xs" c="povDark2.6">
             Заявитель знает и сообщит это в разговоре.

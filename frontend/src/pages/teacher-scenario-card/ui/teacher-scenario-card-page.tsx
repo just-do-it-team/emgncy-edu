@@ -4,7 +4,8 @@ import { useEmergencyServices } from "@/entities/emergency-service";
 import {
   completionPolicyLabels,
   difficultyLabel,
-  scenarioRole,
+  MAX_PASSING_SCORE,
+  resolvedScenarioRole,
   scenarioRoleHint,
   scenarioRoleLabels,
   scenarioStatusLabels,
@@ -13,7 +14,7 @@ import {
 } from "@/entities/scenario";
 import { useSessionStore } from "@/entities/session";
 import { errorStatus, type EmergencyService, type ScenarioDetail } from "@/shared/api";
-import { ACK_TIMEOUT_SECONDS, CARD_FILL_NORM_SECONDS } from "@/shared/config";
+import { REACTION_NORMS_TEXT } from "@/shared/config";
 import { formatDateTime } from "@/shared/lib";
 import { Button, Fact, tooltipEvents } from "@/shared/ui";
 import { serviceName } from "@/widgets/expected-result-view";
@@ -23,11 +24,7 @@ import { ScenarioLessons } from "./scenario-lessons";
 import classes from "./scenario-card.module.scss";
 
 const NOT_FOUND_STATUSES = new Set([404, 422]);
-const SECONDS_IN_MINUTE = 60;
-
-function normsText(): string {
-  return `реакция на карточку ${ACK_TIMEOUT_SECONDS} с, обработка карточки ${CARD_FILL_NORM_SECONDS / SECONDS_IN_MINUTE} мин — по нормативу, в сценарии не меняются`;
-}
+const scoreFormatter = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 });
 
 function serviceNamesOf(
   scenario: ScenarioDetail,
@@ -108,7 +105,10 @@ interface ScenarioCardProps {
 function ScenarioCard({ scenario, teacherId, onConflict }: ScenarioCardProps) {
   const services = useEmergencyServices();
   const serviceNames = serviceNamesOf(scenario, services.data);
-  const role = scenarioRole(scenario.composition);
+  const { role, derived } = resolvedScenarioRole(scenario.requiredPositions, scenario.composition);
+  const positions = scenario.requiredPositions?.map((position) =>
+    position === null ? "Оператор 112" : `ДДС: ${serviceName(position, serviceNames)}`,
+  );
   const own = scenario.createdBy === teacherId;
 
   return (
@@ -129,10 +129,12 @@ function ScenarioCard({ scenario, teacherId, onConflict }: ScenarioCardProps) {
             <Fact label="Роль">
               <Tooltip label={scenarioRoleHint} events={tooltipEvents} multiline w={260} color="povDark.6" radius={0}>
                 <span tabIndex={0} className={classes.focusable}>
-                  {role === null ? "—" : scenarioRoleLabels[role]}
+                  {role === null ? "—" : `${scenarioRoleLabels[role]}${derived ? " (по составу)" : ""}`}
                 </span>
               </Tooltip>
             </Fact>
+            {positions && <Fact label="Кто проходит">{positions.join(", ")}</Fact>}
+            <Fact label="Порог зачёта">{`${scoreFormatter.format(scenario.passingScore)} из ${MAX_PASSING_SCORE}`}</Fact>
             <Fact label="Сложность">{difficultyLabel(scenario.difficulty)}</Fact>
             <Fact label="Статус">{scenarioStatusLabels[scenario.status]}</Fact>
             <Fact label="Автор">{own ? "Вы" : "Другой преподаватель"}</Fact>
@@ -144,9 +146,9 @@ function ScenarioCard({ scenario, teacherId, onConflict }: ScenarioCardProps) {
 
           <Text size="sm">
             <Text span size="sm" c="povDark2.6">
-              Нормативы:{" "}
+              Нормативы реакции:{" "}
             </Text>
-            {normsText()}
+            {REACTION_NORMS_TEXT}; в сценарии не меняются
           </Text>
 
           {!own && (

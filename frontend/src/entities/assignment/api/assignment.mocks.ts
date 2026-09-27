@@ -2,11 +2,6 @@ import type { AssignmentParticipantStatus, ScenarioAssignmentDto } from "@/share
 
 const teacherId = "6a8c0e2b-4d6f-4a1c-9e3b-5d7f9b1d3f28";
 
-export const mockBatchGroups: Record<string, string> = {
-  "5c7e9a1b-3d5f-4a8c-8e0a-2c4e6a8c0e19": "2b7e9c41-5a3d-4f86-9e1b-7c4a2d8f6e03",
-  "6d8f0b2c-4e6a-4b9d-9f1c-3d5f7b9d1f2a": "3c8f0d52-6b4e-4a97-8f2c-8d5b3e9a7f14",
-};
-
 function assignment(
   id: string,
   userId: string,
@@ -17,7 +12,10 @@ function assignment(
     scenario_id: "c0e2a4b6-8d1f-4c3e-9a5b-7d9f1b3d5e46",
     scenario_name: "Задымление в жилом доме",
     scenario_revision: 2,
+    passing_score: "100.00",
     assignment_batch_id: "5c7e9a1b-3d5f-4a8c-8e0a-2c4e6a8c0e19",
+    group_id: "2b7e9c41-5a3d-4f86-9e1b-7c4a2d8f6e03",
+    group_name: "УМЦ-112, группа 4",
     assigned_by: teacherId,
     workspace_mode: "INDIVIDUAL",
     launch_policy: "STUDENT_SELF_START",
@@ -47,6 +45,8 @@ export const assignmentMocks: ScenarioAssignmentDto[] = [
   {
     ...assignment("d3f5b7c9-1e4a-4c8d-8f2b-4a6c8e0a2d57", "0b1d3f5a-7c9e-4b2d-8f4a-6c8e0a2b4d63", "COMPLETED"),
     assignment_batch_id: null,
+    group_id: null,
+    group_name: null,
     scenario_id: "d1f3b5c7-9e2a-4d4f-8b6c-8e0a2c4e6f57",
     scenario_name: "ДТП с пострадавшими на МКАД",
     available_from: null,
@@ -56,6 +56,8 @@ export const assignmentMocks: ScenarioAssignmentDto[] = [
   {
     ...assignment("e4a6c8d0-2f5b-4d9e-9a3c-5b7d9f1b3e68", "2d4f6b8c-0e1a-4c3e-9b5d-7f9b1d3f5a74", "ASSIGNED"),
     assignment_batch_id: "6d8f0b2c-4e6a-4b9d-9f1c-3d5f7b9d1f2a",
+    group_id: "3c8f0d52-6b4e-4a97-8f2c-8d5b3e9a7f14",
+    group_name: "УМЦ-112, группа 7",
     scenario_id: "d1f3b5c7-9e2a-4d4f-8b6c-8e0a2c4e6f57",
     scenario_name: "ДТП с пострадавшими на МКАД",
     workspace_mode: "SHARED",

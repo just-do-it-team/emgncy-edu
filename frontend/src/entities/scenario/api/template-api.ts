@@ -10,9 +10,11 @@ import {
   type TemplateCreateRequest,
 } from "@/shared/api";
 import { CARD_API_URL, mocks } from "@/shared/config";
+import type { TemplateUpgradeBody } from "../model/template-library";
 import { cardTemplateMocks, incomingCallTemplateMocks, scenarioDetailMocks } from "./scenario.mocks";
 
 const NOT_FOUND = 404;
+const FORBIDDEN = 403;
 const CONFLICT = 409;
 
 const endpoints: Record<ScenarioTemplateKind, string> = {
@@ -136,4 +138,56 @@ export async function deactivateTemplate({ kind, templateId, userId }: TemplateD
   }
 
   await api.delete(`${CARD_API_URL}/${endpoints[kind]}/${templateId}`, { data: { deleted_by: userId } });
+}
+
+export interface TemplateUpgradeRequest {
+  kind: ScenarioTemplateKind;
+  templateId: string;
+  body: TemplateUpgradeBody;
+}
+
+function mockUpgrade({ templateId, body }: TemplateUpgradeRequest): string[] {
+  const templates = mockTemplates();
+  const target = templates.find((item) => item.id === templateId);
+
+  if (!target || !target.isActive) throw new RequestError(NOT_FOUND, "Active template not found");
+
+  const sameKey = new Set(
+    templates.filter((item) => item.kind === target.kind && item.templateKey === target.templateKey).map((item) => item.id),
+  );
+
+  const scenarios = body.scenarios.map(({ scenario_id: scenarioId, expected_revision: revision }) => {
+    const scenario = scenarioDetailMocks.find((item) => item.id === scenarioId);
+
+    if (!scenario) throw new RequestError(NOT_FOUND, `Training scenarios not found: ${scenarioId}`);
+    if (scenario.created_by !== body.updated_by) {
+      throw new RequestError(FORBIDDEN, "Only the scenario author can modify or archive it");
+    }
+    if (scenario.status !== "DRAFT") throw new RequestError(CONFLICT, `Scenario ${scenarioId} must be returned to DRAFT before upgrade`);
+    if (scenario.revision !== revision) throw new RequestError(CONFLICT, `Scenario ${scenarioId} revision conflict`);
+
+    return scenario;
+  });
+
+  for (const scenario of scenarios) {
+    scenario.definition.cards = scenario.definition.cards.map((card) =>
+      card.template_id !== undefined && sameKey.has(card.template_id) ? { ...card, template_id: target.id } : card,
+    );
+    scenario.revision += 1;
+    scenario.updated_by = body.updated_by;
+    scenario.updated_at = new Date().toISOString();
+  }
+
+  return scenarios.map((scenario) => scenario.id);
+}
+
+export async function upgradeTemplateScenarios(request: TemplateUpgradeRequest): Promise<string[]> {
+  if (mocks.scenarios) return mockUpgrade(request);
+
+  const { data } = await api.post<{ id: string }[]>(
+    `${CARD_API_URL}/${endpoints[request.kind]}/${request.templateId}/upgrade-scenarios`,
+    request.body,
+  );
+
+  return data.map((scenario) => scenario.id);
 }

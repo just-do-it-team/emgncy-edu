@@ -19,7 +19,9 @@ export interface Lesson {
   id: string;
   scenarioId: string;
   scenarioName: string;
+  batchId: string | null;
   groupName: string | null;
+  passingScore: number | null;
   participantIds: string[];
   assignedAt: string;
   availableFrom: string | null;
@@ -61,11 +63,7 @@ function average(attempts: MonitoredSession[]): LessonAverage | null {
   return { value: scores.reduce((sum, score) => sum + score, 0) / scores.length, count: scores.length };
 }
 
-export function buildLessons(
-  assignments: TeacherAssignment[],
-  groupNameByBatch: Map<string, string>,
-  sessions: MonitoredSession[],
-): Lesson[] {
+export function buildLessons(assignments: TeacherAssignment[], sessions: MonitoredSession[]): Lesson[] {
   const byLesson = new Map<string, TeacherAssignment[]>();
 
   for (const assignment of assignments) {
@@ -87,7 +85,9 @@ export function buildLessons(
         id,
         scenarioId: first.scenarioId,
         scenarioName: first.scenarioName,
-        groupName: first.batchId === null ? null : (groupNameByBatch.get(first.batchId) ?? null),
+        batchId: first.batchId,
+        groupName: first.groupName,
+        passingScore: first.passingScore,
         participantIds: [
           ...new Set(
             members.flatMap((assignment) => assignment.participants.map((participant) => participant.userId)),

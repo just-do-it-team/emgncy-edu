@@ -50,8 +50,10 @@ export const reviewNotices = {
   automaticPhoneNumber:
     "Номер АОН определяется автоматически, обучаемый его не вводит. Расхождение — сведение, а не ошибка обучаемого.",
   notApplicable: "не оценивается в этом занятии",
+  unscoredDescription:
+    "С 28 сентября 2026 года сервер не оценивает описание карточки. Расхождение осталось от оценки по прежним правилам и учтено в балле этой попытки; для новых попыток оно не появится.",
   literalComments:
-    "Комментарии сравниваются с эталоном буквально: верный по смыслу, но иначе сформулированный комментарий даёт расхождение.",
+    "С 28 сентября 2026 года сервер не оценивает комментарии к статусам ДДС, они хранятся для экспертной оценки. Расхождения ниже остались от оценки по прежним правилам, когда комментарии сравнивались буквально, и учтены в балле этой попытки.",
   modelEvaluation:
     "Исходящий звонок оценивает модель по смысловому сходству, а не прямым сравнением с эталоном. Вывод не подтверждён, пока его не проверил преподаватель.",
   formattingOnly: "отличается только оформлением",
@@ -69,7 +71,6 @@ const COMPLETENESS_PATHS = new Set([
   "card.applicant_full_name",
   "card.provided_phone_number",
   "card.location_phone_number",
-  "card.description",
   "card.questionnaire",
   "card.questionnaire.questions",
   "card.questionnaire.answers",
@@ -79,11 +80,12 @@ const COMPLETENESS_PATHS = new Set([
 const NOTE_EXPLANATIONS = new Map([
   ["card.incident_address", reviewNotices.incidentAddress],
   ["card.automatic_phone_number", reviewNotices.automaticPhoneNumber],
+  ["card.description", reviewNotices.unscoredDescription],
 ]);
 
 
 const FREE_TEXT_PATHS = new Set([
-  "card.description",
+  "card.applicant_full_name",
   "card.reported_address",
   "card.incident_address",
 ]);

@@ -2,10 +2,11 @@ import { useState } from "react";
 import { Anchor, Group, List, Modal, Stack, Text } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { Link } from "react-router-dom";
-import { useDeactivateTemplate, type TemplateUsage } from "@/entities/scenario";
-import { errorStatus, type ScenarioTemplate } from "@/shared/api";
+import { forbiddenMessage, useDeactivateTemplate, type TemplateUsage } from "@/entities/scenario";
+import { errorDetail, errorStatus, type ScenarioTemplate } from "@/shared/api";
 import { Button } from "@/shared/ui";
 
+const FORBIDDEN = 403;
 const CONFLICT = 409;
 
 interface DeactivateTemplateProps {
@@ -31,9 +32,12 @@ export function DeactivateTemplate({ template, userId, blockingUsages }: Deactiv
           setOpened(false);
           notifications.show({
             title: "Шаблон не деактивирован",
-            message: errorStatus(error) === CONFLICT
-              ? "На эту версию ссылается неархивный сценарий. Список сценариев обновлён."
-              : "Сервер не выполнил действие. Повторите попытку позже.",
+            message:
+              errorStatus(error) === CONFLICT
+                ? "На эту версию ссылается неархивный сценарий. Список сценариев обновлён."
+                : errorStatus(error) === FORBIDDEN
+                  ? forbiddenMessage(errorDetail(error))
+                  : "Сервер не выполнил действие. Повторите попытку позже.",
             color: "red",
           });
         },

@@ -7,18 +7,24 @@ import {
   useArchiveScenario,
   useCopyScenario,
   usePublishScenario,
+  useUnpublishScenario,
 } from "@/entities/scenario";
 import type { ScenarioDetail } from "@/shared/api";
 import { Button } from "@/shared/ui";
 import { scenarioActionError } from "../model/action-error";
 
-type PendingAction = "publish" | "archive";
+type PendingAction = "publish" | "unpublish" | "archive";
 
 const confirmations: Record<PendingAction, { title: string; text: string; confirm: string }> = {
   publish: {
     title: "Утвердить сценарий",
-    text: "Утверждённый сценарий можно назначать обучаемым. Править его сервер не позволяет, а снять утверждение пока нельзя: для правок создайте копию.",
+    text: "Утверждённый сценарий можно назначать обучаемым. Чтобы его изменить, верните его в черновик; назначенные занятия не пострадают — у них сохранён снимок сценария.",
     confirm: "Утвердить",
+  },
+  unpublish: {
+    title: "Вернуть сценарий в черновик",
+    text: "Сценарий снова можно будет править, но нельзя будет назначать, пока его не утвердят заново. Назначенные занятия не пострадают — у них сохранён снимок сценария.",
+    confirm: "Вернуть в черновик",
   },
   archive: {
     title: "Перенести сценарий в архив",
@@ -37,11 +43,12 @@ interface ScenarioActionsProps {
 export function ScenarioActions({ scenario, userId, own, onConflict }: ScenarioActionsProps) {
   const navigate = useNavigate();
   const publish = usePublishScenario();
+  const unpublish = useUnpublishScenario();
   const archive = useArchiveScenario();
   const copy = useCopyScenario();
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [issues, setIssues] = useState<string[]>([]);
-  const busy = publish.isPending || archive.isPending || copy.isPending;
+  const busy = publish.isPending || unpublish.isPending || archive.isPending || copy.isPending;
   const itemLabels = scenarioItemLabels(scenario.items);
 
   const close = () => {
@@ -67,13 +74,18 @@ export function ScenarioActions({ scenario, userId, own, onConflict }: ScenarioA
       onConflict();
       return;
     }
+    if (problem.kind === "forbidden") {
+      notifications.show({ title: "Действие не выполнено", message: problem.message, color: "red" });
+      onConflict();
+      return;
+    }
 
     notifications.show({ title: "Действие не выполнено", message: problem.message, color: "red" });
   };
 
   const confirm = () => {
     const request = { scenarioId: scenario.id, revision: scenario.revision, userId };
-    const mutation = pending === "publish" ? publish : archive;
+    const mutation = pending === "publish" ? publish : pending === "unpublish" ? unpublish : archive;
 
     mutation.mutate(request, { onSuccess: close, onError: fail });
   };
@@ -112,6 +124,11 @@ export function ScenarioActions({ scenario, userId, own, onConflict }: ScenarioA
         {own && scenario.status === "DRAFT" && (
           <Button size="sm" disabled={busy} onClick={() => setPending("publish")}>
             Утвердить
+          </Button>
+        )}
+        {own && scenario.status === "PUBLISHED" && (
+          <Button size="sm" variant="outline" color="povDark2.6" disabled={busy} onClick={() => setPending("unpublish")}>
+            Вернуть в черновик
           </Button>
         )}
         {own && scenario.status !== "ARCHIVED" && (

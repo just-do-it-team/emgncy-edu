@@ -9,6 +9,7 @@ export {
   useScenario,
   useScenarioDetails,
   useScenarios,
+  useUnpublishScenario,
   useUpdateScenario,
 } from "./api/use-scenario";
 export {
@@ -17,12 +18,20 @@ export {
   useScenarioTemplates,
   useTemplate,
   useTemplates,
+  useUpgradeTemplateScenarios,
 } from "./api/use-templates";
 export type { TemplateReference } from "./api/use-templates";
 export { checkModeOf } from "./model/check-mode";
 export type { CheckMode } from "./model/check-mode";
 export { difficultyLabel, difficultyLevel, difficultyOptions } from "./model/difficulty";
-export { expectedCardFields, literalComparisonWarning } from "./model/expected-fields";
+export {
+  comparisonHints,
+  comparisonLabels,
+  comparisonOf,
+  expectedCardFields,
+  statusCommentComparison,
+} from "./model/expected-fields";
+export type { ComparisonMethod } from "./model/expected-fields";
 export type { ExpectedCardField } from "./model/expected-fields";
 export {
   cardSourceTypeLabels,
@@ -39,11 +48,18 @@ export {
   workspaceLabels,
   workspaceModeLabels,
 } from "./model/labels";
-export { scenarioRole } from "./model/scenario-role";
-export type { ScenarioRole } from "./model/scenario-role";
+export { resolvedScenarioRole, roleFromPositions, scenarioRole, suggestedPositions } from "./model/scenario-role";
+export type { ResolvedRole, ScenarioRole } from "./model/scenario-role";
 export { triggerText } from "./model/trigger-text";
-export { activeUsages, groupTemplates, templateUsages, templateVariantLabels } from "./model/template-library";
-export type { TemplateEntry, TemplateUsage } from "./model/template-library";
+export {
+  activeUsages,
+  groupTemplates,
+  templateUsages,
+  templateVariantLabels,
+  upgradeCandidates,
+  upgradeScenariosBody,
+} from "./model/template-library";
+export type { TemplateEntry, TemplateUpgradeBody, TemplateUsage } from "./model/template-library";
 export { emptyAddress, formatAddress } from "./model/address";
 export type { AddressDraft } from "./model/address";
 export {
@@ -79,6 +95,7 @@ export { hasErrors, validateTemplateDraft } from "./model/template-validation";
 export type { DraftIssue } from "./model/template-validation";
 export {
   DEFAULT_TRIGGER_STEP_SECONDS,
+  MAX_PASSING_SCORE,
   defaultTrigger,
   emptyScenarioDraft,
   moveItem,
@@ -100,5 +117,5 @@ export { triggerActions } from "./model/trigger-actions";
 export { estimateDurationSeconds } from "./model/duration";
 export { strictnessOf } from "./model/strictness";
 export type { ExpectedSource } from "./model/strictness";
-export { expectedPathOf, failureOf, scenarioPathOf } from "./model/server-failure";
+export { expectedPathOf, failureOf, forbiddenMessage, scenarioPathOf } from "./model/server-failure";
 export type { LocMapper, ServerFailure } from "./model/server-failure";

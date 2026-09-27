@@ -16,6 +16,8 @@ export interface TemplateUsage {
   scenarioId: string;
   scenarioName: string;
   scenarioStatus: ScenarioStatus;
+  scenarioRevision: number;
+  scenarioCreatedBy: string;
   templateId: string;
   version: number;
   outdated: boolean;
@@ -52,6 +54,8 @@ export function templateUsages(entry: TemplateEntry, scenarios: ScenarioListItem
               scenarioId: scenario.id,
               scenarioName: scenario.name,
               scenarioStatus: scenario.status,
+              scenarioRevision: scenario.revision,
+              scenarioCreatedBy: scenario.createdBy,
               templateId,
               version,
               outdated: version < entry.latest.version,
@@ -63,4 +67,30 @@ export function templateUsages(entry: TemplateEntry, scenarios: ScenarioListItem
 
 export function activeUsages(usages: TemplateUsage[]): TemplateUsage[] {
   return usages.filter((usage) => usage.scenarioStatus !== "ARCHIVED");
+}
+
+export interface TemplateUpgradeBody {
+  updated_by: string;
+  scenarios: { scenario_id: string; expected_revision: number }[];
+}
+
+export function upgradeCandidates(usages: TemplateUsage[], userId: string): TemplateUsage[] {
+  const seen = new Set<string>();
+
+  return usages.filter((usage) => {
+    if (usage.scenarioCreatedBy !== userId || usage.scenarioStatus !== "DRAFT" || !usage.outdated) return false;
+    if (seen.has(usage.scenarioId)) return false;
+
+    seen.add(usage.scenarioId);
+    return true;
+  });
+}
+
+export function upgradeScenariosBody(userId: string, selected: TemplateUsage[]): TemplateUpgradeBody {
+  const revisions = new Map(selected.map((usage) => [usage.scenarioId, usage.scenarioRevision]));
+
+  return {
+    updated_by: userId,
+    scenarios: [...revisions].map(([scenarioId, revision]) => ({ scenario_id: scenarioId, expected_revision: revision })),
+  };
 }

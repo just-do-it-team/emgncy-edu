@@ -6,6 +6,7 @@ import {
   fetchScenario,
   fetchScenarios,
   publishScenario,
+  unpublishScenario,
   updateScenario,
 } from "./scenario-api";
 import { scenarioKeys } from "./scenario.keys";
@@ -59,6 +60,10 @@ function useScenarioMutation<T, R>(mutate: (request: T) => Promise<R>, scenarioI
 
 export function usePublishScenario() {
   return useScenarioMutation(publishScenario, (request) => request.scenarioId);
+}
+
+export function useUnpublishScenario() {
+  return useScenarioMutation(unpublishScenario, (request) => request.scenarioId);
 }
 
 export function useArchiveScenario() {

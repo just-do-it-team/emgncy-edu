@@ -21,6 +21,7 @@ const MAX_NAME_LENGTH = 255;
 const COPY_SUFFIX = " (копия)";
 const REVISION_CONFLICT = 409;
 const NOT_FOUND = 404;
+const FORBIDDEN = 403;
 
 export interface ScenarioRevisionRequest {
   scenarioId: string;
@@ -94,6 +95,33 @@ export async function publishScenario({ scenarioId, revision, userId }: Scenario
   });
 }
 
+export async function unpublishScenario({ scenarioId, revision, userId }: ScenarioRevisionRequest): Promise<void> {
+  if (mocks.scenarios) {
+    const scenario = mockScenario(scenarioId);
+
+    if (scenario.created_by !== userId) {
+      throw new RequestError(FORBIDDEN, "Only the scenario author can modify or archive it");
+    }
+    assertMockRevision(scenario, revision);
+    if (scenario.status !== "PUBLISHED") {
+      throw new RequestError(REVISION_CONFLICT, "A published scenario can only be returned to draft status");
+    }
+    Object.assign(scenario, {
+      status: "DRAFT",
+      revision: revision + 1,
+      updated_by: userId,
+      updated_at: new Date().toISOString(),
+    });
+    return;
+  }
+
+  await api.patch(`${CARD_API_URL}/training-scenarios/${scenarioId}`, {
+    expected_revision: revision,
+    updated_by: userId,
+    status: "DRAFT",
+  });
+}
+
 export async function archiveScenario({ scenarioId, revision, userId }: ScenarioRevisionRequest): Promise<void> {
   if (mocks.scenarios) {
     const scenario = mockScenario(scenarioId);
@@ -120,6 +148,7 @@ export async function copyScenario({ scenarioId, userId }: ScenarioCopyRequest):
     const copy: TrainingScenarioDetailDto = {
       ...source,
       ...toScenarioCopy(source, copyName(source.name), userId),
+      passing_score: source.passing_score,
       id: crypto.randomUUID(),
       revision: 1,
       updated_by: userId,
@@ -203,6 +232,7 @@ export async function createScenario(body: TrainingScenarioCreateDto): Promise<S
     const now = new Date().toISOString();
     const created: TrainingScenarioDetailDto = {
       ...body,
+      passing_score: body.passing_score.toFixed(2),
       id: crypto.randomUUID(),
       cards_count: cardsCount(body.definition),
       revision: 1,
@@ -226,11 +256,15 @@ export async function updateScenario({ scenarioId, body }: ScenarioUpdateRequest
     const scenario = mockScenario(scenarioId);
     const { expected_revision: expectedRevision, updated_by: updatedBy, ...fields } = body;
 
+    if (scenario.created_by !== updatedBy) {
+      throw new RequestError(FORBIDDEN, "Only the scenario author can modify or archive it");
+    }
     assertMockRevision(scenario, expectedRevision);
     if (scenario.status !== "DRAFT") throw new RequestError(REVISION_CONFLICT, "Only a draft scenario can be edited");
 
     Object.assign(scenario, {
       ...fields,
+      passing_score: fields.passing_score.toFixed(2),
       cards_count: cardsCount(body.definition),
       revision: scenario.revision + 1,
       updated_by: updatedBy,

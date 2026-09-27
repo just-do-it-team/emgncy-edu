@@ -277,7 +277,7 @@ export function ReviewFindings({
 
       <SectionBar title="Сведения" hint="не ошибки" />
       {breakdown.notes.length === 0 ? (
-        <div className={classes.note}>Расхождений в адресе происшествия и АОН нет.</div>
+        <div className={classes.note}>Расхождений в адресе происшествия, АОН и описании нет.</div>
       ) : (
         breakdown.notes.map((note, index) => (
           <FindingRow
@@ -290,7 +290,7 @@ export function ReviewFindings({
         ))
       )}
 
-      <SectionBar title="Комментарии" hint="сравнение буквальное" />
+      <SectionBar title="Комментарии" hint="не оцениваются" />
       <div className={classes.note}>{reviewNotices.literalComments}</div>
       {breakdown.literalComments.length === 0 ? (
         <div className={classes.note}>Расхождений в комментариях нет.</div>

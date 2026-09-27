@@ -17,6 +17,8 @@ import {
 import { eligiblePoolSize, validateScenarioDraft, type ScenarioValidationContext } from "./scenario-validation.ts";
 import { failureOf, scenarioPathOf } from "./server-failure.ts";
 import { strictnessOf } from "./strictness.ts";
+import { comparisonOf } from "./expected-fields.ts";
+import { resolvedScenarioRole, suggestedPositions } from "./scenario-role.ts";
 
 const classification: OperatorClassificationDto = {
   record_id: 13020201,
@@ -96,7 +98,7 @@ const context: ScenarioValidationContext = {
   cardTemplates: [template("c1", "card"), template("c2", "card", { difficulty: 3 }), template("c3", "card", { isActive: false })],
 };
 
-const norms: DurationNorms = { callSeconds: 180, cardSeconds: 210, proceduralInitialDelaySeconds: 5, proceduralIntervalSeconds: 180 };
+const norms: DurationNorms = { cardReactionSeconds: 210, proceduralInitialDelaySeconds: 5, proceduralIntervalSeconds: 180 };
 
 describe("тело сценария", () => {
   it("шаблон и встроенная карточка с условием «после действия»", () => {
@@ -209,12 +211,16 @@ describe("процедурный пул", () => {
   });
 });
 
-describe("длительность по нормативам", () => {
-  it("цепочка «после действия» складывает нормативы и задержку", () => {
-    assert.equal(estimateDurationSeconds(draft, norms), 480);
+describe("оценка длительности", () => {
+  it("звонок норматива не добавляет; после действия — только задержка, карточка — окно реакции", () => {
+    assert.equal(estimateDurationSeconds(draft, norms), 300);
   });
 
-  it("процедурная подача: первая карточка, интервалы и норматив последней", () => {
+  it("только звонки — минимум минута, дальнейшая работа не учитывается", () => {
+    assert.equal(estimateDurationSeconds({ ...draft, items: [call] }, norms), 60);
+  });
+
+  it("процедурная подача: последняя карточка и окно реакции на неё", () => {
     const procedural = { ...emptyScenarioDraft, procedural: { ...emptyScenarioDraft.procedural, enabled: true, targetCount: 3 } };
 
     assert.equal(estimateDurationSeconds(procedural, norms), 600);
@@ -226,20 +232,48 @@ describe("сводка строгости", () => {
     const summary = strictnessOf([
       {
         source: "TEMPLATE",
-        card: { classification: {}, description: "Дым", applicant_full_name: null, incident_address: "Москва, ул. Берзарина, д. 21" },
+        expected: {
+          card: {
+            classification: {},
+            description: "Дым",
+            applicant_full_name: null,
+            incident_address: "Москва, ул. Берзарина, д. 21",
+            automatic_phone_number: "+79161263471",
+          },
+        },
       },
-      { source: "INLINE", card: { classification: {}, description: "Газ" } },
+      {
+        source: "INLINE",
+        expected: {
+          card: { classification: {}, description: "Газ" },
+          service_status_history: {
+            "104": [{ status: "RECEIVED" }, { status: "ACCEPTED", comment: "Бригада направлена" }],
+          },
+        },
+      },
     ]);
 
     assert.equal(summary.elements, 2);
-    assert.equal(summary.checked, 5);
+    assert.equal(summary.strict, 3);
+    assert.equal(summary.normalized, 1);
+    assert.equal(summary.notScored, 3);
     assert.equal(summary.mustBeEmpty, 1);
-    assert.equal(summary.literal, 3);
-    assert.equal(summary.notChecked, 20);
+    assert.equal(summary.notChecked, 19);
   });
 });
 
 describe("ответ сервера", () => {
+  it("403 — только автор, текст по виду сущности", () => {
+    assert.deepEqual(failureOf(403, "Only the scenario author can modify or archive it", scenarioPathOf), {
+      kind: "forbidden",
+      message: "Это может сделать только автор сценария.",
+    });
+    assert.deepEqual(failureOf(403, "Only the template author can create a new version", scenarioPathOf), {
+      kind: "forbidden",
+      message: "Это может сделать только автор шаблона.",
+    });
+  });
+
   it("409 — конфликт, правки не теряются", () => {
     assert.deepEqual(failureOf(409, "Scenario revision conflict: expected 2, actual 3", scenarioPathOf), {
       kind: "conflict",
@@ -275,8 +309,10 @@ describe("чтение сценария в черновик", () => {
       id: "s1",
       name: "Сценарий",
       description: null,
-      difficulty: 5,
+      difficulty: 4,
       estimatedDurationSeconds: 600,
+      passingScore: 80,
+      requiredPositions: ["104"],
       cardsCount: 2,
       schemaVersion: 2,
       mode: "STATIC",
@@ -327,6 +363,88 @@ describe("чтение сценария в черновик", () => {
     assert.deepEqual(parsed.items[0]?.trigger, { kind: "immediate" });
     assert.equal(parsed.items[1]?.trigger.kind, "after");
     assert.equal(parsed.items[1]?.source.kind === "INLINE" && parsed.items[1].source.variant, "cardDds");
-    assert.equal(parsed.difficulty, 5);
+    assert.equal(parsed.difficulty, 4);
+    assert.equal(parsed.passingScore, 80);
+    assert.deepEqual(parsed.requiredPositions, ["104"]);
+  });
+});
+
+describe("способ сравнения полей эталона", () => {
+  it("ФИО и адреса — без учёта регистра и пунктуации, описание не оценивается, остальное строго", () => {
+    assert.equal(comparisonOf("applicant_full_name"), "normalized");
+    assert.equal(comparisonOf("reported_address"), "normalized");
+    assert.equal(comparisonOf("incident_address"), "normalized");
+    assert.equal(comparisonOf("description"), "not_scored");
+    assert.equal(comparisonOf("automatic_phone_number"), "strict");
+    assert.equal(comparisonOf("services"), "strict");
+  });
+});
+
+describe("порог зачёта", () => {
+  it("по умолчанию 100 и уходит в тело запроса", () => {
+    assert.equal(scenarioCreateBody(draft, resolve, 600, "teacher").passing_score, 100);
+    assert.equal(scenarioUpdateBody({ ...draft, passingScore: 75.5 }, resolve, 600, "teacher", 2).passing_score, 75.5);
+  });
+
+  it("вне 0–100, больше двух знаков после запятой или пустое — ошибка", () => {
+    for (const passingScore of [-1, 100.5, 70.125, Number.NaN]) {
+      const issues = validateScenarioDraft({ ...draft, passingScore }, context);
+
+      assert.ok(issues.some((issue) => issue.path === "passingScore" && issue.severity === "error"), String(passingScore));
+    }
+    assert.ok(!validateScenarioDraft({ ...draft, passingScore: 0 }, context).some((issue) => issue.path === "passingScore"));
+    assert.ok(!validateScenarioDraft({ ...draft, passingScore: 99.99 }, context).some((issue) => issue.path === "passingScore"));
+  });
+});
+
+describe("роль сценария", () => {
+  const composition = { itemTypes: ["INCOMING_CALL" as const, "INCIDENT_CARD" as const], procedural: false };
+
+  it("обязательные позиции задают роль", () => {
+    assert.deepEqual(resolvedScenarioRole([null], composition), { role: "OPERATOR_112", derived: false });
+    assert.deepEqual(resolvedScenarioRole(["104"], composition), { role: "DDS", derived: false });
+    assert.deepEqual(resolvedScenarioRole([null, "104"], composition), { role: "MIXED", derived: false });
+  });
+
+  it("без позиций — запасной вывод по составу", () => {
+    assert.deepEqual(resolvedScenarioRole(null, composition), { role: "MIXED", derived: true });
+    assert.deepEqual(resolvedScenarioRole(null, { itemTypes: ["INCIDENT_CARD"], procedural: false }), {
+      role: "DDS",
+      derived: true,
+    });
+  });
+
+  it("подсказка по составу", () => {
+    assert.deepEqual(
+      suggestedPositions({ workspaceMode: "INDIVIDUAL", hasCalls: false, mainServices: ["104", "101"], minParticipants: 1 }),
+      ["104"],
+    );
+    assert.deepEqual(
+      suggestedPositions({ workspaceMode: "INDIVIDUAL", hasCalls: true, mainServices: ["104"], minParticipants: 1 }),
+      [null],
+    );
+    assert.deepEqual(
+      suggestedPositions({ workspaceMode: "SHARED", hasCalls: true, mainServices: ["104", "101", "104"], minParticipants: 2 }),
+      [null, "104"],
+    );
+  });
+
+  it("проверка позиций: уникальность, число, активность служб", () => {
+    const paths = (positions: (string | null)[], extra: Partial<ScenarioDraft> = {}) =>
+      validateScenarioDraft({ ...draft, ...extra, requiredPositions: positions }, context)
+        .filter((issue) => issue.path === "requiredPositions" && issue.severity === "error")
+        .map((issue) => issue.message);
+
+    assert.equal(paths([null]).length, 0);
+    assert.match(paths([null, "104"]).join(" "), /одну позицию/);
+    assert.match(paths(["999"]).join(" "), /неизвестны или неактивны/);
+    assert.match(
+      paths([null, null], { workspaceMode: "SHARED", minParticipants: 3, maxParticipants: 4 }).join(" "),
+      /не должны повторяться/,
+    );
+    assert.match(
+      paths([null, "104"], { workspaceMode: "SHARED", minParticipants: 1, maxParticipants: 4 }).join(" "),
+      /увеличьте минимум/,
+    );
   });
 });

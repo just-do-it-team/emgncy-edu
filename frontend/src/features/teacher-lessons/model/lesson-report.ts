@@ -18,7 +18,7 @@ import {
   participantRoleLabels,
 } from "@/entities/monitoring";
 import type { EmergencyService, MonitoredSession } from "@/shared/api";
-import { ACK_TIMEOUT_SECONDS, CARD_FILL_NORM_SECONDS, criterionLabels } from "@/shared/config";
+import { criterionLabels, REACTION_NORMS_TEXT } from "@/shared/config";
 import { formatDateTime, localDayKey } from "@/shared/lib";
 import type { Lesson } from "./build-lessons";
 import type { AttemptLink, LessonFindingsSummary } from "./lesson-summary";
@@ -151,7 +151,10 @@ function headerContent(report: LessonReport, palette: ReportPalette): PdfContent
     ["Участников", String(lesson.participantIds.length)],
     ["Назначено", formatDateTime(lesson.assignedAt)],
     ...(window === null ? [] : [["Выполнить", window] as [string, string]]),
-    ["Нормативы", `обработка карточки ${CARD_FILL_NORM_SECONDS} с, подтверждение ${ACK_TIMEOUT_SECONDS} с`],
+    ["Нормативы реакции", REACTION_NORMS_TEXT],
+    ...(lesson.passingScore === null
+      ? []
+      : [["Порог зачёта", `средний балл не ниже ${scoreFormatter.format(lesson.passingScore)} из 100`] as [string, string]]),
     ["Отчёт сформирован", formatDateTime(report.generatedAt)],
   ];
 

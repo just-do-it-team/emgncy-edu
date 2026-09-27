@@ -2,6 +2,7 @@ import type {
   JsonObject,
   JsonValue,
   OperatorClassificationDto,
+  ParticipantPosition,
   ScenarioCardDefinitionDto,
   ScenarioCompletionPolicy,
   ScenarioDefinitionDto,
@@ -57,10 +58,14 @@ export interface ScenarioDraft {
   completionPolicy: ScenarioCompletionPolicy;
   minParticipants: number;
   maxParticipants: number;
+  passingScore: number;
+  requiredPositions: ParticipantPosition[] | null;
   schemaVersion: number;
   items: ScenarioItemDraft[];
   procedural: ProceduralDraft;
 }
+
+export const MAX_PASSING_SCORE = 100;
 
 export const PROCEDURAL_KEY = "procedural-cards";
 export const DEFAULT_TRIGGER_STEP_SECONDS = 120;
@@ -82,6 +87,8 @@ export const emptyScenarioDraft: ScenarioDraft = {
   completionPolicy: "STUDENT_CONFIRM",
   minParticipants: 1,
   maxParticipants: 1,
+  passingScore: MAX_PASSING_SCORE,
+  requiredPositions: null,
   schemaVersion: 1,
   items: [],
   procedural: emptyProcedural,
@@ -89,11 +96,23 @@ export const emptyScenarioDraft: ScenarioDraft = {
 
 export function workspaceDefaults(mode: ScenarioWorkspaceMode): Pick<
   ScenarioDraft,
-  "workspaceMode" | "completionPolicy" | "minParticipants" | "maxParticipants"
+  "workspaceMode" | "completionPolicy" | "minParticipants" | "maxParticipants" | "requiredPositions"
 > {
   return mode === "SHARED"
-    ? { workspaceMode: "SHARED", completionPolicy: "TEACHER_ONLY", minParticipants: 2, maxParticipants: SHARED_DEFAULT_MAX }
-    : { workspaceMode: "INDIVIDUAL", completionPolicy: "STUDENT_CONFIRM", minParticipants: 1, maxParticipants: 1 };
+    ? {
+        workspaceMode: "SHARED",
+        completionPolicy: "TEACHER_ONLY",
+        minParticipants: 2,
+        maxParticipants: SHARED_DEFAULT_MAX,
+        requiredPositions: null,
+      }
+    : {
+        workspaceMode: "INDIVIDUAL",
+        completionPolicy: "STUDENT_CONFIRM",
+        minParticipants: 1,
+        maxParticipants: 1,
+        requiredPositions: null,
+      };
 }
 
 export function nextItemKey(items: ScenarioItemDraft[], itemType: ScenarioItemType): string {
@@ -190,10 +209,12 @@ function commonBody(draft: ScenarioDraft, classificationFor: ClassificationResol
     description: trimmedOrNull(draft.description),
     difficulty: draft.difficulty,
     estimated_duration_seconds: durationSeconds,
+    passing_score: draft.passingScore,
     workspace_mode: draft.workspaceMode,
     completion_policy: draft.workspaceMode === "SHARED" ? "TEACHER_ONLY" : draft.completionPolicy,
     min_participants: draft.workspaceMode === "SHARED" ? draft.minParticipants : 1,
     max_participants: draft.workspaceMode === "SHARED" ? draft.maxParticipants : 1,
+    required_participant_positions: draft.requiredPositions,
     definition: definitionBody(draft, classificationFor),
   } satisfies Omit<TrainingScenarioCreateDto, "status" | "created_by">;
 }
@@ -270,6 +291,8 @@ export function scenarioDraftFromDetail(detail: ScenarioDetail): ScenarioDraft {
     completionPolicy: detail.completionPolicy,
     minParticipants: detail.minParticipants,
     maxParticipants: detail.maxParticipants,
+    passingScore: detail.passingScore,
+    requiredPositions: detail.requiredPositions,
     schemaVersion: detail.schemaVersion,
     items,
     procedural: generation

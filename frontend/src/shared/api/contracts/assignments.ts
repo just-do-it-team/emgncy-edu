@@ -1,3 +1,4 @@
+import { decimal } from "./decimal";
 import type { ParticipantRole, ScenarioAssignmentDto } from "./expert-review";
 
 export type LaunchPolicy = "STUDENT_SELF_START" | "TEACHER_START" | "ALL_PARTICIPANTS_READY" | "SCHEDULED_START";
@@ -16,6 +17,9 @@ export interface TeacherAssignmentParticipant {
 export interface TeacherAssignment {
   id: string;
   batchId: string | null;
+  groupId: string | null;
+  groupName: string | null;
+  passingScore: number | null;
   scenarioId: string;
   scenarioName: string;
   scenarioRevision: number;
@@ -33,6 +37,9 @@ export function toTeacherAssignment(dto: ScenarioAssignmentDto): TeacherAssignme
   return {
     id: dto.id,
     batchId: dto.assignment_batch_id,
+    groupId: dto.group_id,
+    groupName: dto.group_name,
+    passingScore: decimal(dto.passing_score),
     scenarioId: dto.scenario_id,
     scenarioName: dto.scenario_name,
     scenarioRevision: dto.scenario_revision,

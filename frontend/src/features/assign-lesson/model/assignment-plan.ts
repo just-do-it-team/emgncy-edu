@@ -1,6 +1,7 @@
 import type { FormIssue } from "@/shared/lib";
 import type {
   GroupAssignmentCreateDto,
+  ParticipantPosition,
   ScenarioDetail,
   ScenarioWorkspaceMode,
   TeacherAssignment,
@@ -19,6 +20,8 @@ export interface ScenarioRoles {
   procedural: boolean;
   mainServices: string[];
   ddsServices: string[];
+  passingScore: number;
+  requiredPositions: ParticipantPosition[] | null;
 }
 
 export type AssignMode = "single" | "perStudent";
@@ -93,6 +96,8 @@ export function scenarioRolesOf(detail: ScenarioDetail): ScenarioRoles {
     procedural: detail.procedural !== null,
     mainServices,
     ddsServices: unique([...mainServices, ...cards.flatMap((item) => item.notificationList.map((service) => service.code))]),
+    passingScore: detail.passingScore,
+    requiredPositions: detail.requiredPositions,
   };
 }
 
@@ -104,10 +109,19 @@ export function rowScenarioId(draft: AssignmentDraft, row: AssignmentRow): strin
   return draft.mode === "single" ? draft.scenarioId : row.scenarioId;
 }
 
-export function positionForNewRow(taken: (string | null)[], roles: ScenarioRoles): string | null {
+export function positionForNewRow(taken: ParticipantPosition[], roles: ScenarioRoles): ParticipantPosition {
   const hasCalls = roles.callKeys.length > 0;
+  const required = roles.requiredPositions;
 
-  if (roles.workspaceMode === "INDIVIDUAL") return hasCalls ? null : (roles.ddsServices[0] ?? null);
+  if (roles.workspaceMode === "INDIVIDUAL") {
+    if (required !== null && required.length > 0) return required[0] ?? null;
+
+    return hasCalls ? null : (roles.ddsServices[0] ?? null);
+  }
+
+  const missingRequired = (required ?? []).find((position) => !taken.includes(position));
+
+  if (missingRequired !== undefined) return missingRequired;
   if (hasCalls && !taken.includes(null)) return null;
 
   return (
@@ -178,17 +192,36 @@ function warning(path: string, message: string): AssignmentIssue {
   return { path, message, severity: "warning" };
 }
 
-function dateIssues(draft: AssignmentDraft, now: number): AssignmentIssue[] {
-  const from = draft.availableFrom === null ? null : Date.parse(draft.availableFrom);
-  const due = draft.dueAt === null ? null : Date.parse(draft.dueAt);
-
+function dateIssues(draft: AssignmentDraft, windowProblem: string | null): AssignmentIssue[] {
   return [
-    ...(from !== null && due !== null && due <= from ? [error("dueAt", "Срок должен быть позже начала.")] : []),
-    ...(due !== null && due < now ? [warning("dueAt", "Срок уже прошёл: обучаемые не смогут начать занятие.")] : []),
+    ...(windowProblem === null ? [] : [error("dueAt", windowProblem)]),
     ...(!Number.isInteger(draft.maxAttempts) || draft.maxAttempts < 1 || draft.maxAttempts > MAX_ATTEMPTS
       ? [error("maxAttempts", `Число попыток — от 1 до ${MAX_ATTEMPTS}.`)]
       : []),
   ];
+}
+
+export function positionLabel(position: ParticipantPosition, serviceName: (code: string) => string): string {
+  return position === null ? "Оператор 112" : `ДДС: ${serviceName(position)}`;
+}
+
+export function uncoveredPositions(roles: ScenarioRoles, assigned: ParticipantPosition[]): ParticipantPosition[] {
+  return (roles.requiredPositions ?? []).filter((position) => !assigned.includes(position));
+}
+
+function coverageIssue(
+  path: string,
+  missing: ParticipantPosition[],
+  serviceName: (code: string) => string,
+): AssignmentIssue[] {
+  return missing.length === 0
+    ? []
+    : [
+        error(
+          path,
+          `Не заняты обязательные позиции сценария: ${missing.map((position) => positionLabel(position, serviceName)).join(", ")}.`,
+        ),
+      ];
 }
 
 function sharedIssues(draft: AssignmentDraft, roles: ScenarioRoles, serviceName: (code: string) => string): AssignmentIssue[] {
@@ -223,9 +256,18 @@ function sharedIssues(draft: AssignmentDraft, roles: ScenarioRoles, serviceName:
         ? [error(`rows.${index}.position`, `Позицию «${serviceName(row.position)}» занимают несколько участников.`)]
         : [],
     ),
-    ...roles.mainServices
-      .filter((code) => !positions.includes(code))
-      .map((code) => error("roles", `Позиция «${serviceName(code)}» не занята: карточки этой службы никто не примет.`)),
+    ...(roles.requiredPositions === null
+      ? roles.mainServices
+          .filter((code) => !positions.includes(code))
+          .map((code) => error("roles", `Позиция «${serviceName(code)}» не занята: карточки этой службы никто не примет.`))
+      : coverageIssue(
+          "roles",
+          uncoveredPositions(
+            roles,
+            indexed.map(({ row }) => row.position),
+          ),
+          serviceName,
+        )),
   ];
 }
 
@@ -247,6 +289,10 @@ function individualIssues(
       : []),
     ...draft.rows.flatMap((row, index) => {
       if (rowScenarioId(draft, row) !== roles.scenarioId) return [];
+
+      const missing = uncoveredPositions(roles, [row.position]);
+
+      if (missing.length > 0) return coverageIssue(`rows.${index}.position`, missing, serviceName);
       if (hasCalls && row.position !== null) {
         return [error(`rows.${index}.position`, "В сценарии есть звонки: обучаемый должен быть оператором 112.")];
       }
@@ -264,12 +310,12 @@ function individualIssues(
 export interface ValidationInput {
   rolesById: Map<string, ScenarioRoles>;
   active: Set<string>;
-  now: number;
+  windowProblem: string | null;
   serviceName: (code: string) => string;
 }
 
 export function validateAssignment(draft: AssignmentDraft, input: ValidationInput): AssignmentIssue[] {
-  const { rolesById, active, now, serviceName } = input;
+  const { rolesById, active, windowProblem, serviceName } = input;
   const studentCounts = new Map<string, number>();
 
   for (const row of draft.rows) studentCounts.set(row.studentId, (studentCounts.get(row.studentId) ?? 0) + 1);
@@ -311,7 +357,7 @@ export function validateAssignment(draft: AssignmentDraft, input: ValidationInpu
         : individualIssues(draft, roles, serviceName);
     }),
     ...rowIssues,
-    ...dateIssues(draft, now),
+    ...dateIssues(draft, windowProblem),
   ];
 }
 
@@ -368,21 +414,7 @@ export function planRequests(
       body: requestBody(draft, roles, selected, userId),
     });
 
-    if (roles.workspaceMode === "SHARED") return [request("shared", rows)];
-
-    const operators = rows.filter((row) => row.position === null);
-    const batches = rows
-      .filter((row) => row.position !== null)
-      .reduce<AssignmentRow[][]>((result, row) => {
-        const free = result.find((batch) => batch.every((member) => member.position !== row.position));
-
-        return free ? result.map((batch) => (batch === free ? [...batch, row] : batch)) : [...result, [row]];
-      }, []);
-
-    return [
-      ...(operators.length > 0 ? [request("operators", operators)] : []),
-      ...batches.map((batch, index) => request(`dispatchers-${index + 1}`, batch)),
-    ];
+    return [request(roles.workspaceMode === "SHARED" ? "shared" : "individual", rows)];
   });
 }
 
@@ -413,6 +445,7 @@ const knownDetails: [RegExp, string][] = [
   [/participant range/i, "Число участников вне диапазона сценария."],
   [/each DDS position/i, "Одну позицию ДДС в занятии может занимать только один участник."],
   [/due_at must be later/i, "Срок должен быть позже начала."],
+  [/due_at must be in the future/i, "Срок уже прошёл."],
   [/needs an operator 112/i, "В сценарии есть звонки, а оператора 112 нет."],
   [/Assign every incoming call/i, "Каждый звонок нужно закрепить за оператором 112."],
   [/does not own this learning group/i, "Группа принадлежит другому преподавателю."],
@@ -423,7 +456,24 @@ const knownDetails: [RegExp, string][] = [
   [/Training scenario not found/i, "Сценарий не найден."],
 ];
 
-export function assignmentFailureText(status: number | undefined, detail: unknown): string {
+const UNCOVERED_POSITIONS = /does not cover required participant positions:\s*(.+)$/i;
+const OPERATOR_POSITION = "OPERATOR_112";
+
+export function assignmentFailureText(
+  status: number | undefined,
+  detail: unknown,
+  serviceName: (code: string) => string,
+): string {
+  const uncovered = typeof detail === "string" ? UNCOVERED_POSITIONS.exec(detail) : null;
+
+  if (uncovered?.[1]) {
+    const positions = uncovered[1]
+      .split(",")
+      .map((item) => item.trim())
+      .map((item) => positionLabel(item === OPERATOR_POSITION ? null : item, serviceName));
+
+    return `Не заняты обязательные позиции сценария: ${positions.join(", ")}.`;
+  }
   if (typeof detail === "string") {
     const known = knownDetails.find(([pattern]) => pattern.test(detail));
 

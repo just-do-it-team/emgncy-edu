@@ -23,13 +23,14 @@ import {
   type ScoreDistribution,
 } from "@/features/teacher-lessons";
 import type { EmergencyService, MonitoredSession } from "@/shared/api";
-import { ACK_TIMEOUT_SECONDS, CARD_FILL_NORM_SECONDS } from "@/shared/config";
+import { REACTION_NORMS_TEXT } from "@/shared/config";
 import { formatDayMonthTime } from "@/shared/lib";
 import { Button, Fact, ScoreBlock, tooltipEvents } from "@/shared/ui";
 import { TeacherAttemptsTable } from "@/widgets/teacher-attempts-table";
 import { LessonFindings } from "./lesson-findings";
 import { LessonParticipants } from "./lesson-participants";
 import { LessonScenario } from "./lesson-scenario";
+import { LessonScheduleActions } from "./lesson-schedule-actions";
 
 const scoreFormatter = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 });
 
@@ -175,12 +176,20 @@ function LessonDetails({ lesson, teacherId, sessions }: LessonDetailsProps) {
             </Text>
             <Text size="xs" c="povDark2.6">
               {lesson.availableFrom ? formatDayMonthTime(lesson.availableFrom) : "—"}
-              {lesson.dueAt ? ` — ${formatDayMonthTime(lesson.dueAt)}` : ""} · норматив
-              обработки {CARD_FILL_NORM_SECONDS} с, подтверждения {ACK_TIMEOUT_SECONDS} с
+              {lesson.dueAt ? ` — ${formatDayMonthTime(lesson.dueAt)}` : ""} · нормативы
+              реакции: {REACTION_NORMS_TEXT}
             </Text>
+            {lesson.passingScore !== null && (
+              <Text size="xs" c="povDark2.6">
+                Зачёт — средний балл не ниже {scoreFormatter.format(lesson.passingScore)} из 100
+              </Text>
+            )}
           </Stack>
 
-          <ReportButton lesson={lesson} findings={findings} services={services.data} />
+          <Group gap="xs">
+            <LessonScheduleActions lesson={lesson} />
+            <ReportButton lesson={lesson} findings={findings} services={services.data} />
+          </Group>
         </Group>
       </Paper>
 

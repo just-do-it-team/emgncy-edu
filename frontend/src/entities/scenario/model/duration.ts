@@ -1,8 +1,7 @@
 import type { ScenarioDraft } from "./scenario-draft.ts";
 
 export interface DurationNorms {
-  callSeconds: number;
-  cardSeconds: number;
+  cardReactionSeconds: number;
   proceduralInitialDelaySeconds: number;
   proceduralIntervalSeconds: number;
 }
@@ -10,12 +9,9 @@ export interface DurationNorms {
 const MIN_DURATION_SECONDS = 60;
 const SECONDS_IN_MINUTE = 60;
 
-export function estimateDurationSeconds(draft: ScenarioDraft, norms: DurationNorms): number {
+function itemStarts(draft: ScenarioDraft): Map<string, number> {
   const byKey = new Map(draft.items.map((item) => [item.key, item]));
   const starts = new Map<string, number>();
-
-  const normOf = (key: string) =>
-    byKey.get(key)?.itemType === "INCOMING_CALL" ? norms.callSeconds : norms.cardSeconds;
 
   const startOf = (key: string, visiting: Set<string>): number => {
     const known = starts.get(key);
@@ -31,22 +27,35 @@ export function estimateDurationSeconds(draft: ScenarioDraft, norms: DurationNor
       trigger.kind === "offset"
         ? trigger.seconds
         : trigger.kind === "after"
-          ? startOf(trigger.itemKey, new Set([...visiting, key])) + normOf(trigger.itemKey) + trigger.delaySeconds
+          ? startOf(trigger.itemKey, new Set([...visiting, key])) + trigger.delaySeconds
           : 0;
 
     starts.set(key, start);
     return start;
   };
 
-  const itemEnds = draft.items.map((item) => startOf(item.key, new Set()) + normOf(item.key));
-  const procedural = draft.procedural.enabled
-    ? [
-        norms.proceduralInitialDelaySeconds +
-          Math.max(draft.procedural.targetCount - 1, 0) * norms.proceduralIntervalSeconds +
-          norms.cardSeconds,
-      ]
-    : [];
-  const total = Math.max(MIN_DURATION_SECONDS, ...itemEnds, ...procedural);
+  draft.items.forEach((item) => startOf(item.key, new Set()));
+
+  return starts;
+}
+
+function proceduralLastRelease(draft: ScenarioDraft, norms: DurationNorms): number | null {
+  if (!draft.procedural.enabled) return null;
+
+  return norms.proceduralInitialDelaySeconds + Math.max(draft.procedural.targetCount - 1, 0) * norms.proceduralIntervalSeconds;
+}
+
+export function estimateDurationSeconds(draft: ScenarioDraft, norms: DurationNorms): number {
+  const starts = itemStarts(draft);
+  const cardEnds = draft.items.map(
+    (item) => (starts.get(item.key) ?? 0) + (item.itemType === "INCOMING_CALL" ? 0 : norms.cardReactionSeconds),
+  );
+  const procedural = proceduralLastRelease(draft, norms);
+  const total = Math.max(
+    MIN_DURATION_SECONDS,
+    ...cardEnds,
+    ...(procedural === null ? [] : [procedural + norms.cardReactionSeconds]),
+  );
 
   return Math.ceil(total / SECONDS_IN_MINUTE) * SECONDS_IN_MINUTE;
 }

@@ -8,7 +8,6 @@ import type {
   ReviewCall,
   ReviewOutgoingCall,
 } from "@/shared/api";
-import { ACK_TIMEOUT_SECONDS, CARD_FILL_NORM_SECONDS } from "@/shared/config";
 
 export type ReviewElement =
   | { kind: "call"; key: string; label: string; call: ReviewCall; originAt: string }
@@ -30,12 +29,11 @@ export interface TimelineAxis {
   startMs: number;
   endMs: number;
   rulerMs: number[];
-  normMs: number[];
 }
 
 const RULER_STEP_MS = 30_000;
 
-export const NORM_MARKS_MS = [ACK_TIMEOUT_SECONDS * 1000, CARD_FILL_NORM_SECONDS * 1000];
+const MIN_AXIS_MS = 180_000;
 
 function timeOrLast(value: string | null): number {
   return value === null ? Number.POSITIVE_INFINITY : Date.parse(value);
@@ -164,12 +162,12 @@ export function buildAxis(items: StreamItem[], completedOffsetMs: number | null)
     item.kind === "utterance" ? item.offsetMs + (item.spanMs ?? 0) : item.offsetMs,
   );
   const startMs = Math.min(0, ...items.map((item) => item.offsetMs));
-  const endMs = Math.max(CARD_FILL_NORM_SECONDS * 1000, completedOffsetMs ?? 0, ...ends);
+  const endMs = Math.max(MIN_AXIS_MS, completedOffsetMs ?? 0, ...ends);
   const rulerMs: number[] = [];
 
   for (let ms = 0; ms <= endMs; ms += RULER_STEP_MS) rulerMs.push(ms);
 
-  return { startMs, endMs, rulerMs, normMs: NORM_MARKS_MS };
+  return { startMs, endMs, rulerMs };
 }
 
 export function axisRatio(axis: TimelineAxis, ms: number): number {

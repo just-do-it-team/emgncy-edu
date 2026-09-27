@@ -102,6 +102,12 @@ export function TemplateEditorForm({ initial, target, userId, cancelPath }: Temp
             report([...found.filter((issue) => issue.severity === "warning"), ...failure.issues]);
             return;
           }
+          if (failure.kind === "forbidden") {
+            setSaved(true);
+            notifications.show({ title: "Шаблон не сохранён", message: failure.message, color: "red" });
+            navigate(cancelPath);
+            return;
+          }
 
           notifications.show({
             title: failure.kind === "conflict" ? "Версия уже существует" : "Шаблон не сохранён",

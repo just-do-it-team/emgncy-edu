@@ -1,6 +1,5 @@
 export {
   fetchExpertReviewContext,
-  fetchLimitedReviewContext,
   fetchReviewAssignment,
   updateExpertAssessment,
 } from "./api/expert-review-api";
@@ -8,7 +7,6 @@ export { expertReviewKeys } from "./api/expert-review.keys";
 export {
   expertReviewContextQuery,
   useExpertReviewContext,
-  useLimitedReviewContext,
   useReviewAssignment,
   useUpdateExpertAssessment,
 } from "./api/use-expert-review";

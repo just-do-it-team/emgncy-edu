@@ -21,7 +21,8 @@ export const scenarioRoleLabels: Record<ScenarioRole, string> = {
   MIXED: "Смешанный",
 };
 
-export const scenarioRoleHint = "Определено по составу сценария: звонки — работа оператора 112, карточки — диспетчера ДДС";
+export const scenarioRoleHint =
+  "Роль задают обязательные позиции сценария. Если их нет, роль определена по составу: звонки — работа оператора 112, карточки — диспетчера ДДС";
 
 const pluralRules = new Intl.PluralRules("ru");
 

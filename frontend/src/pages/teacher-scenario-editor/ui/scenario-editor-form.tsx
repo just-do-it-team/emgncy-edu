@@ -25,7 +25,7 @@ import {
   useActiveServices,
 } from "@/features/expected-result-form";
 import type { ScenarioTemplate } from "@/shared/api";
-import { ACK_TIMEOUT_SECONDS, CARD_FILL_NORM_SECONDS, PROCEDURAL_PACE_BY_DIFFICULTY } from "@/shared/config";
+import { CARD_OPEN_NORM_SECONDS, FIRST_ENTRY_NORM_SECONDS, PROCEDURAL_PACE_BY_DIFFICULTY } from "@/shared/config";
 import { errorMessages, focusFormField, useLeaveGuard } from "@/shared/lib";
 import { Button, IssuesList, LeaveConfirmModal } from "@/shared/ui";
 import { useServiceNames } from "@/widgets/expected-result-view";
@@ -56,8 +56,7 @@ function durationOf(draft: ScenarioDraft): number {
   const pace = PROCEDURAL_PACE_BY_DIFFICULTY.get(draft.difficulty);
 
   return estimateDurationSeconds(draft, {
-    callSeconds: CARD_FILL_NORM_SECONDS,
-    cardSeconds: ACK_TIMEOUT_SECONDS + CARD_FILL_NORM_SECONDS,
+    cardReactionSeconds: CARD_OPEN_NORM_SECONDS + FIRST_ENTRY_NORM_SECONDS,
     proceduralInitialDelaySeconds: pace?.initialDelaySeconds ?? 0,
     proceduralIntervalSeconds: pace?.releaseIntervalSeconds ?? 0,
   });
@@ -137,6 +136,11 @@ export function ScenarioEditorForm({ initial, target, templates, userId, cancelP
       report([...found.filter((issue) => issue.severity === "warning"), ...failure.issues]);
       return;
     }
+    if (failure.kind === "forbidden") {
+      notifications.show({ title: "Сценарий не сохранён", message: failure.message, color: "red" });
+      onReload();
+      return;
+    }
 
     notifications.show({ title: "Сценарий не сохранён", message: failure.message, color: "red" });
   };
@@ -191,7 +195,7 @@ export function ScenarioEditorForm({ initial, target, templates, userId, cancelP
         {target === null ? "Новый сценарий" : `Редактирование: ${initial.name}`}
       </Title>
 
-      <ScenarioParams form={form} />
+      <ScenarioParams form={form} services={services.data ?? []} templates={templatesById} />
 
       <CompositionEditor
         form={form}
@@ -204,7 +208,7 @@ export function ScenarioEditorForm({ initial, target, templates, userId, cancelP
 
       <ProceduralEditor form={form} cardTemplates={cardTemplates} />
 
-      <ScenarioSummary draft={draft} templates={templatesById} durationSeconds={durationSeconds} />
+      <ScenarioSummary draft={draft} templates={templatesById} />
 
       {liveIssues && <IssuesList issues={liveIssues} blockingTitle="Нельзя сохранить" onFocus={focus} />}
 
@@ -230,8 +234,8 @@ export function ScenarioEditorForm({ initial, target, templates, userId, cancelP
       >
         <Stack gap="sm">
           <Text size="sm">
-            Утверждённый сценарий можно назначать обучаемым. Править его сервер не позволяет, а снять утверждение пока
-            нельзя: для правок понадобится копия.
+            Утверждённый сценарий можно назначать обучаемым. Чтобы снова его править, верните его в черновик из
+            карточки сценария.
           </Text>
           <Group justify="flex-end" gap="xs">
             <Button size="sm" variant="outline" color="povDark2.6" onClick={() => setConfirmPublish(false)}>

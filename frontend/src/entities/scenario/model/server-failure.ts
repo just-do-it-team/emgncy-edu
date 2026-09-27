@@ -1,9 +1,11 @@
 import type { DraftIssue } from "./template-validation.ts";
 
+const FORBIDDEN = 403;
 const CONFLICT = 409;
 const VALIDATION = 422;
 
 export type ServerFailure =
+  | { kind: "forbidden"; message: string }
   | { kind: "conflict"; message: string }
   | { kind: "validation"; issues: DraftIssue[] }
   | { kind: "other"; message: string };
@@ -26,9 +28,16 @@ function isValidationDetail(value: unknown): value is ValidationDetail {
   );
 }
 
+export function forbiddenMessage(detail: unknown): string {
+  return typeof detail === "string" && /template/i.test(detail)
+    ? "Это может сделать только автор шаблона."
+    : "Это может сделать только автор сценария.";
+}
+
 export function failureOf(status: number | undefined, detail: unknown, mapLoc: LocMapper): ServerFailure {
   const message = typeof detail === "string" && detail.trim() !== "" ? detail : null;
 
+  if (status === FORBIDDEN) return { kind: "forbidden", message: forbiddenMessage(detail) };
   if (status === CONFLICT) return { kind: "conflict", message: message ?? "Данные изменились на сервере." };
   if (status === VALIDATION && Array.isArray(detail)) {
     return {
@@ -86,6 +95,8 @@ export function scenarioPathOf(loc: (string | number)[]): string {
   }
   if (head === "definition" && second === "procedural_generation") return "procedural.targetCount";
   if (head === "min_participants" || head === "max_participants") return "minParticipants";
+  if (head === "passing_score") return "passingScore";
+  if (head === "required_participant_positions") return "requiredPositions";
   if (typeof head === "string" && ["name", "description", "difficulty"].includes(head)) return head;
 
   return "items";

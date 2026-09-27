@@ -5,6 +5,7 @@ import { Search } from "lucide-react";
 import type { Group as LearningGroup, ScenarioListItem } from "@/shared/api";
 import { Button } from "@/shared/ui";
 import {
+  positionLabel,
   rowKey,
   rowScenarioId,
   type AssignmentDraft,
@@ -39,16 +40,27 @@ function RoleCell({ row, index, roles, services, error, onChange }: RoleCellProp
   if (!roles) return <Text size="sm">—</Text>;
 
   const hasCalls = roles.callKeys.length > 0;
+  const name = (code: string) => services.find((service) => service.code === code)?.name ?? `служба ${code}`;
+  const required = roles.workspaceMode === "INDIVIDUAL" ? (roles.requiredPositions?.[0] ?? undefined) : undefined;
 
-  if (roles.workspaceMode === "INDIVIDUAL" && hasCalls) {
+  if (roles.workspaceMode === "INDIVIDUAL" && (hasCalls || required !== undefined)) {
     return (
-      <Text size="sm" data-path={`rows.${index}.position`} tabIndex={-1}>
-        Оператор 112
-      </Text>
+      <Stack gap={0} data-path={`rows.${index}.position`} tabIndex={-1}>
+        <Text size="sm">{positionLabel(required === undefined ? null : required, name)}</Text>
+        {required !== undefined && (
+          <Text size="xs" c="povDark2.6">
+            задано в сценарии
+          </Text>
+        )}
+        {error && (
+          <Text size="xs" c="var(--mantine-color-error)">
+            {error}
+          </Text>
+        )}
+      </Stack>
     );
   }
 
-  const name = (code: string) => services.find((service) => service.code === code)?.name ?? `служба ${code}`;
   const codes = roles.ddsServices.length > 0 ? roles.ddsServices : services.map((service) => service.code);
   const data = [
     ...(roles.workspaceMode === "SHARED" ? [{ value: OPERATOR, label: "Оператор 112" }] : []),

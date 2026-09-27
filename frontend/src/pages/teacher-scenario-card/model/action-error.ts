@@ -1,5 +1,7 @@
+import { forbiddenMessage } from "@/entities/scenario";
 import { errorDetail, errorStatus } from "@/shared/api";
 
+const FORBIDDEN = 403;
 const CONFLICT = 409;
 const VALIDATION = 422;
 
@@ -16,6 +18,7 @@ const SCENARIO_FIELD_LABELS: Record<string, string> = {
 };
 
 export type ScenarioActionError =
+  | { kind: "forbidden"; message: string }
   | { kind: "conflict" }
   | { kind: "validation"; issues: string[] }
   | { kind: "other"; message: string };
@@ -57,9 +60,10 @@ function issueText({ loc, msg }: ValidationIssue, itemLabels: string[]): string 
 export function scenarioActionError(error: unknown, itemLabels: string[]): ScenarioActionError {
   const status = errorStatus(error);
 
-  if (status === CONFLICT) return { kind: "conflict" };
-
   const detail = errorDetail(error);
+
+  if (status === FORBIDDEN) return { kind: "forbidden", message: forbiddenMessage(detail) };
+  if (status === CONFLICT) return { kind: "conflict" };
 
   if (status === VALIDATION && Array.isArray(detail)) {
     return { kind: "validation", issues: detail.filter(isValidationIssue).map((issue) => issueText(issue, itemLabels)) };

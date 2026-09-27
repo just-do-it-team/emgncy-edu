@@ -1,7 +1,8 @@
 import { Group, Paper, Stack, Text, Title, Tooltip } from "@mantine/core";
 import {
+  comparisonHints,
   expectedResultBody,
-  scenarioRole,
+  resolvedScenarioRole,
   scenarioRoleHint,
   scenarioRoleLabels,
   strictnessOf,
@@ -9,22 +10,17 @@ import {
   type ScenarioDraft,
 } from "@/entities/scenario";
 import { classificationFor } from "@/features/expected-result-form";
-import type { JsonObject, JsonValue, ScenarioTemplate } from "@/shared/api";
+import type { ScenarioTemplate } from "@/shared/api";
+import { REACTION_NORMS_TEXT } from "@/shared/config";
 import { Fact, tooltipEvents } from "@/shared/ui";
 import classes from "./scenario-editor.module.scss";
-
-const SECONDS_IN_MINUTE = 60;
-
-function isObject(value: JsonValue | undefined): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function expectedSources(draft: ScenarioDraft, templates: Map<string, ScenarioTemplate>): ExpectedSource[] {
   return draft.items.flatMap((item): ExpectedSource[] => {
     if (item.source.kind === "TEMPLATE") {
-      const card = templates.get(item.source.templateId)?.expectedResult.card;
+      const expected = templates.get(item.source.templateId)?.expectedResult;
 
-      return isObject(card) ? [{ source: "TEMPLATE", card }] : [];
+      return expected ? [{ source: "TEMPLATE", expected }] : [];
     }
 
     const { expected, variant } = item.source;
@@ -32,21 +28,18 @@ function expectedSources(draft: ScenarioDraft, templates: Map<string, ScenarioTe
 
     if (classification === null) return [];
 
-    const card = expectedResultBody(expected, "INLINE", variant === "cardDds", classification).card;
-
-    return isObject(card) ? [{ source: "INLINE", card }] : [];
+    return [{ source: "INLINE", expected: expectedResultBody(expected, "INLINE", variant === "cardDds", classification) }];
   });
 }
 
 interface ScenarioSummaryProps {
   draft: ScenarioDraft;
   templates: Map<string, ScenarioTemplate>;
-  durationSeconds: number;
 }
 
-export function ScenarioSummary({ draft, templates, durationSeconds }: ScenarioSummaryProps) {
+export function ScenarioSummary({ draft, templates }: ScenarioSummaryProps) {
   const strictness = strictnessOf(expectedSources(draft, templates));
-  const role = scenarioRole({
+  const { role, derived } = resolvedScenarioRole(draft.requiredPositions, {
     itemTypes: draft.items.map((item) => item.itemType),
     procedural: draft.procedural.enabled,
   });
@@ -67,26 +60,41 @@ export function ScenarioSummary({ draft, templates, durationSeconds }: ScenarioS
           <Fact label="Роль">
             <Tooltip label={scenarioRoleHint} events={tooltipEvents} multiline w={260} color="povDark.6" radius={0}>
               <span tabIndex={0} className={classes.focusable}>
-                {role === null ? "—" : scenarioRoleLabels[role]}
+                {role === null ? "—" : `${scenarioRoleLabels[role]}${derived ? " (по составу)" : ""}`}
               </span>
             </Tooltip>
           </Fact>
-          <Fact label="Длительность по нормативам">{`${durationSeconds / SECONDS_IN_MINUTE} мин`}</Fact>
+          {cards + (draft.procedural.enabled ? draft.procedural.targetCount : 0) > 0 && (
+            <Fact label="Нормативы реакции на карточку">{REACTION_NORMS_TEXT}</Fact>
+          )}
         </Group>
         <Group gap="xl" align="flex-start" wrap="wrap">
-          <Fact label="Поля проверяются">{strictness.checked}</Fact>
-          <Fact label="Из них посимвольно">{strictness.literal}</Fact>
-          <Fact label="Не проверяются">{strictness.notChecked}</Fact>
-          <Fact label="Должны быть пустыми">{strictness.mustBeEmpty}</Fact>
+          <Fact label="Строго">{strictness.strict}</Fact>
+          <Fact label="Без учёта регистра и пунктуации">
+            <Tooltip label={comparisonHints.normalized} events={tooltipEvents} multiline w={320} color="povDark.6" radius={0}>
+              <span tabIndex={0} className={classes.focusable}>
+                {strictness.normalized}
+              </span>
+            </Tooltip>
+          </Fact>
+          <Fact label="Не оценивается">
+            <Tooltip label={comparisonHints.not_scored} events={tooltipEvents} multiline w={320} color="povDark.6" radius={0}>
+              <span tabIndex={0} className={classes.focusable}>
+                {strictness.notScored}
+              </span>
+            </Tooltip>
+          </Fact>
+          <Fact label="Не проверяется">{strictness.notChecked}</Fact>
+          <Fact label="Должно быть пустым">{strictness.mustBeEmpty}</Fact>
         </Group>
         {skipped > 0 && (
           <Text size="xs" c="povDark2.6">
             Не учтено в подсчёте полей: {skipped} — у элемента не выбран тип происшествия или шаблон не найден.
           </Text>
         )}
-        {strictness.literal > 0 && (
+        {strictness.notScored > 0 && (
           <Text size="xs" c="povDark2.6">
-            Посимвольно сравниваются ФИО и адреса: лишний пробел или другой регистр — расхождение.
+            Описание карточки и комментарии к статусам ДДС сервер не оценивает: они хранятся для экспертной оценки.
           </Text>
         )}
       </Stack>

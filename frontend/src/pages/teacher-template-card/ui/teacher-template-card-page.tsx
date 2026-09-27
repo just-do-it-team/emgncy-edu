@@ -23,6 +23,7 @@ import {
 } from "@/widgets/expected-result-view";
 import { DeactivateTemplate } from "./deactivate-template";
 import { TemplateUsageTable, TemplateVersions } from "./template-usage";
+import { UpgradeDrafts } from "./upgrade-drafts";
 
 const NOT_FOUND_STATUSES = new Set([404, 422]);
 
@@ -149,6 +150,9 @@ function TemplateCard({ template, teacherId }: TemplateCardProps) {
       {entry && <TemplateVersions entry={entry} currentId={template.id} teacherId={teacherId} />}
 
       <TemplateUsageTable usages={usages} latestVersion={latest?.version ?? template.version} />
+      {latest && usages && (
+        <UpgradeDrafts latest={latest} usages={usages} teacherId={teacherId} onConflict={() => void scenarios.refetch()} />
+      )}
     </Stack>
   );
 }

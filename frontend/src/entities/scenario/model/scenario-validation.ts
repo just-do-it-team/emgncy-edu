@@ -1,5 +1,5 @@
 import type { ScenarioTemplate } from "@/shared/api";
-import type { ScenarioDraft, ScenarioItemDraft } from "./scenario-draft.ts";
+import { MAX_PASSING_SCORE, type ScenarioDraft, type ScenarioItemDraft } from "./scenario-draft.ts";
 import { validateExpected, type DraftIssue, type ValidationContext } from "./template-validation.ts";
 import { isDispatcherSilentAction, isKnownTriggerAction } from "./trigger-actions.ts";
 
@@ -90,7 +90,7 @@ function itemIssues(items: ScenarioItemDraft[], index: number, context: Scenario
                     ? [
                         warning(
                           `${path}.trigger.actionType`,
-                          `${label}: карточку правит и меняет её статус оператор 112, диспетчер ДДС этого не делает — в занятии только для ДДС элемент может не выйти.`,
+                          `${label}: это действие выполняет оператор 112 — правит карточку, её признаки, службы или статус; диспетчер ДДС его не делает, в занятии только для ДДС элемент может не выйти.`,
                         ),
                       ]
                     : [];
@@ -163,6 +163,53 @@ function proceduralIssues(draft: ScenarioDraft, context: ScenarioValidationConte
   ];
 }
 
+function passingScoreIssues(score: number): DraftIssue[] {
+  const hundredths = score * 100;
+  const valid =
+    Number.isFinite(score) &&
+    score >= 0 &&
+    score <= MAX_PASSING_SCORE &&
+    Math.abs(hundredths - Math.round(hundredths)) < 1e-6;
+
+  return valid
+    ? []
+    : [error("passingScore", `Порог зачёта — от 0 до ${MAX_PASSING_SCORE}, не больше двух знаков после запятой.`)];
+}
+
+function positionIssues(draft: ScenarioDraft, context: ScenarioValidationContext): DraftIssue[] {
+  const positions = draft.requiredPositions;
+
+  if (positions === null) return [];
+
+  const codes = positions.filter((position): position is string => position !== null);
+  const unknown = context.activeServices ? codes.filter((code) => !context.activeServices?.has(code)) : [];
+  const hasCalls = draft.items.some((item) => item.itemType === "INCOMING_CALL");
+
+  return [
+    ...(positions.length === 0
+      ? [error("requiredPositions", "Выберите хотя бы одну позицию или уберите ограничение «Кто проходит».")]
+      : []),
+    ...(new Set(positions).size !== positions.length ? [error("requiredPositions", "Позиции не должны повторяться.")] : []),
+    ...(draft.workspaceMode === "INDIVIDUAL" && positions.length > 1
+      ? [error("requiredPositions", "Индивидуальный сценарий проходит один обучаемый — выберите одну позицию.")]
+      : []),
+    ...(draft.workspaceMode === "SHARED" && positions.length > draft.minParticipants
+      ? [
+          error(
+            "requiredPositions",
+            `Обязательных позиций ${positions.length}, а участников может быть ${draft.minParticipants}: увеличьте минимум участников или уберите позицию.`,
+          ),
+        ]
+      : []),
+    ...(unknown.length > 0
+      ? [error("requiredPositions", `Службы неизвестны или неактивны: ${unknown.join(", ")}.`)]
+      : []),
+    ...(hasCalls && positions.length > 0 && !positions.includes(null)
+      ? [warning("requiredPositions", "В сценарии есть звонки, но позиции «Оператор 112» среди обязательных нет.")]
+      : []),
+  ];
+}
+
 export function validateScenarioDraft(draft: ScenarioDraft, context: ScenarioValidationContext): DraftIssue[] {
   const name = draft.name.trim();
   const shared = draft.workspaceMode === "SHARED";
@@ -176,6 +223,8 @@ export function validateScenarioDraft(draft: ScenarioDraft, context: ScenarioVal
     ...(draft.items.length === 0 && !draft.procedural.enabled
       ? [error("items", "Добавьте хотя бы один элемент или включите процедурную подачу.")]
       : []),
+    ...passingScoreIssues(draft.passingScore),
+    ...positionIssues(draft, context),
     ...draft.items.flatMap((_item, index) => itemIssues(draft.items, index, context)),
     ...proceduralIssues(draft, context),
   ];

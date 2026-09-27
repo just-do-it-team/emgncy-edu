@@ -23,14 +23,16 @@
 | разбор попытки | `GET /training-sessions/{id}/expert-review-context` и связанные — `docs/api/attempt-replay.md` | `/teacher/attempts/{session_id}/review` |
 | экспертная оценка | `PUT /training-sessions/{id}/expert-assessment` | мутация есть, экрана нет |
 
-Полный разбор открывается только для сессии в статусе `COMPLETED`: для остальных
-`expert-review-context` отвечает 409. Для прерванной сессии (`ABORTED`) фронт открывает
-ограниченный разбор без расхождений с эталоном. Он собирается из
-`GET /training-sessions/{id}`, `GET /training-sessions/{id}/incoming-calls` (преподаватель —
-участник рабочего пространства с ролью `INSTRUCTOR`), `GET /training-sessions/{id}/scheduled-cards`,
-`GET /training-sessions/{id}/actions` и назначения; расшифровка — `GET /training-calls/{id}/transcript`,
-запись — `GET /training-calls/{id}/recording` только для звонков в статусе `COMPLETED`: при
-прерывании идущие звонки переводятся в `CANCELLED`, и запись по ним сервер не отдаёт (409).
+Разбор открывается для сессий в статусе `COMPLETED` и `ABORTED` одной ручкой
+`expert-review-context` (645f3cf); для идущей сессии — 409. У прерванной попытки фронт включает
+ограниченный режим по `session.status`: балл и расхождения, если сервер успел их посчитать, помечены
+«на момент прерывания»; если оценки не было — «расхождения не считались». Причина прерывания —
+`session.result.abort_reason`: `PRESENCE_TIMEOUT` — обучаемый потерял связь, `null` — прервал
+преподаватель. Запись звонка отдаётся только для звонков в статусе `COMPLETED`: при прерывании идущие
+звонки переводятся в `CANCELLED`, и запись по ним сервер не отдаёт (409).
+
+Зачёт попытки — средний балл не ниже порога сценария (`session.result.passing_score`, по умолчанию
+100); выставляет сервер, фронт показывает «Зачтено при балле от N» и не пересчитывает.
 
 ## Старый разбор попытки — долг
 

@@ -109,7 +109,7 @@ export function TraineePreview({ draft, serviceName }: TraineePreviewProps) {
           <Stack gap="xs">
             <PreviewRow label="Тип происшествия" value={typeName} />
             <PreviewRow label="Службы" value={expected.services.map(serviceName).join(", ")} />
-            <PreviewRow label="Описание (посимвольно)" value={expected.fields.description.trim()} />
+            <PreviewRow label="Описание (не оценивается)" value={expected.fields.description.trim()} />
             {checked.map((field) => {
               const value = fieldValue(expected.fields, field);
 

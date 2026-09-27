@@ -249,6 +249,7 @@ export const expertReviewContextMock: ExpertReviewContextDto = {
       },
     },
   ],
+  outgoing_calls: [],
   call_utterances: [],
   actions,
 };
@@ -258,7 +259,10 @@ export const reviewAssignmentMock: ScenarioAssignmentDto = {
   scenario_id: "c0e2a4b6-8d1f-4c3e-9a5b-7d9f1b3d5e46",
   scenario_name: "Задымление в жилом доме",
   scenario_revision: 2,
+  passing_score: "100.00",
   assignment_batch_id: null,
+  group_id: null,
+  group_name: null,
   assigned_by: teacherId,
   workspace_mode: "INDIVIDUAL",
   launch_policy: "STUDENT_SELF_START",

@@ -6,7 +6,7 @@ import {
   difficultyLabel,
   difficultyLevel,
   difficultyOptions,
-  scenarioRole,
+  resolvedScenarioRole,
   scenarioRoleHint,
   scenarioRoleLabels,
   scenarioStatusLabels,
@@ -55,6 +55,7 @@ const usageOptions = [
 interface ScenarioRow {
   scenario: ScenarioListItem;
   role: ScenarioRole | null;
+  roleDerived: boolean;
   own: boolean;
   lessons: number | null;
 }
@@ -244,7 +245,7 @@ function ScenariosTable({ rows }: { rows: ScenarioRow[] }) {
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {pagination.rows.map(({ scenario, role: rowRole, own, lessons }) => (
+              {pagination.rows.map(({ scenario, role: rowRole, roleDerived, own, lessons }) => (
                 <LinkRow key={scenario.id}>
                   <Table.Td>
                     <Anchor
@@ -261,6 +262,11 @@ function ScenariosTable({ rows }: { rows: ScenarioRow[] }) {
                   </Table.Td>
                   <Table.Td>
                     <Text size="sm">{rowRole === null ? "—" : scenarioRoleLabels[rowRole]}</Text>
+                    {rowRole !== null && roleDerived && (
+                      <Text size="xs" c="povDark2.6">
+                        определено по составу
+                      </Text>
+                    )}
                   </Table.Td>
                   <Table.Td>
                     <Text size="sm">{difficultyLabel(scenario.difficulty)}</Text>
@@ -309,12 +315,17 @@ function Scenarios({ teacherId }: { teacherId: string }) {
   const scenarios = useScenarios();
   const assignments = useAssignments({ assignedBy: teacherId });
   const lessons = assignments.data && lessonsByScenario(assignments.data);
-  const rows: ScenarioRow[] = (scenarios.data ?? []).map((scenario) => ({
-    scenario,
-    role: scenarioRole(scenario.composition),
-    own: scenario.createdBy === teacherId,
-    lessons: lessons ? (lessons.get(scenario.id) ?? 0) : null,
-  }));
+  const rows: ScenarioRow[] = (scenarios.data ?? []).map((scenario) => {
+    const { role, derived } = resolvedScenarioRole(scenario.requiredPositions, scenario.composition);
+
+    return {
+      scenario,
+      role,
+      roleDerived: derived,
+      own: scenario.createdBy === teacherId,
+      lessons: lessons ? (lessons.get(scenario.id) ?? 0) : null,
+    };
+  });
 
   return (
     <Stack gap="md">

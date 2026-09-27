@@ -96,18 +96,6 @@ export function CallTimeline({ axis, items, durationsAvailable, cursorMs, onSeek
           />
         ))}
 
-        {axis.normMs.map((ms) => (
-          <span key={ms}>
-            <span className={classes.normLine} style={{ left: percent(axis, ms) }} />
-            <span
-              className={`${classes.normLabel} ${axisRatio(axis, ms) > 1 - EDGE_RATIO ? classes.labelEnd : ""}`}
-              style={{ left: percent(axis, ms) }}
-            >
-              {ms / 1000} с
-            </span>
-          </span>
-        ))}
-
         {items.map((item) => {
           if (item.kind === "action") {
             return (

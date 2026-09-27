@@ -3,12 +3,13 @@ import { Alert, Anchor, SegmentedControl, Skeleton, Stack, Text } from "@mantine
 import { isAxiosError } from "axios";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useEmergencyServices } from "@/entities/emergency-service";
-import { useExpertReviewContext, useLimitedReviewContext, useReviewAssignment } from "@/entities/expert-review";
+import { useExpertReviewContext, useReviewAssignment } from "@/entities/expert-review";
 import { useSessionStore } from "@/entities/session";
 import { useStudentNames } from "@/entities/student";
 import type { ExpertReviewContext, ReviewAssignment } from "@/shared/api";
 import { formatDateTime } from "@/shared/lib";
 import { elementActions, formatOffset, offsetFrom, reviewElements } from "../model/replay";
+import { abortReasonText } from "../model/review-labels";
 import { ABORTED_SESSION_STATUS, participantRoleLabels } from "@/entities/monitoring";
 import { CallElementReview, CardElementReview, OutgoingCallElementReview } from "./element-review";
 import type { RoleState } from "./review-findings";
@@ -52,8 +53,8 @@ function contextProblem(error: Error): { title: string; text: string } {
   }
   if (status === 409) {
     return {
-      title: "Попытка не завершена",
-      text: "Разбор открывается для завершённых попыток. Эта попытка ещё идёт или была прервана.",
+      title: "Попытка ещё идёт",
+      text: "Разбор открывается, когда попытка завершена или прервана.",
     };
   }
   if (status === 422) {
@@ -127,15 +128,13 @@ function passedLabel(passed: boolean | null): string {
 }
 
 const WHOLE_GROUP = "all";
-const NOT_COMPLETED_STATUS = 409;
-
 interface LoadedReviewProps {
   context: ExpertReviewContext;
   teacherId: string;
-  limited: boolean;
+  aborted: boolean;
 }
 
-function LoadedReview({ context, teacherId, limited }: LoadedReviewProps) {
+function LoadedReview({ context, teacherId, aborted }: LoadedReviewProps) {
   const assignment = useReviewAssignment(context.session.assignmentId);
   const students = useStudentNames(teacherId);
   const services = useEmergencyServices();
@@ -151,6 +150,7 @@ function LoadedReview({ context, teacherId, limited }: LoadedReviewProps) {
   });
 
   const { session } = context;
+  const evaluated = [...context.cards, ...context.incomingCalls].some((element) => element.automaticResult !== null);
   const callOperators = new Map(
     context.actions.flatMap((action) =>
       action.kind === "call" && action.stage === "answered" && action.entityId !== null
@@ -181,7 +181,11 @@ function LoadedReview({ context, teacherId, limited }: LoadedReviewProps) {
     ),
     roleState,
     services: services.data,
-    limitedNote: limited ? "Попытка прервана: сервер не выставляет по ней расхождения с эталоном." : null,
+    limitedNote: aborted
+      ? evaluated
+        ? "Попытка прервана: балл и расхождения — по состоянию на момент прерывания."
+        : "Попытка прервана до оценки: сервер не выставлял по ней расхождения с эталоном."
+      : null,
     scopeNote:
       participantId === null
         ? null
@@ -204,9 +208,21 @@ function LoadedReview({ context, teacherId, limited }: LoadedReviewProps) {
       </div>
 
       <div className={classes.summary}>
-        <Cell label="Балл">{session.score === null ? "не рассчитан" : scoreFormatter.format(session.score)}</Cell>
-        <Cell label="Зачёт">{limited ? "прервана" : passedLabel(session.passed)}</Cell>
-        <Cell label="Расхождений">{limited ? "не считаются" : String(discrepancyCount(context))}</Cell>
+        <Cell label="Балл">
+          {session.score === null
+            ? "не рассчитан"
+            : `${scoreFormatter.format(session.score)}${aborted ? " на момент прерывания" : ""}`}
+        </Cell>
+        <Cell label="Зачёт">{aborted ? "попытка прервана" : passedLabel(session.passed)}</Cell>
+        {session.passingScore !== null && (
+          <Cell label="Зачтено при балле">{`от ${scoreFormatter.format(session.passingScore)}`}</Cell>
+        )}
+        <Cell label="Расхождений">
+          {aborted && !evaluated
+            ? "не считались"
+            : `${discrepancyCount(context)}${aborted ? " на момент прерывания" : ""}`}
+        </Cell>
+        {aborted && <Cell label="Причина прерывания">{abortReasonText(session.abortReason)}</Cell>}
         {session.expertAssessment && (
           <Cell label="Оценка преподавателя">
             {`${scoreFormatter.format(session.expertAssessment.score)}, ${passedLabel(session.expertAssessment.passed)}`}
@@ -298,29 +314,22 @@ function ReviewSkeleton() {
 
 function ReviewScreen({ sessionId, teacherId }: ReviewScreenProps) {
   const context = useExpertReviewContext(sessionId, teacherId);
-  const notCompleted =
-    context.isError && isAxiosError(context.error) && context.error.response?.status === NOT_COMPLETED_STATUS;
-  const limited = useLimitedReviewContext(sessionId, notCompleted);
 
   if (context.isPending) return <ReviewSkeleton />;
 
-  if (!context.isError) return <LoadedReview context={context.data} teacherId={teacherId} limited={false} />;
-
-  if (!notCompleted) {
+  if (context.isError) {
     const problem = contextProblem(context.error);
 
     return <RequestState title={problem.title}>{problem.text}</RequestState>;
   }
 
-  if (limited.isPending) return <ReviewSkeleton />;
-
-  if (limited.isError || limited.data.session.status !== ABORTED_SESSION_STATUS) {
-    const problem = contextProblem(limited.isError ? limited.error : context.error);
-
-    return <RequestState title={problem.title}>{problem.text}</RequestState>;
-  }
-
-  return <LoadedReview context={limited.data} teacherId={teacherId} limited />;
+  return (
+    <LoadedReview
+      context={context.data}
+      teacherId={teacherId}
+      aborted={context.data.session.status === ABORTED_SESSION_STATUS}
+    />
+  );
 }
 
 const TeacherSessionReviewPage = () => {

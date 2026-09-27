@@ -1,10 +1,8 @@
 import { useState } from "react";
 import { Group, NumberInput, Paper, SegmentedControl, Select, Skeleton, Stack, Text, Title } from "@mantine/core";
-import { DateTimePicker } from "@mantine/dates";
 import { useForm } from "@mantine/form";
-import dayjs from "dayjs";
 import { useNavigate } from "react-router-dom";
-import { useAssignments } from "@/entities/assignment";
+import { assignmentWindow, assignmentWindowProblem, ScheduleFields, useAssignments } from "@/entities/assignment";
 import { useEmergencyServices } from "@/entities/emergency-service";
 import { useGroups } from "@/entities/group";
 import { difficultyLabel } from "@/entities/scenario";
@@ -33,8 +31,6 @@ import { AssignmentResults } from "./assignment-results";
 import { ParticipantsPicker } from "./participants-picker";
 import { ScenarioPicker } from "./scenario-picker";
 
-const PICKER_FORMAT = "YYYY-MM-DD HH:mm:ss";
-
 const modeOptions: { value: AssignMode; label: string }[] = [
   { value: "single", label: "Одно задание всем" },
   { value: "perStudent", label: "Разные задания" },
@@ -42,14 +38,6 @@ const modeOptions: { value: AssignMode; label: string }[] = [
 
 function isMode(value: string): value is AssignMode {
   return value === "single" || value === "perStudent";
-}
-
-function toPicker(value: string | null): string | null {
-  return value === null ? null : dayjs(value).format(PICKER_FORMAT);
-}
-
-function fromPicker(value: string | null): string | null {
-  return value === null || value === "" ? null : dayjs(value).toISOString();
 }
 
 interface AssignLessonFormProps {
@@ -83,7 +71,14 @@ export function AssignLessonForm({ scenarios, initialScenarioId, userId }: Assig
   const services = [...(directory.data?.values() ?? [])].map((service) => ({ code: service.code, name: service.name }));
   const serviceName = (code: string) => services.find((service) => service.code === code)?.name ?? `служба ${code}`;
   const active = activeAssignmentKeys(assignments.data ?? []);
-  const issues = validateAssignment(resolved, { rolesById: roles.rolesById, active, now: Date.now(), serviceName });
+  const now = Date.now();
+  const span = assignmentWindow(draft.availableFrom, draft.dueAt, now);
+  const issues = validateAssignment(resolved, {
+    rolesById: roles.rolesById,
+    active,
+    windowProblem: assignmentWindowProblem(draft.availableFrom, draft.dueAt, now),
+    serviceName,
+  });
   const errors = shownIssues ? issueMessages(issues) : {};
   const requests = planRequests(resolved, roles.rolesById, userId);
   const students = new Map((groups.data ?? []).flatMap((group) => group.students.map((student) => [student.id, student.displayName])));
@@ -105,7 +100,7 @@ export function AssignLessonForm({ scenarios, initialScenarioId, userId }: Assig
     }
 
     assign.mutate(
-      { requests, rolesById: roles.rolesById },
+      { requests, rolesById: roles.rolesById, groupNames, serviceName },
       {
         onSuccess: (result) => {
           const [only] = result;
@@ -126,7 +121,7 @@ export function AssignLessonForm({ scenarios, initialScenarioId, userId }: Assig
     if (!outcomes) return;
 
     assign.mutate(
-      { requests: failedRequests(outcomes), rolesById: roles.rolesById },
+      { requests: failedRequests(outcomes), rolesById: roles.rolesById, groupNames, serviceName },
       {
         onSuccess: (result) => {
           const byKey = new Map(result.map((outcome) => [outcome.request.key, outcome]));
@@ -171,9 +166,6 @@ export function AssignLessonForm({ scenarios, initialScenarioId, userId }: Assig
     { operators: 0, dds: 0 },
   );
   const scenarioName = (scenarioId: string) => scenarios.find((scenario) => scenario.id === scenarioId)?.name ?? "—";
-  const splitDispatchers = requests.some(
-    (request) => request.body.launch_policy === "STUDENT_SELF_START" && Object.values(request.body.participant_positions).some(Boolean),
-  );
   const perStudentScenarios = new Set(resolved.rows.flatMap((row) => rowScenarioId(resolved, row) ?? []));
 
   return (
@@ -283,7 +275,7 @@ export function AssignLessonForm({ scenarios, initialScenarioId, userId }: Assig
                 Распределить роли заново
               </Button>
               <Text size="xs" c="povDark2.6" data-path="roles" tabIndex={-1}>
-                {errors.roles ?? "Сначала оператор 112, затем главные службы карточек, затем остальные службы."}
+                {errors.roles ?? "Сначала обязательные позиции сценария, затем оператор 112, главные службы карточек и остальные службы."}
               </Text>
             </Group>
           )}
@@ -295,30 +287,13 @@ export function AssignLessonForm({ scenarios, initialScenarioId, userId }: Assig
           <Title order={3} size="h5" fw={600}>
             Когда
           </Title>
+          <ScheduleFields
+            value={{ availableFrom: draft.availableFrom, dueAt: draft.dueAt }}
+            now={now}
+            error={errors.dueAt}
+            onChange={(schedule) => form.setValues(schedule)}
+          />
           <Group gap="sm" align="flex-start" wrap="wrap">
-            <DateTimePicker
-              size="xs"
-              w={220}
-              label="Выполнить с"
-              placeholder="Сразу"
-              clearable
-              valueFormat="DD.MM.YYYY HH:mm"
-              value={toPicker(draft.availableFrom)}
-              onChange={(value) => form.setFieldValue("availableFrom", fromPicker(value))}
-              data-path="availableFrom"
-            />
-            <DateTimePicker
-              size="xs"
-              w={220}
-              label="Срок"
-              placeholder="Без срока"
-              clearable
-              valueFormat="DD.MM.YYYY HH:mm"
-              value={toPicker(draft.dueAt)}
-              onChange={(value) => form.setFieldValue("dueAt", fromPicker(value))}
-              error={errors.dueAt}
-              data-path="dueAt"
-            />
             <NumberInput
               size="xs"
               w={140}
@@ -332,9 +307,6 @@ export function AssignLessonForm({ scenarios, initialScenarioId, userId }: Assig
               onChange={(value) => form.setFieldValue("maxAttempts", typeof value === "number" ? value : 0)}
             />
           </Group>
-          <Text size="xs" c="povDark2.6">
-            Пустые даты — без ограничений, как на сервере. Время указывается по часам этого компьютера.
-          </Text>
         </Stack>
       </Paper>
 
@@ -354,16 +326,16 @@ export function AssignLessonForm({ scenarios, initialScenarioId, userId }: Assig
             {singleRoles && <Fact label="Сложность">{difficultyLabel(singleRoles.difficulty)}</Fact>}
             <Fact label="Обучаемых">{resolved.rows.length}</Fact>
             <Fact label="Занятий будет создано">{requests.length}</Fact>
-            <Fact label="Выполнить с">{draft.availableFrom === null ? "сразу" : formatDateTime(draft.availableFrom)}</Fact>
-            <Fact label="Срок">{draft.dueAt === null ? "без срока" : formatDateTime(draft.dueAt)}</Fact>
+            <Fact label="Выполнить с">
+              {draft.availableFrom === null ? "сразу" : formatDateTime(new Date(span.start).toISOString())}
+            </Fact>
+            <Fact label="Срок">{formatDateTime(new Date(span.due).toISOString())}</Fact>
             <Fact label="Операторов 112">{roleCounts.operators}</Fact>
             <Fact label="Диспетчеров ДДС">{roleCounts.dds}</Fact>
           </Group>
           {requests.length > 1 && (
             <Text size="xs" c="povDark2.6">
               Сервер создаёт занятие на пару «группа — сценарий».
-              {splitDispatchers &&
-                " Для индивидуального сценария ДДС обучаемые с одной и той же службой попадают в разные занятия: сервер не пускает двух участников на одну позицию службы в пакете."}
             </Text>
           )}
         </Stack>

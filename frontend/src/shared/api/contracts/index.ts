@@ -22,7 +22,6 @@ export type {
 } from "./training-actions";
 export {
   toExpertReviewContext,
-  toLimitedReviewContext,
   toReviewAssignment,
   toReviewSession,
 } from "./expert-review";
@@ -42,9 +41,7 @@ export type {
   ExpertReviewCardDto,
   ExpertReviewContext,
   ExpertReviewContextDto,
-  LimitedReviewSources,
-  ScheduledCardDto,
-  SessionTrainingCallDto,
+  ExpertReviewOutgoingCallDto,
   ExpertReviewUtteranceDto,
   ParticipantRole,
   ReviewAssignment,
@@ -75,6 +72,7 @@ export type {
   TeacherMonitoringSessionDto,
 } from "./teacher-monitoring";
 export {
+  DEFAULT_PASSING_SCORE,
   definitionTemplateIds,
   toScenarioCopy,
   toScenarioDetail,
@@ -82,6 +80,7 @@ export {
 } from "./training-scenarios";
 export type {
   OperatorClassificationDto,
+  ParticipantPosition,
   ProceduralGeneration,
   ScenarioCardDefinitionDto,
   ScenarioClassification,

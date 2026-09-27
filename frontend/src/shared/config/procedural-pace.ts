@@ -9,5 +9,4 @@ export const PROCEDURAL_PACE_BY_DIFFICULTY: ReadonlyMap<number, ProceduralPace> 
   [2, { initialDelaySeconds: 5, releaseIntervalSeconds: 120, maxActive: 1 }],
   [3, { initialDelaySeconds: 5, releaseIntervalSeconds: 90, maxActive: 2 }],
   [4, { initialDelaySeconds: 0, releaseIntervalSeconds: 60, maxActive: 3 }],
-  [5, { initialDelaySeconds: 0, releaseIntervalSeconds: 30, maxActive: 4 }],
 ]);

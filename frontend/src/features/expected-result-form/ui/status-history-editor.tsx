@@ -3,6 +3,7 @@ import { responseStatusLabel } from "@/entities/expert-review";
 import {
   nextStatuses,
   requiresComment,
+  statusCommentComparison,
   unitNumberLabel,
   type StatusStepDraft,
 } from "@/entities/scenario";
@@ -63,7 +64,7 @@ export function StatusHistoryEditor({ form, path, services, history, serviceName
                     label="Комментарий"
                     aria-label={`Комментарий к шагу ${index + 1}: ${responseStatusLabel(step.status)}`}
                     withAsterisk={requiresComment(step.status)}
-                    description={requiresComment(step.status) ? "Обязателен; сравнивается посимвольно" : "Сравнивается посимвольно"}
+                    description={`${requiresComment(step.status) ? "Обязателен" : "Необязателен"}; ${statusCommentComparison}`}
                     {...form.getInputProps(`${path}.${code}.${index}.comment`)}
                   />
                   <TextInput

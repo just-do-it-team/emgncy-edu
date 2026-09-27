@@ -173,8 +173,16 @@ function transcriptProblem(error: Error): string {
   return "Расшифровка недоступна: сервер не ответил. Действия в карточке показаны ниже.";
 }
 
-interface CallElementReviewProps {
-  call: ReviewCall;
+interface RecordedCall {
+  trainingCallId: string;
+  status: string;
+  completedAt: string | null;
+  result: AutomaticResult | null;
+}
+
+interface RecordedCallReviewProps {
+  call: RecordedCall;
+  emptyText: string;
   focusPath: string | null;
   scopeNote: string | null;
   limitedNote: string | null;
@@ -184,8 +192,9 @@ interface CallElementReviewProps {
   services: Map<string, EmergencyService> | undefined;
 }
 
-export function CallElementReview({
+function RecordedCallReview({
   call,
+  emptyText,
   focusPath,
   scopeNote,
   limitedNote,
@@ -193,7 +202,7 @@ export function CallElementReview({
   actions,
   roleState,
   services,
-}: CallElementReviewProps) {
+}: RecordedCallReviewProps) {
   const transcript = useCallTranscript(call.trainingCallId);
   const completed = call.status === COMPLETED_CALL_STATUS;
   const recording = useCallRecording(call.trainingCallId, completed);
@@ -224,7 +233,7 @@ export function CallElementReview({
   ) : utterances.length === 0 ? (
     <div className={classes.state}>
       В расшифровке нет реплик с текстом.
-      <div className={classes.stateHint}>Действия в карточке показаны ниже, запись — в нижней полосе.</div>
+      <div className={classes.stateHint}>Действия показаны ниже, запись — в нижней полосе.</div>
     </div>
   ) : null;
 
@@ -238,14 +247,14 @@ export function CallElementReview({
       items={items}
       durationsAvailable={durationsAvailable}
       streamNotice={streamNotice}
-      emptyText="Журнал действий по этому звонку пуст: карточка не создавалась и не менялась."
+      emptyText={emptyText}
       timelineCaption={
         durationsAvailable
           ? null
           : "Длительности реплик недоступны: реплики отмечены засечками в момент записи."
       }
       activeId={axis === null ? null : activeUtteranceId(axis, playbackMs)}
-      result={call.automaticResult}
+      result={call.result}
       roleState={roleState}
       services={services}
       player={
@@ -265,6 +274,32 @@ export function CallElementReview({
           </div>
         )
       }
+    />
+  );
+}
+
+interface CallElementReviewProps {
+  call: ReviewCall;
+  focusPath: string | null;
+  scopeNote: string | null;
+  limitedNote: string | null;
+  originAt: string;
+  actions: ActionEvent[];
+  roleState: RoleState;
+  services: Map<string, EmergencyService> | undefined;
+}
+
+export function CallElementReview({ call, ...props }: CallElementReviewProps) {
+  return (
+    <RecordedCallReview
+      {...props}
+      call={{
+        trainingCallId: call.trainingCallId,
+        status: call.status,
+        completedAt: call.completedAt,
+        result: call.automaticResult,
+      }}
+      emptyText="Журнал действий по этому звонку пуст: карточка не создавалась и не менялась."
     />
   );
 }
@@ -334,51 +369,16 @@ interface OutgoingCallElementReviewProps {
   services: Map<string, EmergencyService> | undefined;
 }
 
-export function OutgoingCallElementReview({
-  call,
-  focusPath,
-  scopeNote,
-  limitedNote,
-  originAt,
-  actions,
-  roleState,
-  services,
-}: OutgoingCallElementReviewProps) {
+export function OutgoingCallElementReview({ call, limitedNote, ...props }: OutgoingCallElementReviewProps) {
   return (
-    <ElementLayout
-      focusPath={focusPath}
-      scopeNote={scopeNote}
+    <RecordedCallReview
+      {...props}
+      call={{ trainingCallId: call.trainingCallId, status: call.status, completedAt: call.completedAt, result: null }}
       limitedNote={
         limitedNote ??
         "Исходящий звонок оценивается в составе карточки: результат проверки смысла — в элементе карточки, по которой звонили."
       }
-      originAt={originAt}
-      completedAt={call.completedAt}
-      items={buildStream(originAt, call.utterances, actions)}
-      durationsAvailable={false}
-      streamNotice={
-        call.utterances.length === 0 ? (
-          <div className={classes.state}>
-            Реплик исходящего звонка в данных разбора нет: показаны только отметки начала и завершения.
-          </div>
-        ) : null
-      }
-      emptyText="По исходящему звонку нет ни реплик, ни отметок начала и завершения."
-      timelineCaption={
-        call.startedAt === null
-          ? "Начало звонка в журнале не найдено: время отсчитано от начала попытки, длительности реплик неизвестны."
-          : "Длительности реплик для исходящего звонка сервер не передаёт: реплики отмечены засечками в момент записи."
-      }
-      activeId={null}
-      result={null}
-      roleState={roleState}
-      services={services}
-      player={
-        <div className={classes.player}>
-          <span className={classes.playerText}>Записи нет</span>
-          <span className={classes.playerHint}>Сервер собирает запись только для входящих звонков.</span>
-        </div>
-      }
+      emptyText="По исходящему звонку нет отметок начала и завершения."
     />
   );
 }

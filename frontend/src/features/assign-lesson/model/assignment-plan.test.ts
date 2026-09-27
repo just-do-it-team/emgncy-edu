@@ -16,7 +16,6 @@ import {
   type ScenarioRoles,
 } from "./assignment-plan.ts";
 
-const NOW = Date.parse("2026-09-27T12:00:00+03:00");
 const TEACHER = "teacher-1";
 const GROUP_A = "group-a";
 const GROUP_B = "group-b";
@@ -34,6 +33,8 @@ const callRoles: ScenarioRoles = {
   procedural: false,
   mainServices: [],
   ddsServices: [],
+  passingScore: 100,
+  requiredPositions: null,
 };
 
 const ddsRoles: ScenarioRoles = {
@@ -61,7 +62,7 @@ const sharedRoles: ScenarioRoles = {
 
 const rolesById = new Map([callRoles, ddsRoles, sharedRoles].map((roles) => [roles.scenarioId, roles]));
 const serviceName = (code: string) => `служба ${code}`;
-const input = { rolesById, active: new Set<string>(), now: NOW, serviceName };
+const input = { rolesById, active: new Set<string>(), windowProblem: null, serviceName };
 
 function rows(groupId: string, ids: string[], scenarioId: string | null = null) {
   return ids.map((studentId) => ({ groupId, studentId, scenarioId, position: null, manual: false }));
@@ -93,6 +94,8 @@ describe("роли сценария", () => {
       description: null,
       difficulty: 3,
       estimatedDurationSeconds: 600,
+      passingScore: 100,
+      requiredPositions: null,
       cardsCount: 3,
       schemaVersion: 2,
       mode: "STATIC",
@@ -178,7 +181,7 @@ describe("распределение ролей", () => {
 });
 
 describe("даты", () => {
-  it("по умолчанию без ограничений, как на сервере", () => {
+  it("без дат в форме тело не задаёт окно — сервер ставит «сейчас» и «+7 дней»", () => {
     const [request] = planRequests(single("s-call", ["u1"]), rolesById, TEACHER);
 
     assert.equal(request?.body.available_from, null);
@@ -186,18 +189,14 @@ describe("даты", () => {
     assert.equal(request?.body.max_attempts, 1);
   });
 
-  it("срок не позже начала — ошибка, прошедший срок — предупреждение", () => {
-    const draft = {
-      ...single("s-call", ["u1"]),
-      availableFrom: "2026-09-26T10:00:00.000Z",
-      dueAt: "2026-09-26T09:00:00.000Z",
-    };
-    const issues = validateAssignment(draft, input).filter((issue) => issue.path === "dueAt");
+  it("проблема окна дат — ошибка поля «Срок», назначение не отправляется", () => {
+    const issues = validateAssignment(single("s-call", ["u1"]), { ...input, windowProblem: "Срок должен быть позже начала." });
 
     assert.deepEqual(
-      issues.map((issue) => issue.severity),
-      ["error", "warning"],
+      issues.filter((issue) => issue.path === "dueAt").map((issue) => issue.severity),
+      ["error"],
     );
+    assert.ok(hasAssignmentErrors(issues));
   });
 });
 
@@ -219,31 +218,11 @@ describe("тело запроса", () => {
     });
   });
 
-  it("индивидуальный ДДС: одна служба у двоих — два пакета, сервер не пускает одну позицию дважды в пакет", () => {
-    const requests = planRequests(single("s-dds", ["u1", "u2"]), rolesById, TEACHER);
+  it("индивидуальный ДДС: вся группа одним пакетом, даже с одной службой у всех", () => {
+    const requests = planRequests(single("s-dds", ["u1", "u2", "u3"]), rolesById, TEACHER);
 
-    assert.deepEqual(
-      requests.map((request) => request.studentIds),
-      [["u1"], ["u2"]],
-    );
-    assert.deepEqual(requests[0]?.body.participant_positions, { u1: "104" });
-  });
-
-  it("индивидуальный ДДС: разные службы идут одним пакетом, повтор службы — следующим", () => {
-    const draft: AssignmentDraft = {
-      ...emptyAssignmentDraft,
-      scenarioId: "s-dds",
-      rows: [
-        { groupId: GROUP_A, studentId: "u1", scenarioId: null, position: "104", manual: true },
-        { groupId: GROUP_A, studentId: "u2", scenarioId: null, position: "101", manual: true },
-        { groupId: GROUP_A, studentId: "u3", scenarioId: null, position: "104", manual: true },
-      ],
-    };
-
-    assert.deepEqual(
-      planRequests(draft, rolesById, TEACHER).map((request) => request.studentIds),
-      [["u1", "u2"], ["u3"]],
-    );
+    assert.equal(requests.length, 1);
+    assert.deepEqual(requests[0]?.body.participant_positions, { u1: "104", u2: "104", u3: "104" });
   });
 
   it("общее рабочее место: один пакет, запуск преподавателем", () => {
@@ -317,7 +296,7 @@ describe("частичный успех", () => {
         if (request.groupId === GROUP_B) throw new Error("Learning group is archived");
         return `lesson-${request.groupId}`;
       },
-      (failure) => assignmentFailureText(422, failure instanceof Error ? failure.message : undefined),
+      (failure) => assignmentFailureText(422, failure instanceof Error ? failure.message : undefined, serviceName),
     );
 
     assert.deepEqual(
@@ -334,7 +313,66 @@ describe("частичный успех", () => {
   });
 
   it("неизвестная причина показывается как есть, обрыв связи — общим текстом", () => {
-    assert.equal(assignmentFailureText(422, "Something new"), "Сервер отклонил назначение: Something new");
-    assert.equal(assignmentFailureText(undefined, undefined), "Сервер не ответил. Повторите попытку позже.");
+    assert.equal(assignmentFailureText(422, "Something new", serviceName), "Сервер отклонил назначение: Something new");
+    assert.equal(assignmentFailureText(undefined, undefined, serviceName), "Сервер не ответил. Повторите попытку позже.");
+  });
+
+  it("непокрытые обязательные позиции — по-русски, с названиями позиций", () => {
+    assert.equal(
+      assignmentFailureText(
+        422,
+        "Assignment does not cover required participant positions: OPERATOR_112, 104",
+        serviceName,
+      ),
+      "Не заняты обязательные позиции сценария: Оператор 112, ДДС: служба 104.",
+    );
+  });
+});
+
+describe("обязательные позиции сценария", () => {
+  const requiredDds: ScenarioRoles = { ...ddsRoles, scenarioId: "s-req", requiredPositions: ["101"] };
+  const requiredShared: ScenarioRoles = { ...sharedRoles, scenarioId: "s-req-shared", requiredPositions: [null, "102"] };
+  const withRequired = new Map([...rolesById, [requiredDds.scenarioId, requiredDds], [requiredShared.scenarioId, requiredShared]]);
+  const requiredInput = { ...input, rolesById: withRequired };
+
+  it("индивидуальный ДДС берёт позицию из сценария, а не первую службу маршрута", () => {
+    const draft = resolveRoles({ ...emptyAssignmentDraft, scenarioId: "s-req", rows: rows(GROUP_A, ["u1"]) }, withRequired);
+
+    assert.equal(draft.rows[0]?.position, "101");
+    assert.equal(hasAssignmentErrors(validateAssignment(draft, requiredInput)), false);
+  });
+
+  it("позиция вручную не покрывает обязательную — ошибка строки", () => {
+    const draft: AssignmentDraft = {
+      ...emptyAssignmentDraft,
+      scenarioId: "s-req",
+      rows: [{ groupId: GROUP_A, studentId: "u1", scenarioId: null, position: "104", manual: true }],
+    };
+    const issues = validateAssignment(draft, requiredInput);
+
+    assert.ok(issues.some((issue) => issue.path === "rows.0.position" && /ДДС: служба 101/.test(issue.message)));
+  });
+
+  it("общее рабочее место: сначала заполняются обязательные позиции", () => {
+    const draft = resolveRoles(
+      { ...emptyAssignmentDraft, scenarioId: "s-req-shared", rows: rows(GROUP_A, ["u1", "u2", "u3"]) },
+      withRequired,
+    );
+
+    assert.deepEqual(draft.rows.map((row) => row.position), [null, "102", "103"]);
+  });
+
+  it("общее рабочее место: обязательная позиция не занята — ошибка «Кто проходит»", () => {
+    const draft: AssignmentDraft = {
+      ...emptyAssignmentDraft,
+      scenarioId: "s-req-shared",
+      rows: [
+        { groupId: GROUP_A, studentId: "u1", scenarioId: null, position: null, manual: true },
+        { groupId: GROUP_A, studentId: "u2", scenarioId: null, position: "103", manual: true },
+      ],
+    };
+    const issues = validateAssignment(draft, requiredInput);
+
+    assert.ok(issues.some((issue) => issue.path === "roles" && /ДДС: служба 102/.test(issue.message)));
   });
 });
