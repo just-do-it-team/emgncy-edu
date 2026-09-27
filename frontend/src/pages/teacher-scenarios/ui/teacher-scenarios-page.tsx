@@ -1,4 +1,4 @@
-import { Alert, Anchor, Group, Paper, Select, Skeleton, Stack, Table, Text, TextInput, Title, Tooltip } from "@mantine/core";
+import { Alert, Anchor, Group, Paper, Select, Skeleton, Stack, Table, Text, TextInput, Tooltip } from "@mantine/core";
 import { Search } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAssignments } from "@/entities/assignment";
@@ -25,6 +25,7 @@ import {
   tooltipEvents,
   usePagination,
 } from "@/shared/ui";
+import { ScenarioLibraryTabs } from "@/widgets/scenario-library-tabs";
 import classes from "./teacher-scenarios.module.scss";
 
 const SORT_KEYS = ["name", "difficulty", "status", "author", "items", "used", "updated"] as const;
@@ -317,9 +318,14 @@ function Scenarios({ teacherId }: { teacherId: string }) {
 
   return (
     <Stack gap="md">
-      <Title order={2} size="h4" fw={600}>
-        Сценарии
-      </Title>
+      <ScenarioLibraryTabs
+        active="scenarios"
+        actions={
+          <Button size="sm" component={Link} to="/teacher/scenarios/new">
+            Создать сценарий
+          </Button>
+        }
+      />
 
       {scenarios.isPending && (
         <Paper withBorder p="md">

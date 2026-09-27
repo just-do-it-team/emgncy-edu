@@ -7,6 +7,7 @@ export const scenarioKeys = {
   details: () => [...scenarioKeys.all, "detail"] as const,
   detail: (scenarioId: string) => [...scenarioKeys.details(), scenarioId] as const,
   templates: () => [...scenarioKeys.all, "template"] as const,
+  templateList: () => [...scenarioKeys.templates(), "list"] as const,
   template: (kind: ScenarioTemplateKind, templateId: string) =>
     [...scenarioKeys.templates(), kind, templateId] as const,
 };

@@ -53,3 +53,29 @@ export function toTeacherAssignment(dto: ScenarioAssignmentDto): TeacherAssignme
     })),
   };
 }
+
+export interface GroupAssignmentCreateDto {
+  scenario_id: string;
+  assigned_by: string;
+  participant_ids: string[];
+  participant_positions: Record<string, string | null>;
+  incoming_call_operators: Record<string, string>;
+  launch_policy: LaunchPolicy;
+  max_attempts: number;
+  available_from: string | null;
+  due_at: string | null;
+}
+
+export interface AssignmentBatchDto {
+  id: string;
+  group_id: string;
+  scenario_id: string;
+  assigned_by: string;
+  launch_policy: LaunchPolicy;
+  max_attempts: number;
+  available_from: string | null;
+  due_at: string | null;
+  created_at: string;
+  participant_ids: string[];
+  assignments: ScenarioAssignmentDto[];
+}

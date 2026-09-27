@@ -1,0 +1,28 @@
+.tabs {
+  display: flex;
+  flex: 1;
+  border-bottom: 1px solid var(--mantine-color-gray-3);
+}
+
+.tab {
+  padding: 8px 16px;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: var(--mantine-color-text);
+  font-size: var(--mantine-font-size-sm);
+  text-decoration: none;
+}
+
+.tab:hover {
+  background: var(--mantine-color-gray-0);
+}
+
+.tab[aria-current="page"] {
+  border-bottom-color: var(--mantine-color-povDark2-6);
+  font-weight: 500;
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--mantine-color-povDark-6);
+  outline-offset: -2px;
+}

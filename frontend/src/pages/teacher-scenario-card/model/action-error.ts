@@ -1,5 +1,4 @@
-import { isAxiosError } from "axios";
-import { isRequestError } from "@/shared/api";
+import { errorDetail, errorStatus } from "@/shared/api";
 
 const CONFLICT = 409;
 const VALIDATION = 422;
@@ -55,18 +54,12 @@ function issueText({ loc, msg }: ValidationIssue, itemLabels: string[]): string 
   return `${label}: ${msg}`;
 }
 
-function statusOf(error: unknown): number | undefined {
-  if (isRequestError(error)) return error.status;
-
-  return isAxiosError(error) ? error.response?.status : undefined;
-}
-
 export function scenarioActionError(error: unknown, itemLabels: string[]): ScenarioActionError {
-  const status = statusOf(error);
+  const status = errorStatus(error);
 
   if (status === CONFLICT) return { kind: "conflict" };
 
-  const detail: unknown = isAxiosError<{ detail?: unknown }>(error) ? error.response?.data?.detail : undefined;
+  const detail = errorDetail(error);
 
   if (status === VALIDATION && Array.isArray(detail)) {
     return { kind: "validation", issues: detail.filter(isValidationIssue).map((issue) => issueText(issue, itemLabels)) };

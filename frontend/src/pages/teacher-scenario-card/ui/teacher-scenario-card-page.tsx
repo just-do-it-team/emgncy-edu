@@ -1,5 +1,4 @@
 import { Alert, Group, Paper, Skeleton, Stack, Text, Title, Tooltip } from "@mantine/core";
-import { isAxiosError } from "axios";
 import { useParams } from "react-router-dom";
 import { useEmergencyServices } from "@/entities/emergency-service";
 import {
@@ -13,11 +12,11 @@ import {
   workspaceLabels,
 } from "@/entities/scenario";
 import { useSessionStore } from "@/entities/session";
-import { isRequestError, type EmergencyService, type ScenarioDetail } from "@/shared/api";
+import { errorStatus, type EmergencyService, type ScenarioDetail } from "@/shared/api";
 import { ACK_TIMEOUT_SECONDS, CARD_FILL_NORM_SECONDS } from "@/shared/config";
 import { formatDateTime } from "@/shared/lib";
 import { Button, Fact, tooltipEvents } from "@/shared/ui";
-import { serviceName } from "../model/expected-values";
+import { serviceName } from "@/widgets/expected-result-view";
 import { ScenarioActions } from "./scenario-actions";
 import { ScenarioComposition } from "./scenario-composition";
 import { ScenarioLessons } from "./scenario-lessons";
@@ -25,12 +24,6 @@ import classes from "./scenario-card.module.scss";
 
 const NOT_FOUND_STATUSES = new Set([404, 422]);
 const SECONDS_IN_MINUTE = 60;
-
-function errorStatus(error: Error): number | undefined {
-  if (isRequestError(error)) return error.status;
-
-  return isAxiosError(error) ? error.response?.status : undefined;
-}
 
 function normsText(): string {
   return `реакция на карточку ${ACK_TIMEOUT_SECONDS} с, обработка карточки ${CARD_FILL_NORM_SECONDS / SECONDS_IN_MINUTE} мин — по нормативу, в сценарии не меняются`;

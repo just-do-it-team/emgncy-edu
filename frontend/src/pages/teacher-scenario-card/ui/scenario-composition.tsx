@@ -10,7 +10,7 @@ import {
   type TemplateReference,
 } from "@/entities/scenario";
 import type { ScenarioDetail, ScenarioItem, ScenarioTemplate } from "@/shared/api";
-import { ExpectedResult } from "./expected-result";
+import { ExpectedResultView } from "@/widgets/expected-result-view";
 
 type TemplateQuery = UseQueryResult<ScenarioTemplate, Error>;
 
@@ -161,11 +161,13 @@ export function ScenarioComposition({ scenario, serviceNames }: ScenarioComposit
           {expected.pending ? (
             <Skeleton height={240} radius={2} />
           ) : (
-            <ExpectedResult
+            <ExpectedResultView
               key={selected.key}
-              item={selected}
+              itemType={selected.itemType}
+              sourceType={selected.sourceType}
               expectedResult={expected.expectedResult}
-              templateProblem={expected.problem}
+              fallbackCard={selected.expectedCard}
+              problem={expected.problem}
               serviceNames={serviceNames}
             />
           )}

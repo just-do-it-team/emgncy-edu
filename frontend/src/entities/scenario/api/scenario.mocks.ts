@@ -1,4 +1,9 @@
-import type { IncomingCallTemplateDto, JsonObject, TrainingScenarioDetailDto } from "@/shared/api";
+import type {
+  CardTemplateDto,
+  IncomingCallTemplateDto,
+  JsonObject,
+  TrainingScenarioDetailDto,
+} from "@/shared/api";
 
 const teacherId = "6a8c0e2b-4d6f-4a1c-9e3b-5d7f9b1d3f28";
 const otherTeacherId = "9d1f3b5a-7c2e-4a8d-9b6f-2e4a6c8e0d17";
@@ -33,9 +38,9 @@ const smokeExpectedCard: JsonObject = {
   automatic_phone_number: "+79161263471",
   provided_phone_number: "+79161263471",
   location_phone_number: null,
-  reported_address: "г. Москва, Ленинский проспект, д. 14, подъезд 2, этаж 7, кв. 58",
-  incident_address: "г. Москва, Ленинский проспект, д. 14, подъезд 2, этаж 7, кв. 58",
-  victims_count: 1,
+  reported_address: null,
+  incident_address: "Москва, Ленинский проспект, д. 14, кв. 58",
+  victims_count: null,
   current_status: "REGISTERED",
   services: ["101", "103"],
   service_statuses: { "101": "ADDED", "103": "ADDED" },
@@ -61,9 +66,9 @@ const chuteExpectedCard: JsonObject = {
   automatic_phone_number: "+79161263471",
   provided_phone_number: null,
   location_phone_number: null,
-  reported_address: "г. Москва, ул. Берзарина, д. 21, корп. 1, подъезд 3, домофон 68",
-  incident_address: "г. Москва, ул. Берзарина, д. 21, корп. 1, подъезд 3",
-  victims_count: 0,
+  reported_address: null,
+  incident_address: "Москва, ул. Берзарина, д. 21, корп. 1",
+  victims_count: null,
   current_status: "REGISTERED",
   services: ["101"],
   service_statuses: { "101": "ADDED" },
@@ -81,15 +86,14 @@ const gasSmellClassification = {
 };
 
 const gasSmellCard = {
+  source_type: "CALL",
   classification: gasSmellClassification,
   description:
     "Соседка из кв. 61 сообщает о сильном запахе газа на лестничной площадке 5 этажа, источник — кв. 58, дверь открыта.",
   applicant_full_name: "Кравцова Нина Петровна",
   automatic_phone_number: "+74957304518",
   provided_phone_number: "+79161234507",
-  reported_address: "г. Москва, Ленинский проспект, д. 14, подъезд 2, этаж 5, кв. 58",
-  incident_address: "г. Москва, Ленинский проспект, д. 14, подъезд 2, этаж 5, кв. 58",
-  victims_count: 0,
+  incident_address: "Москва, Ленинский проспект, д. 14, кв. 58",
 };
 
 const gasSmellExpectedCard: JsonObject = {
@@ -146,6 +150,97 @@ export const incomingCallTemplateMocks: IncomingCallTemplateDto[] = [
     is_active: true,
     created_by: otherTeacherId,
     created_at: "2026-09-15T10:05:00+03:00",
+  },
+];
+
+const noiseCard = {
+  source_type: "SMS",
+  classification: {
+    record_id: 15100100,
+    group_code: 15,
+    feature_1_code: 10,
+    feature_2_code: 1,
+    feature_3_code: 0,
+    final_incident_type: "Нарушение тишины",
+    routing_flags: {},
+    excluded_service_codes: [],
+  },
+  description: "СМС: во дворе громко играет музыка, время 23:40.",
+  applicant_full_name: "Соколов Иван Петрович",
+  automatic_phone_number: "+79168963254",
+  provided_phone_number: null,
+  location_phone_number: null,
+  reported_address: null,
+  incident_address: "Москва, Бульвар Маршала Рокоссовского, д. 25",
+  victims_count: null,
+};
+
+const noiseExpectedCard: JsonObject = {
+  classification: noiseCard.classification,
+  description: "Во дворе громко играет музыка после 23:00, источник — компания у подъезда.",
+  questionnaire: null,
+  applicant_full_name: "Соколов Иван Петрович",
+  automatic_phone_number: "+79168963254",
+  provided_phone_number: null,
+  location_phone_number: null,
+  reported_address: null,
+  incident_address: "Москва, Бульвар Маршала Рокоссовского, д. 25",
+  victims_count: null,
+  current_status: "REGISTERED",
+  services: ["102"],
+  service_statuses: { "102": "ADDED" },
+};
+
+const gasTemplateKey = "7a9c1e3b-5d7f-4b9a-8c1e-3f5b7d9f1a24";
+
+export const cardTemplateMocks: CardTemplateDto[] = [
+  {
+    id: "93c5e7a9-1b3d-4f6a-8c2e-5a7c9e1b3d84",
+    template_key: "8b0d2f4a-6c8e-4a1b-9d3f-5b7d9f1b3c95",
+    version: 1,
+    name: "СМС о нарушении тишины, бульвар Рокоссовского",
+    description: "Карточка из СМС: оператор 112 уточняет и дополняет данные.",
+    difficulty: 1,
+    initial_card: noiseCard,
+    expected_result: { card: noiseExpectedCard, outbound_call: null, service_status_history: null },
+    is_active: true,
+    created_by: teacherId,
+    created_at: "2026-09-19T14:10:00+03:00",
+  },
+  {
+    id: "a4d6f8b0-2c4e-4a7b-9d3f-6b8d0f2c4ea5",
+    template_key: gasTemplateKey,
+    version: 1,
+    name: "Запах газа в квартире, Ленинский проспект",
+    description: "Карточка для ДДС газовой службы.",
+    difficulty: 2,
+    initial_card: gasSmellCard,
+    expected_result: { card: gasSmellExpectedCard, outbound_call: null, service_status_history: null },
+    is_active: false,
+    created_by: teacherId,
+    created_at: "2026-09-12T09:30:00+03:00",
+  },
+  {
+    id: "b5e7a9c1-3d5f-4b8c-8e4a-7c9e1b3d5fb6",
+    template_key: gasTemplateKey,
+    version: 2,
+    name: "Запах газа в квартире, Ленинский проспект",
+    description: "Карточка для ДДС газовой службы: решение, статусы и звонок бригаде.",
+    difficulty: 2,
+    initial_card: gasSmellCard,
+    expected_result: {
+      ...gasSmellExpectedResult,
+      card: {
+        questionnaire: null,
+        location_phone_number: null,
+        reported_address: null,
+        victims_count: null,
+        ...gasSmellExpectedCard,
+      },
+    },
+    is_active: true,
+    created_by: teacherId,
+    created_at: "2026-09-20T10:45:00+03:00",
   },
 ];
 
@@ -219,9 +314,9 @@ export const scenarioDetailMocks: TrainingScenarioDetailDto[] = [
         initial_card: gasSmellCard,
         expected_card: gasSmellExpectedCard,
         classification: gasSmellClassification,
-        main_service: { service_id: null, code: "104", name: "Аварийная газовая служба", is_main: true },
+        main_service: { service_id: "6c1d4f8b-0e5a-4dc9-9b3f-8f0d2a4e6b7c", code: "104", name: "Аварийная газовая служба", is_main: true },
         notification_list: [
-          { service_id: null, code: "104", name: "Аварийная газовая служба", is_main: true },
+          { service_id: "6c1d4f8b-0e5a-4dc9-9b3f-8f0d2a4e6b7c", code: "104", name: "Аварийная газовая служба", is_main: true },
           { ...fireService, is_main: false },
         ],
       },

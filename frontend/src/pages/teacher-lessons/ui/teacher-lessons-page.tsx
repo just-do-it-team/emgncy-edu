@@ -276,9 +276,14 @@ function Lessons({ teacherId }: { teacherId: string }) {
 
   return (
     <Stack gap="md">
-      <Title order={2} size="h4" fw={600}>
-        Занятия
-      </Title>
+      <Group justify="space-between" align="center" wrap="wrap" gap="sm">
+        <Title order={2} size="h4" fw={600}>
+          Занятия
+        </Title>
+        <Button size="sm" component={Link} to="/teacher/lessons/new">
+          Назначить занятие
+        </Button>
+      </Group>
 
       {lessons.status === "pending" && (
         <Paper withBorder p="md">

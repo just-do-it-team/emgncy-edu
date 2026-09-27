@@ -1,0 +1,39 @@
+.wrap {
+  overflow-wrap: anywhere;
+}
+
+.numeric {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.handle {
+  display: inline-flex;
+  align-items: center;
+  cursor: grab;
+  color: var(--mantine-color-povDark2-6);
+}
+
+.handle:active {
+  cursor: grabbing;
+}
+
+.dropTarget {
+  outline: 2px dashed var(--mantine-color-povDark2-6);
+  outline-offset: -2px;
+}
+
+.notice {
+  border-left: 3px solid var(--mantine-color-povOrange2-6);
+  padding-left: var(--mantine-spacing-sm);
+}
+
+.inline {
+  border-top: 1px solid var(--mantine-color-povLine-6);
+  padding-top: var(--mantine-spacing-sm);
+}
+
+.focusable:focus-visible {
+  outline: 2px solid var(--mantine-color-povDark-6);
+  outline-offset: 2px;
+}

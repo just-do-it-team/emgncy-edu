@@ -83,3 +83,21 @@ export function scenarioItemLabels(items: ScenarioItem[]): string[] {
     return `${scenarioItemTypeLabels[item.itemType]} ${index}`;
   });
 }
+
+export const cardSourceTypeLabels: Record<string, string> = {
+  CALL: "Звонок",
+  SMS: "СМС",
+  VIS: "ВИС",
+  ERA_GLONASS: "ЭРА-ГЛОНАСС",
+  REGIONAL_112: "Система 112 другого региона",
+  MANUAL: "Введена вручную",
+};
+
+const unitNouns: Record<string, string> = {
+  "101": "Номер расчёта",
+  "103": "Номер бригады",
+};
+
+export function unitNumberLabel(serviceCode: string): string {
+  return unitNouns[serviceCode] ?? "Номер подразделения";
+}

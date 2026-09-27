@@ -6,7 +6,7 @@ import {
   literalComparisonWarning,
   type CheckMode,
 } from "@/entities/scenario";
-import type { JsonObject, JsonValue, ScenarioItem } from "@/shared/api";
+import type { JsonObject, JsonValue, ScenarioItemType, ScenarioSourceType } from "@/shared/api";
 import {
   expectedCardOf,
   expectedValueLines,
@@ -14,7 +14,7 @@ import {
   serviceName,
   statusHistory,
 } from "../model/expected-values";
-import classes from "./scenario-card.module.scss";
+import classes from "./expected-result.module.scss";
 
 const checkModeLabels: Record<CheckMode, string> = {
   checked: "проверяется",
@@ -42,12 +42,12 @@ function ModeCell({ mode }: { mode: CheckMode }) {
 }
 
 interface ExpectedCardTableProps {
-  item: ScenarioItem;
+  sourceType: ScenarioSourceType;
   card: JsonObject;
   serviceNames: Map<string, string>;
 }
 
-function ExpectedCardTable({ item, card, serviceNames }: ExpectedCardTableProps) {
+function ExpectedCardTable({ sourceType, card, serviceNames }: ExpectedCardTableProps) {
   return (
     <Paper withBorder>
       <Table verticalSpacing="sm" layout="fixed">
@@ -65,7 +65,7 @@ function ExpectedCardTable({ item, card, serviceNames }: ExpectedCardTableProps)
         </Table.Thead>
         <Table.Tbody>
           {expectedCardFields.map(({ field, label, literal }) => {
-            const mode = checkModeOf(item.sourceType, card, field);
+            const mode = checkModeOf(sourceType, card, field);
 
             return (
               <Table.Tr key={field}>
@@ -188,16 +188,25 @@ function OutboundCall({ value }: { value: JsonValue | undefined }) {
   );
 }
 
-interface ExpectedResultProps {
-  item: ScenarioItem;
+interface ExpectedResultViewProps {
+  itemType: ScenarioItemType;
+  sourceType: ScenarioSourceType;
   expectedResult: JsonObject | null;
-  templateProblem: string | null;
+  fallbackCard: JsonObject | null;
+  problem: string | null;
   serviceNames: Map<string, string>;
 }
 
-export function ExpectedResult({ item, expectedResult, templateProblem, serviceNames }: ExpectedResultProps) {
-  const card = expectedCardOf(expectedResult, item.expectedCard);
-  const isCall = item.itemType === "INCOMING_CALL";
+export function ExpectedResultView({
+  itemType,
+  sourceType,
+  expectedResult,
+  fallbackCard,
+  problem,
+  serviceNames,
+}: ExpectedResultViewProps) {
+  const card = expectedCardOf(expectedResult, fallbackCard);
+  const isCall = itemType === "INCOMING_CALL";
 
   return (
     <Stack gap="sm">
@@ -206,9 +215,9 @@ export function ExpectedResult({ item, expectedResult, templateProblem, serviceN
           ? "Эталон звонка одновременно — знания виртуального заявителя: всё, что задано ниже, заявитель знает и может сказать, незаданное он «не знает»."
           : "Список служб в эталоне определяет, в какие службы уйдёт карточка при выпуске: диспетчер ДДС увидит её, только если его служба есть в списке."}
       </Text>
-      {templateProblem && (
+      {problem && (
         <Text size="sm" c="povDark2.6">
-          {templateProblem}
+          {problem}
         </Text>
       )}
       {card === null ? (
@@ -216,7 +225,7 @@ export function ExpectedResult({ item, expectedResult, templateProblem, serviceN
           Сервер не вернул эталон карточки для этого элемента.
         </Text>
       ) : (
-        <ExpectedCardTable item={item} card={card} serviceNames={serviceNames} />
+        <ExpectedCardTable sourceType={sourceType} card={card} serviceNames={serviceNames} />
       )}
       {!isCall && expectedResult !== null && (
         <>

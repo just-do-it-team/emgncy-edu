@@ -18,4 +18,6 @@ export { tooltipEvents } from "./tooltip-events";
 export { SortableTh } from "./sortable-th";
 export { Fact } from "./fact";
 export { FilteredEmpty } from "./filtered-empty";
+export { IssuesList } from "./issues-list";
+export { LeaveConfirmModal } from "./leave-confirm-modal";
 export { LinkRow } from "./link-row";

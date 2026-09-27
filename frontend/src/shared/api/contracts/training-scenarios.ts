@@ -12,6 +12,13 @@ export type ScenarioCompletionPolicy = "STUDENT_CONFIRM" | "AUTO_WHEN_READY" | "
 
 export type ScenarioSourceType = "TEMPLATE" | "INLINE";
 
+export type ScenarioTriggerDto =
+  | { trigger_type: "TIME_OFFSET"; trigger_config: { offset_seconds: number } }
+  | {
+      trigger_type: "AFTER_ACTION";
+      trigger_config: { card_key: string; action_type: string; delay_seconds: number };
+    };
+
 export type ScenarioCardDefinitionDto = {
   key: string;
   item_type: ScenarioItemType;
@@ -19,13 +26,7 @@ export type ScenarioCardDefinitionDto = {
   template_id?: string;
   initial_card?: JsonObject;
   expected_result?: JsonObject;
-} & (
-  | { trigger_type: "TIME_OFFSET"; trigger_config: { offset_seconds: number } }
-  | {
-      trigger_type: "AFTER_ACTION";
-      trigger_config: { card_key: string; action_type: string; delay_seconds: number };
-    }
-);
+} & ScenarioTriggerDto;
 
 export interface ProceduralGenerationDto {
   key: string;
@@ -98,6 +99,11 @@ export interface TrainingScenarioDetailDto extends TrainingScenarioDto {
   items: ScenarioItemDetailDto[];
 }
 
+export interface TrainingScenarioUpdateDto extends Omit<TrainingScenarioCreateDto, "status" | "created_by"> {
+  expected_revision: number;
+  updated_by: string;
+}
+
 export interface TrainingScenarioCreateDto {
   name: string;
   description: string | null;
@@ -110,35 +116,6 @@ export interface TrainingScenarioCreateDto {
   definition: ScenarioDefinitionDto;
   status: ScenarioStatus;
   created_by: string;
-}
-
-export interface CardTemplateDto {
-  id: string;
-  template_key: string;
-  version: number;
-  name: string;
-  description: string | null;
-  difficulty: number;
-  initial_card: JsonObject;
-  expected_result: JsonObject;
-  is_active: boolean;
-  created_by: string;
-  created_at: string;
-}
-
-export interface IncomingCallTemplateDto extends Omit<CardTemplateDto, "initial_card"> {
-  initial_call: JsonObject;
-}
-
-export type ScenarioTemplateKind = "card" | "call";
-
-export interface ScenarioTemplate {
-  id: string;
-  kind: ScenarioTemplateKind;
-  name: string;
-  version: number;
-  isActive: boolean;
-  expectedResult: JsonObject;
 }
 
 export interface ScenarioComposition {
@@ -155,6 +132,7 @@ export interface ScenarioListItem {
   updatedAt: string;
   itemsCount: number;
   composition: ScenarioComposition;
+  templateIds: string[];
 }
 
 export interface ScenarioService {
@@ -186,6 +164,7 @@ export interface ScenarioItem {
   trigger: ScenarioTrigger | null;
   templateName: string | null;
   expectedCard: JsonObject | null;
+  inlineInitialCard: JsonObject | null;
   inlineExpectedResult: JsonObject | null;
   classification: ScenarioClassification | null;
   mainService: ScenarioService | null;
@@ -199,6 +178,7 @@ export interface ScenarioDetail {
   difficulty: number;
   estimatedDurationSeconds: number;
   cardsCount: number;
+  schemaVersion: number;
   mode: ScenarioMode;
   workspaceMode: ScenarioWorkspaceMode;
   completionPolicy: ScenarioCompletionPolicy;
@@ -218,6 +198,13 @@ function toService(dto: ScenarioServiceDetailDto): ScenarioService {
   return { code: dto.code, name: dto.name };
 }
 
+export function definitionTemplateIds(definition: ScenarioDefinitionDto): string[] {
+  return [
+    ...definition.cards.flatMap((card) => (card.template_id === undefined ? [] : [card.template_id])),
+    ...(definition.procedural_generation?.template_pool.template_ids ?? []),
+  ];
+}
+
 function toComposition(definition: ScenarioDefinitionDto): ScenarioComposition {
   return {
     itemTypes: definition.cards.map((card) => card.item_type),
@@ -235,28 +222,7 @@ export function toScenarioListItem(dto: TrainingScenarioDto): ScenarioListItem {
     updatedAt: dto.updated_at,
     itemsCount: dto.cards_count,
     composition: toComposition(dto.definition),
-  };
-}
-
-export function toCardTemplate(dto: CardTemplateDto): ScenarioTemplate {
-  return {
-    id: dto.id,
-    kind: "card",
-    name: dto.name,
-    version: dto.version,
-    isActive: dto.is_active,
-    expectedResult: dto.expected_result,
-  };
-}
-
-export function toIncomingCallTemplate(dto: IncomingCallTemplateDto): ScenarioTemplate {
-  return {
-    id: dto.id,
-    kind: "call",
-    name: dto.name,
-    version: dto.version,
-    isActive: dto.is_active,
-    expectedResult: dto.expected_result,
+    templateIds: definitionTemplateIds(dto.definition),
   };
 }
 
@@ -301,6 +267,7 @@ export function toScenarioDetail(dto: TrainingScenarioDetailDto): ScenarioDetail
     difficulty: dto.difficulty,
     estimatedDurationSeconds: dto.estimated_duration_seconds,
     cardsCount: dto.cards_count,
+    schemaVersion: dto.definition.schema_version,
     mode: dto.definition.mode,
     workspaceMode: dto.workspace_mode,
     completionPolicy: dto.completion_policy,
@@ -327,6 +294,7 @@ export function toScenarioDetail(dto: TrainingScenarioDetailDto): ScenarioDetail
       trigger: toTrigger(cardsByKey.get(item.key)),
       templateName: item.template_name,
       expectedCard: item.expected_card,
+      inlineInitialCard: cardsByKey.get(item.key)?.initial_card ?? null,
       inlineExpectedResult: cardsByKey.get(item.key)?.expected_result ?? null,
       classification: item.classification && {
         recordId: item.classification.record_id,

@@ -9,9 +9,14 @@ import { LoginPage } from "@/pages/login-page";
 import { AppShell } from "@/widgets/app-shell";
 import { TeacherOverviewPage } from "@/pages/teacher-overview";
 import { TeacherLessonsPage } from "@/pages/teacher-lessons";
+import { TeacherLessonAssignPage } from "@/pages/teacher-lesson-assign";
 import { TeacherLessonResultsPage } from "@/pages/teacher-lesson-results";
 import { TeacherScenariosPage } from "@/pages/teacher-scenarios";
 import { TeacherScenarioCardPage } from "@/pages/teacher-scenario-card";
+import { TeacherScenarioEditorPage } from "@/pages/teacher-scenario-editor";
+import { TeacherTemplatesPage } from "@/pages/teacher-templates";
+import { TeacherTemplateCardPage } from "@/pages/teacher-template-card";
+import { TeacherTemplateEditorPage } from "@/pages/teacher-template-editor";
 import { TeacherGroupsPage } from "@/pages/teacher-groups";
 import { TeacherAnalyticsPage } from "@/pages/teacher-analytics";
 import { TeacherMaterialsPage } from "@/pages/teacher-materials";
@@ -79,13 +84,20 @@ const AppRouter: FC = () => {
         >
           <Route index element={<TeacherOverviewPage />} />
           <Route path="lessons" element={<TeacherLessonsPage />} />
+          <Route path="lessons/new" element={<TeacherLessonAssignPage />} />
           <Route path="lessons/:lessonId" element={<TeacherLessonResultsPage />} />
           <Route
             path="monitor/:lessonId"
             element={<SectionPlaceholder title="Монитор занятия" />}
           />
           <Route path="scenarios" element={<TeacherScenariosPage />} />
+          <Route path="scenarios/new" element={<TeacherScenarioEditorPage />} />
           <Route path="scenarios/:scenarioId" element={<TeacherScenarioCardPage />} />
+          <Route path="scenarios/:scenarioId/edit" element={<TeacherScenarioEditorPage />} />
+          <Route path="scenarios/templates" element={<TeacherTemplatesPage />} />
+          <Route path="scenarios/templates/new" element={<TeacherTemplateEditorPage />} />
+          <Route path="scenarios/templates/:kind/:templateId" element={<TeacherTemplateCardPage />} />
+          <Route path="scenarios/templates/:kind/:templateId/new-version" element={<TeacherTemplateEditorPage />} />
           <Route path="groups" element={<TeacherGroupsPage />} />
           <Route path="students" element={<TeacherStudentResultsPage />} />
           <Route path="analytics" element={<TeacherAnalyticsPage />} />

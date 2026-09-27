@@ -1,23 +1,21 @@
 import {
   api,
   RequestError,
-  toCardTemplate,
-  toIncomingCallTemplate,
   toScenarioCopy,
   toScenarioDetail,
   toScenarioListItem,
-  type CardTemplateDto,
-  type IncomingCallTemplateDto,
   type ScenarioDetail,
   type ScenarioListItem,
-  type ScenarioTemplate,
-  type ScenarioTemplateKind,
+  type JsonObject,
+  type JsonValue,
+  type ScenarioItemDetailDto,
   type TrainingScenarioCreateDto,
   type TrainingScenarioDetailDto,
   type TrainingScenarioDto,
+  type TrainingScenarioUpdateDto,
 } from "@/shared/api";
 import { CARD_API_URL, mocks } from "@/shared/config";
-import { incomingCallTemplateMocks, scenarioDetailMocks } from "./scenario.mocks";
+import { cardTemplateMocks, incomingCallTemplateMocks, scenarioDetailMocks } from "./scenario.mocks";
 
 const MAX_NAME_LENGTH = 255;
 const COPY_SUFFIX = " (копия)";
@@ -73,37 +71,6 @@ export async function fetchScenario(scenarioId: string, signal?: AbortSignal): P
   );
 
   return toScenarioDetail(data);
-}
-
-export async function fetchScenarioTemplate(
-  kind: ScenarioTemplateKind,
-  templateId: string,
-  signal?: AbortSignal,
-): Promise<ScenarioTemplate> {
-  if (kind === "call") {
-    if (mocks.scenarios) {
-      const found = incomingCallTemplateMocks.find((item) => item.id === templateId);
-
-      if (!found) throw new RequestError(NOT_FOUND, "Шаблон звонка не найден");
-
-      return toIncomingCallTemplate(found);
-    }
-
-    const { data } = await api.get<IncomingCallTemplateDto>(
-      `${CARD_API_URL}/incoming-call-templates/${templateId}`,
-      { signal },
-    );
-
-    return toIncomingCallTemplate(data);
-  }
-
-  if (mocks.scenarios) throw new RequestError(NOT_FOUND, "Шаблон карточки не найден");
-
-  const { data } = await api.get<CardTemplateDto>(`${CARD_API_URL}/card-templates/${templateId}`, {
-    signal,
-  });
-
-  return toCardTemplate(data);
 }
 
 export async function publishScenario({ scenarioId, revision, userId }: ScenarioRevisionRequest): Promise<void> {
@@ -171,4 +138,109 @@ export async function copyScenario({ scenarioId, userId }: ScenarioCopyRequest):
   const { data } = await api.post<TrainingScenarioDto>(`${CARD_API_URL}/training-scenarios`, body);
 
   return data.id;
+}
+
+export interface ScenarioUpdateRequest {
+  scenarioId: string;
+  body: TrainingScenarioUpdateDto;
+}
+
+export interface SavedScenario {
+  id: string;
+  revision: number;
+}
+
+function isObject(value: JsonValue | undefined): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function mockItems(definition: TrainingScenarioCreateDto["definition"]): ScenarioItemDetailDto[] {
+  const templates = [...cardTemplateMocks, ...incomingCallTemplateMocks];
+
+  return definition.cards.map((card) => {
+    const template = templates.find((item) => item.id === card.template_id);
+    const expected = card.expected_result ?? template?.expected_result ?? {};
+    const expectedCard = isObject(expected.card) ? expected.card : null;
+    const classification = expectedCard && isObject(expectedCard.classification) ? expectedCard.classification : null;
+    const services = Array.isArray(expectedCard?.services)
+      ? expectedCard.services.filter((code): code is string => typeof code === "string")
+      : [];
+    const notificationList = services.map((code, index) => ({ service_id: null, code, name: null, is_main: index === 0 }));
+
+    return {
+      key: card.key,
+      item_type: card.item_type,
+      source_type: card.source_type,
+      template_id: card.template_id ?? null,
+      template_name: template?.name ?? null,
+      initial_card: card.initial_card ?? (template && "initial_card" in template ? template.initial_card : null),
+      expected_card: expectedCard,
+      classification:
+        classification && typeof classification.record_id === "number"
+          ? {
+              record_id: classification.record_id,
+              group_code: Number(classification.group_code),
+              feature_1_code: Number(classification.feature_1_code),
+              feature_2_code: Number(classification.feature_2_code),
+              feature_3_code: Number(classification.feature_3_code),
+              final_incident_type: String(classification.final_incident_type),
+              routing_flags: {},
+              excluded_service_codes: [],
+            }
+          : null,
+      main_service: notificationList[0] ?? null,
+      notification_list: notificationList,
+    };
+  });
+}
+
+function cardsCount(definition: TrainingScenarioCreateDto["definition"]): number {
+  return definition.cards.length + (definition.procedural_generation?.target_count ?? 0);
+}
+
+export async function createScenario(body: TrainingScenarioCreateDto): Promise<SavedScenario> {
+  if (mocks.scenarios) {
+    const now = new Date().toISOString();
+    const created: TrainingScenarioDetailDto = {
+      ...body,
+      id: crypto.randomUUID(),
+      cards_count: cardsCount(body.definition),
+      revision: 1,
+      updated_by: body.created_by,
+      created_at: now,
+      updated_at: now,
+      items: mockItems(body.definition),
+    };
+
+    scenarioDetailMocks.push(created);
+    return { id: created.id, revision: created.revision };
+  }
+
+  const { data } = await api.post<TrainingScenarioDto>(`${CARD_API_URL}/training-scenarios`, body);
+
+  return { id: data.id, revision: data.revision };
+}
+
+export async function updateScenario({ scenarioId, body }: ScenarioUpdateRequest): Promise<SavedScenario> {
+  if (mocks.scenarios) {
+    const scenario = mockScenario(scenarioId);
+    const { expected_revision: expectedRevision, updated_by: updatedBy, ...fields } = body;
+
+    assertMockRevision(scenario, expectedRevision);
+    if (scenario.status !== "DRAFT") throw new RequestError(REVISION_CONFLICT, "Only a draft scenario can be edited");
+
+    Object.assign(scenario, {
+      ...fields,
+      cards_count: cardsCount(body.definition),
+      revision: scenario.revision + 1,
+      updated_by: updatedBy,
+      updated_at: new Date().toISOString(),
+      items: mockItems(body.definition),
+    });
+    return { id: scenario.id, revision: scenario.revision };
+  }
+
+  const { data } = await api.patch<TrainingScenarioDto>(`${CARD_API_URL}/training-scenarios/${scenarioId}`, body);
+
+  return { id: data.id, revision: data.revision };
 }

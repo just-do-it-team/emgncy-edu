@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Group, List, Modal, Stack, Text } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   scenarioItemLabels,
   useArchiveScenario,
@@ -82,7 +82,7 @@ export function ScenarioActions({ scenario, userId, own, onConflict }: ScenarioA
     copy.mutate(
       { scenarioId: scenario.id, userId },
       {
-        onSuccess: (copyId) => navigate(`/teacher/scenarios/${copyId}`),
+        onSuccess: (copyId) => navigate(`/teacher/scenarios/${copyId}/edit`),
         onError: fail,
       },
     );
@@ -92,6 +92,23 @@ export function ScenarioActions({ scenario, userId, own, onConflict }: ScenarioA
   return (
     <>
       <Group gap="xs">
+        {own && scenario.status === "DRAFT" && (
+          <Button
+            size="sm"
+            variant="outline"
+            color="povDark2.6"
+            component={Link}
+            to={`/teacher/scenarios/${scenario.id}/edit`}
+            disabled={busy}
+          >
+            Редактировать
+          </Button>
+        )}
+        {scenario.status === "PUBLISHED" && (
+          <Button size="sm" component={Link} to={`/teacher/lessons/new?scenario=${scenario.id}`} disabled={busy}>
+            Назначить занятие
+          </Button>
+        )}
         {own && scenario.status === "DRAFT" && (
           <Button size="sm" disabled={busy} onClick={() => setPending("publish")}>
             Утвердить
