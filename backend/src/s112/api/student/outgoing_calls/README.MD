@@ -25,6 +25,11 @@ Content-Type: application/json
 `direction: "OUTBOUND"`, `status`, `operator_user_id`, `answered_at` и
 `completed_at`.
 
+После `POST /api/v1/outgoing-calls/{callId}/complete` единая запись разговора
+собирается в фоне. Статус доступен через
+`GET /api/v1/training-calls/{callId}/recording` с `X-User-Id`; при `READY`
+поле `content_url` указывает на MP3.
+
 ```http
 POST /api/v1/outgoing-calls/{callId}/complete
 Content-Type: application/json

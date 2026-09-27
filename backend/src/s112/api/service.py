@@ -143,6 +143,7 @@ class CardApplicationService:
             card_id=card.id,
             workspace_id=card.workspace_id,
             card_number=card.card_number,
+            description=card.description[:500],
             event_type_id=card.event_type_id,
             classification=card.classification,
             event_kind_id=None,
@@ -244,6 +245,8 @@ class CardApplicationService:
         if "classification" in values:
             if card.event_type_id is not None or values["classification"] is None:
                 raise ValidationError("Classification can only update a classifier card")
+        if "description" in values and values["description"] is None:
+            raise ValidationError("Description cannot be null")
         for field, value in values.items():
             setattr(card, field, value)
         card.version += 1
@@ -1026,6 +1029,7 @@ class CardApplicationService:
         ).all()
 
         projection.event_type_id = card.event_type_id
+        projection.description = card.description[:500]
         projection.classification = card.classification
         projection.workspace_id = card.workspace_id
         projection.event_kind_id = feature.event_kind_id if feature else None

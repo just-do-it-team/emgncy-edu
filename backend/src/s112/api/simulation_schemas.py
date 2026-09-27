@@ -646,6 +646,19 @@ class ScenarioAssignmentCreate(BaseModel):
         return self
 
 
+class ScenarioAssignmentScheduleUpdate(BaseModel):
+    available_from: datetime | None = None
+    due_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_schedule(self) -> "ScenarioAssignmentScheduleUpdate":
+        if not self.model_fields_set:
+            raise ValueError("At least one schedule field is required")
+        if any(getattr(self, field) is None for field in self.model_fields_set):
+            raise ValueError("Schedule fields cannot be null")
+        return self
+
+
 class AssignmentParticipantResponse(OrmModel):
     user_id: uuid.UUID
     status: str
@@ -787,6 +800,7 @@ class TrainingSessionResult(BaseModel):
 
     cards: list[TrainingCardOutcome] = Field(default_factory=list)
     incoming_calls: list[TrainingCallOutcome] = Field(default_factory=list)
+    abort_reason: str | None = None
 
 
 class EmptyCompletionState(BaseModel):
@@ -1021,6 +1035,15 @@ class ExpertReviewCallResponse(BaseModel):
     automatic_result: dict[str, Any] | None
 
 
+class ExpertReviewOutgoingCallResponse(BaseModel):
+    id: uuid.UUID
+    card_id: uuid.UUID | None
+    status: str
+    started_at: datetime | None
+    completed_at: datetime | None
+    interlocutor_role: str
+
+
 class TrainingActionResponse(OrmModel):
     id: uuid.UUID
     training_session_id: uuid.UUID
@@ -1041,7 +1064,7 @@ class ExpertReviewCallUtterance(BaseModel):
     id: uuid.UUID
     call_id: uuid.UUID
     speaker: str
-    input_mode: Literal["VOICE", "TEXT", "GENERATED"]
+    input_mode: Literal["VOICE", "GENERATED"]
     sequence_no: int
     created_at: datetime
     text: str
@@ -1053,6 +1076,7 @@ class ExpertReviewContextResponse(BaseModel):
     participant_ids: list[uuid.UUID]
     cards: list[ExpertReviewCardResponse]
     incoming_calls: list[ExpertReviewCallResponse] = Field(default_factory=list)
+    outgoing_calls: list[ExpertReviewOutgoingCallResponse] = Field(default_factory=list)
     call_utterances: list[ExpertReviewCallUtterance] = Field(default_factory=list)
     actions: list[TrainingActionResponse]
 
@@ -1179,7 +1203,7 @@ class OutgoingCallResponse(OrmModel):
 class CallTranscriptUtterance(BaseModel):
     id: uuid.UUID
     speaker: Literal["OPERATOR", "CALLER", "RESPONSE_LEAD"]
-    input_mode: Literal["VOICE", "TEXT", "GENERATED"]
+    input_mode: Literal["VOICE", "GENERATED"]
     sequence_no: int
     created_at: datetime
     text: str

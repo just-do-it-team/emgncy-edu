@@ -16,7 +16,7 @@ X-User-Id: <user-uuid>
 
 Ответ содержит `call_id`, `training_session_id`, `answered_at`, `completed_at`
 и `utterances[]` в порядке `sequence_no`. У каждой реплики есть `id`, `speaker`
-(`OPERATOR`, `CALLER` или `RESPONSE_LEAD`), `input_mode` (`VOICE`, `TEXT` или
+(`OPERATOR`, `CALLER` или `RESPONSE_LEAD`), `input_mode` (`VOICE` или
 `GENERATED`), `created_at`, `text` и `audio_urls[]`. Для `VOICE` список обычно
 содержит исходную запись; для `GENERATED` — отдельные TTS-сегменты по порядку.
 Пустой список означает, что готового аудио нет. `created_at` — время записи
@@ -224,5 +224,8 @@ SSE задаются отдельно (`VITE_BACKEND_API_BASE_URL`, `VITE_REALTI
 LLM задаётся в `backend/.env`: `S112_DIALOGUE_LLM_BASE_URL` (OpenAI-совместимый
 `/v1` endpoint), `S112_DIALOGUE_LLM_MODEL`, при необходимости
 `S112_DIALOGUE_LLM_API_KEY`. Модель LLM должна быть доступна для
-`dialogue-worker`. Изменение переменных Vite требует перезапуска frontend,
+`dialogue-worker`. Для голосового диалога worker всегда передаёт модели
+`reasoning_effort: low`, `reasoning_format: auto` и совместимый
+`chat_template_kwargs.reasoning_effort: low`; эти параметры намеренно не
+настраиваются через окружение. Изменение переменных Vite требует перезапуска frontend,
 а переменных Compose — пересоздания соответствующих контейнеров.

@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from s112.api.common.dependencies import raise_http_error
 from s112.api.dependencies import get_write_session
 from s112.api.service import DomainError
-from s112.audio.schemas import AudioMessageResponse, TTSMessageCreate, TtsSegmentResponse
+from s112.audio.schemas import AudioMessageResponse, TtsSegmentResponse
 from s112.audio.service import AudioMessageService
 from s112.audio.storage import (
     AudioStorageError,
@@ -379,100 +379,6 @@ async def upload_outgoing_call_audio_message(
         workspace_id, call_id, request, audio, client_sent_at, user_id,
         idempotency_key, session, call_direction="OUTBOUND",
     )
-
-
-@router.post(
-    "/workspaces/{workspace_id}/cards/{card_id}/tts-messages",
-    response_model=AudioMessageResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-)
-async def create_tts_message(
-    workspace_id: uuid.UUID,
-    card_id: uuid.UUID,
-    body: TTSMessageCreate,
-    request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
-    idempotency_key: str = Header(
-        alias="Idempotency-Key", min_length=1, max_length=128
-    ),
-    session: AsyncSession = Depends(get_write_session),
-) -> AudioMessageResponse:
-    _assert_header_identity(request, user_id)
-    normalized_key = idempotency_key.strip()
-    if not normalized_key:
-        raise HTTPException(status_code=422, detail="Idempotency-Key is blank")
-    service = _service(request)
-    message_id = uuid.uuid4()
-    try:
-        async with session.begin():
-            message, replayed = await service.create_tts_message(
-                session,
-                message_id=message_id,
-                workspace_id=workspace_id,
-                card_id=card_id,
-                user_id=user_id,
-                idempotency_key=normalized_key,
-                text=body.text,
-                client_sent_at=body.client_sent_at,
-            )
-    except DomainError as exc:
-        raise_http_error(exc)
-    except Exception as exc:
-        committed = await _find_committed_message(request, message_id)
-        if committed is not None:
-            return _response(committed)
-        raise HTTPException(
-            status_code=503,
-            detail="TTS request metadata could not be committed",
-        ) from exc
-    return _response(message, idempotent_replay=replayed)
-
-
-@router.post(
-    "/workspaces/{workspace_id}/incoming-calls/{call_id}/tts-messages",
-    response_model=AudioMessageResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-)
-async def create_incoming_call_tts_message(
-    workspace_id: uuid.UUID,
-    call_id: uuid.UUID,
-    body: TTSMessageCreate,
-    request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
-    idempotency_key: str = Header(
-        alias="Idempotency-Key", min_length=1, max_length=128
-    ),
-    session: AsyncSession = Depends(get_write_session),
-) -> AudioMessageResponse:
-    _assert_header_identity(request, user_id)
-    normalized_key = idempotency_key.strip()
-    if not normalized_key:
-        raise HTTPException(status_code=422, detail="Idempotency-Key is blank")
-    service = _service(request)
-    message_id = uuid.uuid4()
-    try:
-        async with session.begin():
-            message, replayed = await service.create_call_tts_message(
-                session,
-                message_id=message_id,
-                workspace_id=workspace_id,
-                call_id=call_id,
-                user_id=user_id,
-                idempotency_key=normalized_key,
-                text=body.text,
-                client_sent_at=body.client_sent_at,
-            )
-    except DomainError as exc:
-        raise_http_error(exc)
-    except Exception as exc:
-        committed = await _find_committed_message(request, message_id)
-        if committed is not None:
-            return _response(committed)
-        raise HTTPException(
-            status_code=503,
-            detail="TTS request metadata could not be committed",
-        ) from exc
-    return _response(message, idempotent_replay=replayed)
 
 
 @router.get(

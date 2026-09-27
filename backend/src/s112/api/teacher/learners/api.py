@@ -21,6 +21,7 @@ from s112.api.simulation_schemas import (
     LearningGroupUpdate,
     ScenarioAssignmentCreate,
     ScenarioAssignmentResponse,
+    ScenarioAssignmentScheduleUpdate,
 )
 from s112.api.simulation_service import SimulationApplicationService
 from s112.api.teacher.learners.schemas import (
@@ -39,6 +40,13 @@ from s112.domain.models import (
 
 
 router = APIRouter(prefix="/api/v1", tags=["teacher/learners"])
+
+
+def _assert_teacher_identity(request: Request, teacher_id: uuid.UUID) -> None:
+    if request.app.state.auth_settings.enabled:
+        principal = getattr(request.state, "principal", None)
+        if principal is None or principal.user_id != teacher_id:
+            raise HTTPException(status_code=403, detail="Teacher does not match token")
 
 
 @router.get("/students", response_model=TeacherStudentPage)
@@ -303,6 +311,90 @@ async def create_scenario_assignment(
         async with session.begin():
             assignment = await service.create_assignment(session, request)
         return await assignment_response(session, assignment)
+    except DomainError as exc:
+        raise_http_error(exc)
+
+
+@router.patch(
+    "/scenario-assignments/{assignment_id}",
+    response_model=ScenarioAssignmentResponse,
+)
+async def update_scenario_assignment_schedule(
+    assignment_id: uuid.UUID,
+    schedule: ScenarioAssignmentScheduleUpdate,
+    http_request: Request,
+    teacher_id: uuid.UUID = Header(alias="X-User-Id"),
+    session: AsyncSession = Depends(get_write_session),
+    service: SimulationApplicationService = Depends(simulation_service),
+) -> ScenarioAssignmentResponse:
+    _assert_teacher_identity(http_request, teacher_id)
+    try:
+        async with session.begin():
+            assignment = await service.update_assignment_schedule(
+                session, assignment_id, teacher_id, schedule
+            )
+        return await assignment_response(session, assignment)
+    except DomainError as exc:
+        raise_http_error(exc)
+
+
+@router.delete(
+    "/scenario-assignments/{assignment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def cancel_scenario_assignment(
+    assignment_id: uuid.UUID,
+    http_request: Request,
+    teacher_id: uuid.UUID = Header(alias="X-User-Id"),
+    session: AsyncSession = Depends(get_write_session),
+    service: SimulationApplicationService = Depends(simulation_service),
+) -> None:
+    _assert_teacher_identity(http_request, teacher_id)
+    try:
+        async with session.begin():
+            await service.cancel_assignment(session, assignment_id, teacher_id)
+    except DomainError as exc:
+        raise_http_error(exc)
+
+
+@router.patch(
+    "/assignment-batches/{batch_id}",
+    response_model=AssignmentBatchResponse,
+)
+async def update_assignment_batch_schedule(
+    batch_id: uuid.UUID,
+    schedule: ScenarioAssignmentScheduleUpdate,
+    http_request: Request,
+    teacher_id: uuid.UUID = Header(alias="X-User-Id"),
+    session: AsyncSession = Depends(get_write_session),
+    service: SimulationApplicationService = Depends(simulation_service),
+) -> AssignmentBatchResponse:
+    _assert_teacher_identity(http_request, teacher_id)
+    try:
+        async with session.begin():
+            batch, assignments = await service.update_assignment_batch_schedule(
+                session, batch_id, teacher_id, schedule
+            )
+        return await assignment_batch_response(session, batch, assignments)
+    except DomainError as exc:
+        raise_http_error(exc)
+
+
+@router.delete(
+    "/assignment-batches/{batch_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def cancel_assignment_batch(
+    batch_id: uuid.UUID,
+    http_request: Request,
+    teacher_id: uuid.UUID = Header(alias="X-User-Id"),
+    session: AsyncSession = Depends(get_write_session),
+    service: SimulationApplicationService = Depends(simulation_service),
+) -> None:
+    _assert_teacher_identity(http_request, teacher_id)
+    try:
+        async with session.begin():
+            await service.cancel_assignment_batch(session, batch_id, teacher_id)
     except DomainError as exc:
         raise_http_error(exc)
 

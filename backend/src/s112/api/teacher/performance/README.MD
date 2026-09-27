@@ -56,10 +56,15 @@ GET /api/v1/training-sessions/{sessionId}/expert-review-context?teacher_id={teac
 `GET /api/v1/training-calls/{callId}/transcript` с `X-User-Id: <teacherId>`:
 он возвращает текст обеих сторон и ссылки на доступное аудио.
 После завершения звонка `GET /api/v1/training-calls/{callId}/recording` возвращает
-статус сборки единого MP3 и `content_url`, когда файл готов.
+статус сборки единого MP3 и `content_url`, когда файл готов. Это относится и к
+входящим, и к исходящим звонкам. Для исходящих звонков, завершённых до этого
+изменения, запись ставится в очередь миграцией `0024`.
 
-Метод доступен после завершения сессии со статусом `COMPLETED` преподавателю,
-назначившему сценарий, и администратору. Ответ содержит:
+Метод доступен после окончания сессии со статусом `COMPLETED` или `ABORTED`
+преподавателю, назначившему сценарий, и администратору. Для прерванной
+попытки ответ показывает сохранённые на момент прерывания действия и результаты;
+если оценка не проводилась, автоматический балл и результаты карточек могут
+быть `null`. Ответ содержит:
 
 - `session` — полный `TrainingSessionResponse`, включая `status`, автоматические
   `score`/`passed`/`result` и экспертные поля;
@@ -74,13 +79,19 @@ GET /api/v1/training-sessions/{sessionId}/expert-review-context?teacher_id={teac
   `sequence_no`: `id`, `call_id`, `speaker`, `input_mode`, `created_at`, `text`.
   `speaker=OPERATOR` обозначает обучаемого; у другой стороны сохраняется роль
   звонка (`CALLER` или `RESPONSE_LEAD`). `input_mode=VOICE` означает STT речи
-  обучаемого, `TEXT` — введённый им текст, `GENERATED` — ответ модели.
+  обучаемого, `GENERATED` — ответ модели.
   `created_at` — время записи сообщения на сервере, не время фактического
   воспроизведения звука у обучаемого;
 - `incoming_calls[]` — `scenario_item_key`, `training_call_id`,
   `incident_card_id`, `status`, `ringing_at`, `answered_at`, `completed_at`,
   `expected_result`, `current_state`, `automatic_result`;
   `answered_at` можно использовать как начало относительной шкалы времени.
+- `outgoing_calls[]` — `id`, `card_id`, `status`, `started_at`, `completed_at`,
+  `interlocutor_role`. `started_at` соответствует моменту начала разговора;
+  `interlocutor_role=COMMANDER` обозначает руководителя группы реагирования.
+  Персональное имя собеседника не сохраняется. `card_id` и `started_at` могут
+  быть `null` у неполных старых записей. Реплики связываются со звонком через
+  `call_utterances[].call_id`.
 
 `expected_result` и `scenario_snapshot` содержат эталон и предназначены для
 преподавателя. Автоматические расхождения находятся в

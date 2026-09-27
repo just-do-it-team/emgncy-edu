@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +27,13 @@ from s112.domain.models import (
 router = APIRouter(prefix="/api/v1", tags=["teacher/performance"])
 
 
+def _assert_teacher_identity(request: Request, teacher_id: uuid.UUID) -> None:
+    if request.app.state.auth_settings.enabled:
+        principal = getattr(request.state, "principal", None)
+        if principal is None or principal.user_id != teacher_id:
+            raise HTTPException(status_code=403, detail="Teacher does not match token")
+
+
 @router.get(
     "/students/{student_id}/training-history",
     response_model=list[StudentTrainingHistoryItem],
@@ -34,9 +41,11 @@ router = APIRouter(prefix="/api/v1", tags=["teacher/performance"])
 async def get_student_training_history(
     student_id: uuid.UUID,
     teacher_id: uuid.UUID,
+    http_request: Request,
     limit: int = Query(default=100, ge=1, le=500),
     session: AsyncSession = Depends(get_read_session),
 ) -> list[StudentTrainingHistoryItem]:
+    _assert_teacher_identity(http_request, teacher_id)
     rows = (
         await session.execute(
             select(
@@ -79,9 +88,11 @@ async def get_student_training_history(
 async def get_expert_review_context(
     session_id: uuid.UUID,
     teacher_id: uuid.UUID,
+    http_request: Request,
     session: AsyncSession = Depends(get_read_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> dict:
+    _assert_teacher_identity(http_request, teacher_id)
     try:
         return await service.build_expert_review_context(
             session, session_id, teacher_id
@@ -97,9 +108,11 @@ async def get_expert_review_context(
 async def update_expert_assessment(
     session_id: uuid.UUID,
     request: ExpertAssessmentUpdate,
+    http_request: Request,
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> TrainingSession:
+    _assert_teacher_identity(http_request, request.teacher_id)
     try:
         async with session.begin():
             return await service.update_expert_assessment(

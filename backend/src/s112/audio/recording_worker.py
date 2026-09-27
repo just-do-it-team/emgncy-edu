@@ -170,6 +170,8 @@ class CallRecordingWorker:
             ))
             sources: list[RecordingSource] = []
             for message in messages:
+                if message.kind == AudioMessageKind.TTS.value and message.speaker_role == "TRAINEE":
+                    continue  # Legacy text input; its uploaded STT audio is the call utterance.
                 if message.status == AudioMessageStatus.FAILED.value:
                     return "FAILED", [], call.training_session_id
                 if message.status != AudioMessageStatus.COMPLETED.value:
