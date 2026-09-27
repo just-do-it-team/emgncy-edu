@@ -15,6 +15,7 @@ import {
   useInfiniteQuery,
   useQuery,
   useQueryClient,
+  useQueries,
 } from "@tanstack/react-query";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useSessionStore } from "@/entities/session";
@@ -26,6 +27,7 @@ import {
   notifyTrainingError,
   trainingApi,
   type CardListItem,
+  type ApiCard,
   type LaunchContext,
   type TrainingSession,
 } from "@/entities/training";
@@ -34,6 +36,7 @@ import { listIncident } from "../model/api-card-adapter";
 import type { OperatorCardEntry } from "../model/operator-cards";
 import { ConnectedCard } from "./connected-card";
 import { IncomingCalls } from "./incoming-calls";
+import { OutgoingCalls } from "./outgoing-calls";
 import { useWorkspaceEvents } from "./use-workspace-events";
 import { useTrainingPresence } from "./use-training-presence";
 import classes from "./workspace-page.module.scss";
@@ -180,6 +183,12 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
   const readiness = useQuery({
     queryKey: [...baseKey, "readiness", ctx.sessionId],
     queryFn: ({ signal }) => trainingApi.readiness(ctx, signal),
+    refetchInterval: (query) =>
+      query.state.data?.status === "RUNNING" &&
+      (ctx.mode === "DDS" ||
+        query.state.data.completion_policy === "AUTO_WHEN_READY")
+        ? 5000
+        : false,
     refetchOnWindowFocus: false,
     meta: { showGlobalError: false },
   });
@@ -190,6 +199,8 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
       trainingApi.cards(ctx, pageParam, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor,
+    refetchInterval:
+      ctx.mode === "DDS" && connection !== "connected" ? 5000 : false,
     refetchOnWindowFocus: false,
     meta: { showGlobalError: false },
   });
@@ -222,6 +233,34 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     );
     return cardItems.filter((card) => completedCardIds.has(card.card_id));
   }, [cardItems, calls.data, ctx.mode]);
+  const cardsNeedingDetails =
+    ctx.mode === "DDS" ? visibleCards.filter((card) => !card.description) : [];
+  const ddsCardDetails = useQueries({
+    queries: cardsNeedingDetails.map((card) => ({
+      queryKey: [...baseKey, "card", card.card_id],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        trainingApi.card(ctx, card.card_id, signal),
+      refetchOnWindowFocus: false,
+      meta: { showGlobalError: false },
+    })),
+  });
+  const detailsById = new Map<string, ApiCard>();
+  cardsNeedingDetails.forEach((card, index) => {
+    const details = ddsCardDetails[index]?.data;
+    if (details) detailsById.set(card.card_id, details);
+  });
+  const selectedCardItem = visibleCards.find(
+    (card) => card.card_id === selectedId,
+  );
+  const selectedSummary =
+    ctx.mode === "DDS" && selectedCardItem
+      ? listIncident(
+          selectedCardItem,
+          [],
+          ctx.positionCode,
+          detailsById.get(selectedCardItem.card_id),
+        )
+      : undefined;
   const reference = useQuery({
     queryKey: ["student-api", "reference", ctx.mode],
     queryFn: async ({ signal }) => {
@@ -397,11 +436,11 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     if (alreadyFinished) {
       void finish("finished");
     } else if (canComplete) {
-      void finish(
-        readiness.data?.completion_policy === "STUDENT_CONFIRM"
-          ? "complete"
-          : "abort",
-      );
+      if (readiness.data?.completion_policy === "STUDENT_CONFIRM") {
+        void finish("complete");
+      } else {
+        void readiness.refetch();
+      }
     } else {
       setFinishOpen(true);
     }
@@ -434,12 +473,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     if (canComplete) setFinishOpen(false);
   }, [canComplete]);
   return (
-    <div
-      className={classes.page}
-      data-operator-editing={
-        ctx.mode === "ARM112" && editingCard ? true : undefined
-      }
-    >
+    <div className={classes.page} data-card-open={editingCard || undefined}>
       <Modal
         opened={finishOpen}
         onClose={() => setFinishOpen(false)}
@@ -472,8 +506,11 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
           </Group>
         </Stack>
       </Modal>
-      <Group justify="space-between" className={classes.trainingBar}>
-        <Group>
+      <Group
+        justify="space-between"
+        className={`${classes.trainingBar} ${classes.liveTrainingBar}`}
+      >
+        <Group className={classes.trainingLeft}>
           <Button
             size="lg"
             color={
@@ -483,16 +520,37 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
             }
             variant="filled"
             fw={700}
-            disabled={exiting || callBusy || opening}
+            disabled={
+              exiting ||
+              callBusy ||
+              opening ||
+              (canComplete &&
+                readiness.data?.completion_policy === "AUTO_WHEN_READY")
+            }
             loading={exiting}
             onClick={requestFinish}
           >
-            Завершить занятие
+            {canComplete &&
+            readiness.data?.completion_policy === "AUTO_WHEN_READY"
+              ? "Завершаем занятие…"
+              : "Завершить занятие"}
           </Button>
-          <Text fw={600}>{ctx.title}</Text>
+          <Text fw={600} className={classes.trainingTitle}>
+            {ctx.title}
+          </Text>
         </Group>
-        <div id="workspace-call-controls" className={classes.callControlSlot} />
-        <Group>
+        <div id="workspace-call-controls" className={classes.callControlSlot}>
+          {ctx.mode === "DDS" && (
+            <OutgoingCalls
+              ctx={ctx}
+              cardId={selectedId}
+              active={active && !exiting}
+              onChanged={refresh}
+              onBusyChange={setCallBusy}
+            />
+          )}
+        </div>
+        <Group className={classes.trainingRight}>
           <Badge>
             {ctx.mode === "DDS"
               ? `ДДС · ${ctx.positionCode ?? "служба не назначена"}`
@@ -568,8 +626,9 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
         <WorkspaceHeader
           role="student"
           operatorMode={ctx.mode === "ARM112"}
+          ddsMode={ctx.mode === "DDS"}
           onCreateCard={
-            canCreateCallCard
+            canCreateCallCard && !editingCard
               ? () => setOpenCardRequest((value) => value + 1)
               : undefined
           }
@@ -595,7 +654,12 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
             incidents={[
               ...(callDraft ? [callDraft.incident] : []),
               ...visibleCards.map((c) =>
-                listIncident(c, reference.data?.kinds ?? [], ctx.positionCode),
+                listIncident(
+                  c,
+                  reference.data?.kinds ?? [],
+                  ctx.positionCode,
+                  detailsById.get(c.card_id),
+                ),
               ),
             ]}
             operatorMode={ctx.mode === "ARM112"}
@@ -640,6 +704,8 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
           kinds={reference.data.kinds}
           directory={reference.data.services}
           readOnly={!active || exiting || reference.isError}
+          eventsConnected={connection === "connected"}
+          summary={selectedSummary}
           onClose={() => setSelectedId(null)}
           onChanged={refresh}
         />

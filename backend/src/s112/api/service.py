@@ -513,6 +513,7 @@ class CardApplicationService:
             author_id=request.author_id,
             source_system_id=request.source_system_id,
             comment=request.comment,
+            unit_number=request.unit_number,
             external_event_id=request.external_event_id,
         )
         session.add(history)
@@ -554,6 +555,7 @@ class CardApplicationService:
                 "service_id": str(card_service.service_id),
                 "status": request.status.value,
                 "occurred_at": request.occurred_at.isoformat(),
+                "unit_number": request.unit_number,
             },
         )
         await self._record_training_action(
@@ -570,6 +572,7 @@ class CardApplicationService:
                 "service_id": str(card_service.service_id),
                 "status": request.status.value,
                 "comment": request.comment,
+                "unit_number": request.unit_number,
             },
         )
         await session.flush()

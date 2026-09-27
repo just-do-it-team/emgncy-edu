@@ -1,0 +1,194 @@
+.serviceArea {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 80px;
+}
+
+.serviceViewport {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 15px;
+  height: 80px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+
+  &.expanded {
+    height: 160px;
+  }
+}
+
+.tiles {
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  flex-shrink: 0;
+}
+
+.serviceRow {
+  display: flex;
+  height: 80px;
+}
+
+.tileShell {
+  position: relative;
+  flex: 0 0 130px;
+  width: 130px;
+  height: 80px;
+}
+
+.tile {
+  :global(.mantine-Button-label) {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+}
+
+.serviceArea .tile .tileContent {
+  height: 100%;
+  justify-content: space-evenly;
+  gap: 0;
+}
+
+.primaryName {
+  text-decoration: underline;
+}
+
+.editButton {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 22px;
+  height: 22px;
+  color: white;
+}
+
+.expandButton {
+  flex: 0 0 45px;
+  width: 45px;
+  height: 45px;
+  margin-bottom: 17px;
+  border: 1px solid var(--mantine-color-povBlue-6);
+  border-radius: 0;
+  color: white;
+}
+
+.historyPanel {
+  max-width: calc(100vw - 20px);
+  border: 0;
+  border-radius: 0;
+  background: var(--mantine-color-povBlue-6);
+  color: var(--mantine-color-white);
+}
+
+.historyList {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.historyEntry {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 4px 2px;
+  padding: 4px 0;
+  font-size: 12px;
+
+  > span {
+    overflow-wrap: anywhere;
+  }
+}
+
+.historyComment {
+  display: flex;
+  align-items: start;
+  gap: 4px;
+
+  > svg {
+    flex-shrink: 0;
+  }
+}
+
+.editorInner {
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding-bottom: 95px;
+  padding-left: clamp(15px, 6vw, 125px);
+}
+
+.editorContent {
+  margin: 0;
+  border-radius: 0;
+  padding: 0;
+}
+
+.editorBody {
+  padding: 0;
+}
+
+.editorFields {
+  display: grid;
+  grid-template-columns:
+    minmax(160px, 1fr) minmax(120px, 1fr) minmax(200px, 1fr)
+    auto;
+  gap: 0;
+  align-items: stretch;
+
+  :global(.mantine-Input-wrapper) {
+    height: 32px;
+  }
+
+  :global(.mantine-Input-input) {
+    min-height: 32px;
+    height: 32px;
+    padding: 0 10px;
+    border: 0;
+    border-bottom: 1px solid #aeb7be;
+    border-radius: 0;
+    background: white;
+    color: #26323a;
+    font-size: 13px;
+  }
+
+  :global(.mantine-Select-input) {
+    padding-right: 30px;
+  }
+
+  :global(.mantine-Textarea-input) {
+    resize: none;
+  }
+}
+
+.editorActions {
+  align-items: stretch;
+
+  :global(.mantine-Button-root) {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid #aeb7be;
+    border-radius: 0;
+    background: white;
+    color: #657179;
+  }
+}
+
+@media (max-width: 750px) {
+  .editorInner {
+    padding: 12px;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .editorFields {
+    grid-template-columns: 1fr;
+  }
+}

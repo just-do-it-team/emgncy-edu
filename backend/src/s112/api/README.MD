@@ -13,6 +13,7 @@
 - [Прохождение сценария](student/scenario_session/README.MD)
 - [Аудиосообщения STT/TTS](student/audio_messages/README.MD)
 - [Входящие учебные звонки](student/incoming_calls/README.MD)
+- [Исходящие звонки ДДС](student/outgoing_calls/README.MD)
 
 ## Преподаватель
 

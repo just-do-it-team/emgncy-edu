@@ -1397,7 +1397,11 @@ class SimulationApplicationService:
                 }
             )
         for item in training_calls:
-            if item.status != TrainingCallStatus.COMPLETED.value or item.incident_card_id is None:
+            if (
+                item.direction != "INBOUND"
+                or item.status != TrainingCallStatus.COMPLETED.value
+                or item.incident_card_id is None
+            ):
                 continue
             result = await self._evaluate_incoming_call(session, item)
             total_score += result["score"]
@@ -1873,7 +1877,10 @@ class SimulationApplicationService:
         training_calls = list(
             await session.scalars(
                 select(TrainingCall)
-                .where(TrainingCall.training_session_id == training_session.id)
+                .where(
+                    TrainingCall.training_session_id == training_session.id,
+                    TrainingCall.direction == "INBOUND",
+                )
                 .order_by(TrainingCall.scenario_item_key)
             )
         )
@@ -1950,8 +1957,13 @@ class SimulationApplicationService:
                         }
                     )
                 for index, expected_change in enumerate(expected_changes):
+                    evaluated_change = {
+                        key: value
+                        for key, value in expected_change.items()
+                        if key != "unit_number"
+                    }
                     checks += self._compare_expected(
-                        expected_change,
+                        evaluated_change,
                         actual_changes[index] if index < len(actual_changes) else None,
                         f"service_status_history.{service_code}.{index}",
                         discrepancies,
@@ -2250,6 +2262,161 @@ class SimulationApplicationService:
         )
         await self.completion.refresh(session, training_session)
         return item
+
+    async def get_outgoing_call_for_card(
+        self, session: AsyncSession, card_id: uuid.UUID, user_id: uuid.UUID
+    ) -> TrainingCall | None:
+        await self._outgoing_call_card_context(session, card_id, user_id)
+        item = await session.scalar(
+            select(TrainingCall).where(
+                TrainingCall.incident_card_id == card_id,
+                TrainingCall.direction == "OUTBOUND",
+            )
+        )
+        if item is not None and item.operator_user_id != user_id:
+            raise NotFoundError("Outgoing call not found")
+        return item
+
+    async def start_outgoing_call(
+        self, session: AsyncSession, card_id: uuid.UUID, user_id: uuid.UUID
+    ) -> TrainingCall:
+        card = await session.scalar(
+            select(IncidentCard).where(IncidentCard.id == card_id).with_for_update()
+        )
+        if card is None:
+            raise NotFoundError("Incident card not found")
+        training_session, card_service = await self._outgoing_call_card_context(
+            session, card_id, user_id, card=card
+        )
+        existing = await self.get_outgoing_call_for_card(session, card_id, user_id)
+        if existing is not None:
+            return existing
+        workspace = await session.get(SimulationWorkspace, card.workspace_id)
+        if (
+            workspace.status != WorkspaceStatus.ACTIVE.value
+            or training_session.status != TrainingSessionStatus.RUNNING.value
+        ):
+            raise ConflictError("Training session is not running")
+        if card_service.received_at is None:
+            raise ConflictError("Card must be opened by DDS before an outgoing call")
+        if card.closed_at is not None or card_service.closed_at is not None:
+            raise ConflictError("A closed card cannot start an outgoing call")
+        scheduled_card = await session.scalar(
+            select(SessionScheduledCard).where(
+                SessionScheduledCard.incident_card_id == card.id
+            )
+        )
+        incoming_call = await session.scalar(
+            select(TrainingCall).where(
+                TrainingCall.incident_card_id == card.id,
+                TrainingCall.direction == "INBOUND",
+            )
+        )
+        expected_result = (
+            dict(scheduled_card.expected_result)
+            if scheduled_card is not None
+            else dict(incoming_call.expected_result)
+            if incoming_call is not None
+            else {"card": await self._card_state(session, card)}
+        )
+        now = utcnow()
+        item = TrainingCall(
+            training_session_id=training_session.id,
+            workspace_id=card.workspace_id,
+            scenario_item_key=f"outgoing:{card.id}",
+            trigger_type=ScenarioTriggerType.TIME_OFFSET.value,
+            trigger_config={"offset_seconds": 0},
+            source_type=ScenarioCardSourceType.SNAPSHOT.value,
+            call_payload={},
+            direction="OUTBOUND",
+            operator_user_id=user_id,
+            assigned_operator_user_id=user_id,
+            interlocutor_role="COMMANDER",
+            expected_result=expected_result,
+            status=TrainingCallStatus.ACTIVE.value,
+            incident_card_id=card.id,
+            answered_at=now,
+        )
+        session.add(item)
+        await session.flush()
+        self._add_training_call_action(
+            session, item, user_id, "OUTGOING_CALL_STARTED", now,
+            incident_card_id=card.id,
+        )
+        await self.completion.refresh(session, training_session)
+        return item
+
+    async def complete_outgoing_call(
+        self, session: AsyncSession, call_id: uuid.UUID, user_id: uuid.UUID
+    ) -> TrainingCall:
+        item = await session.scalar(
+            select(TrainingCall).where(TrainingCall.id == call_id).with_for_update()
+        )
+        if item is None or item.direction != "OUTBOUND" or item.incident_card_id is None:
+            raise NotFoundError("Outgoing call not found")
+        training_session, _ = await self._outgoing_call_card_context(
+            session, item.incident_card_id, user_id
+        )
+        if item.operator_user_id != user_id:
+            raise NotFoundError("Outgoing call not found")
+        if item.status == TrainingCallStatus.COMPLETED.value:
+            return item
+        if item.status != TrainingCallStatus.ACTIVE.value:
+            raise ConflictError(f"Outgoing call cannot complete from status {item.status}")
+        workspace = await session.get(SimulationWorkspace, item.workspace_id)
+        if (
+            workspace.status != WorkspaceStatus.ACTIVE.value
+            or training_session.status != TrainingSessionStatus.RUNNING.value
+        ):
+            raise ConflictError("Training session is not running")
+        now = utcnow()
+        item.status = TrainingCallStatus.COMPLETED.value
+        item.completed_at = now
+        self._add_training_call_action(
+            session, item, user_id, "OUTGOING_CALL_COMPLETED", now,
+            incident_card_id=item.incident_card_id,
+        )
+        await self.completion.refresh(session, training_session)
+        return item
+
+    async def _outgoing_call_card_context(
+        self,
+        session: AsyncSession,
+        card_id: uuid.UUID,
+        user_id: uuid.UUID,
+        *,
+        card: IncidentCard | None = None,
+    ) -> tuple[TrainingSession, CardService]:
+        card = card or await session.get(IncidentCard, card_id)
+        if card is None:
+            raise NotFoundError("Incident card not found")
+        workspace = await session.get(SimulationWorkspace, card.workspace_id)
+        if workspace is None or workspace.training_session_id is None:
+            raise NotFoundError("Training workspace not found")
+        member = await session.get(WorkspaceMember, (card.workspace_id, user_id))
+        if (
+            member is None
+            or member.left_at is not None
+            or member.member_role != WorkspaceMemberRole.PARTICIPANT.value
+            or member.position_code is None
+        ):
+            raise NotFoundError("Card not found")
+        card_service = await session.scalar(
+            select(CardService)
+            .join(EmergencyService, EmergencyService.id == CardService.service_id)
+            .where(
+                CardService.card_id == card.id,
+                CardService.is_active.is_(True),
+                EmergencyService.code == member.position_code,
+                EmergencyService.is_active.is_(True),
+            )
+        )
+        if card_service is None:
+            raise NotFoundError("Card is not assigned to this DDS service")
+        training_session = await session.get(TrainingSession, workspace.training_session_id)
+        if training_session is None:
+            raise NotFoundError("Training session not found")
+        return training_session, card_service
 
     async def _card_state(
         self, session: AsyncSession, card: IncidentCard

@@ -149,6 +149,14 @@ export interface IncomingCall {
   answered_at: string | null;
   completed_at: string | null;
 }
+export interface OutgoingCall {
+  id: string;
+  direction: "OUTBOUND";
+  status: string;
+  incident_card_id: string;
+  answered_at: string | null;
+  completed_at: string | null;
+}
 export interface CardCreate extends CardPatch {
   classification: OperatorClassification;
 }
@@ -160,12 +168,16 @@ export interface CardService {
   is_visible: boolean;
   added_reason: string;
   added_at: string;
+  received_at?: string | null;
+  decided_at?: string | null;
+  closed_at?: string | null;
 }
 export interface ServiceHistory {
   id: string;
   status_code: string;
   occurred_at: string;
   comment: string | null;
+  author_id?: string | null;
 }
 export interface CardQuestionnaire {
   questions: string;
@@ -197,6 +209,11 @@ export interface CardListItem {
   card_id: string;
   card_number: string;
   workspace_id: string;
+  operator_number?: number | null;
+  workstation_number?: number | null;
+  description?: string;
+  description_updated_at?: string | null;
+  description_author?: string | null;
   event_type_id: number | null;
   classification: OperatorClassification | null;
   event_kind_id: number | null;

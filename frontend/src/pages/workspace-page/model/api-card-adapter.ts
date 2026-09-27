@@ -115,6 +115,7 @@ export function listIncident(
   card: CardListItem,
   kinds: EventKind[],
   positionCode: string | null,
+  details?: ApiCard,
 ): Incident {
   const own = card.services_summary.find(
     (s) => s.service_code === positionCode,
@@ -123,8 +124,8 @@ export function listIncident(
   return {
     id: card.card_number,
     serverId: card.card_id,
-    operator: null,
-    workstation: null,
+    operator: card.operator_number ?? null,
+    workstation: card.workstation_number ?? null,
     createdAt: card.registered_at,
     type:
       card.classification?.final_incident_type ??
@@ -133,9 +134,9 @@ export function listIncident(
     hasCasualties: card.victims_count === null ? null : card.victims_count > 0,
     address: card.incident_address ?? "—",
     serviceStatus: statusLabels[status] ?? status,
-    description: "Открыть карточку",
-    descriptionCreatedAt: card.registered_at,
-    author: "",
+    description: card.description ?? details?.description ?? "Открыть карточку",
+    descriptionCreatedAt: card.description_updated_at ?? card.registered_at,
+    author: card.description_author ?? "",
     emergency: false,
   };
 }
@@ -145,6 +146,10 @@ export function cardIncident(
   positionCode: string | null,
 ): Incident {
   const draft = draftFromCard(card);
+  const classification = classifierRecords.find(
+    (record) => record.id === card.classification?.record_id,
+  );
+  const flags = card.classification?.routing_flags;
   const incident = listIncident(
     {
       card_id: card.id,
@@ -174,12 +179,17 @@ export function cardIncident(
       locationPhone: draft.locationPhone,
       addressTitle: card.incident_address ?? "",
       district: draft.address.district,
-      ambulanceRefused: false,
-      trapped: false,
-      urgent: false,
-      category: "",
+      ambulanceRefused: null,
+      trapped: typeof flags?.noAccess === "boolean" ? flags.noAccess : null,
+      urgent: flags?.threat === true,
+      category: classification
+        ? [
+            classification.group,
+            ...classification.features.filter(Boolean),
+          ].join(" · ")
+        : "",
       classification: incident.type,
-      externalClassification: "",
+      externalClassification: classification?.externalName ?? "",
       services: [],
     },
   };

@@ -91,7 +91,10 @@ type ExpectedCard = {
   classification: Classification;
   description: string;
   questionnaire: Questionnaire | null;
+  applicant_full_name: string | null;
   automatic_phone_number: string | null;
+  provided_phone_number: string | null;
+  location_phone_number: string | null;
   reported_address: string | null;
   incident_address: string | null;
   victims_count: number | null;
@@ -108,6 +111,7 @@ type OutboundCall = {
 type ExpectedServiceStatusChange = {
   status: ServiceResponseStatus;
   comment: string | null;
+  unit_number: string | null; // номер реагирующего подразделения, максимум 64 символа
 };
 
 type ExpectedResult = {
@@ -175,10 +179,17 @@ type IncomingCallTemplateCreate = {
 Для входящего звонка действуют дополнительные правила:
 
 - `expected_result.card` обязателен;
-- `initial_call.initial_utterance` — первая фраза заявителя, которую обучаемый
-  слышит после ответа на звонок;
+- `initial_call.initial_utterance` — затравка истории диалога для модели;
+  сама по себе не озвучивается после ответа на звонок;
 - достоверные обстоятельства происшествия задаются в `expected_result.card`;
   dialogue worker передаёт этот эталонный объект модели как закрытый контекст;
+- ФИО заявителя, названный им номер для обратной связи и телефон по месту
+  происшествия задаются только в `expected_result.card` полями
+  `applicant_full_name`, `provided_phone_number` и `location_phone_number`.
+  Эти поля не входят в `initial_call` и становятся известны обучаемому только
+  из голосовых ответов модели; после разговора обучаемый переносит их в карточку;
+- `initial_call.automatic_phone_number` — отображаемый оператору АОН. Он не
+  заменяет номера, которые заявитель сообщает голосом;
 - разговор и формулировки вопросов обучаемого не оцениваются — оценивается
   только созданная по итогам разговора карточка;
 - `outbound_call` для входящего звонка не передаётся: используйте `null` или
@@ -252,6 +263,8 @@ type CardTemplateCreate = {
 - длина `expected_text` — `1..10000` символов после удаления пробелов по краям;
 - длина каждого комментария — не более `10000` символов; пустая строка после
   `trim` сохраняется как `null`;
+- `unit_number` — номер назначенного расчёта, экипажа или бригады длиной до
+  `64` символов. Поле может быть `null`, например до начала реагирования;
 - `service_status_history` задаёт точный ожидаемый порядок изменений статуса и
   комментарии оператора;
 - множество ключей `service_status_history` должно в точности совпадать с
@@ -260,6 +273,7 @@ type CardTemplateCreate = {
 - последний статус истории службы должен совпадать со значением
   `expected_result.card.service_statuses[serviceCode]`;
 - при оценке сравниваются порядок, статус и точный текст комментария;
+  `unit_number` сохраняется в истории, но на оценку не влияет;
 - для сценария одной ДДС в `services`, `service_statuses` и
   `service_status_history` должен присутствовать только код этой ДДС.
 
@@ -566,8 +580,10 @@ DELETE /api/v1/incoming-call-templates/{templateId}
 `TIME_OFFSET` нужен `trigger_config.offset_seconds >= 0`; для `AFTER_ACTION` —
 существующий `card_key`, `action_type` и необязательная задержка
 `delay_seconds >= 0`. `MANUAL` пока не поддерживается. `INLINE` содержит
-`initial_card` либо `initial_call` и `expected_result`; `TEMPLATE` ссылается
-на `template_id`. Входящие звонки требуют `schema_version >= 2`.
+`initial_card` и `expected_result` для карточки; `TEMPLATE` ссылается
+на `template_id`. Входящий звонок задаётся только ссылкой на шаблон входящего
+звонка и требует `schema_version >= 2`. Поле `initial_utterance` остаётся
+в шаблоне звонка и в определение сценария не передаётся.
 
 При назначении в `scenario_assignment.scenario_snapshot` сохраняются метаданные
 сценария и разрешённая копия `definition`: ссылки на шаблоны заменяются
@@ -586,7 +602,8 @@ X-User-Id: <teacher-or-administrator-uuid>
 
 Детальная ручка дополнительно возвращает `items[]` для элементов статического
 плана. Каждый элемент содержит `key`, `item_type`, источник и имя шаблона,
-`initial_card` либо `initial_call`, а также `expected_card`. Сервер добавляет
+`initial_card` для карточки и `expected_card`. Для просмотра `initial_call`
+используйте ручку шаблона входящего звонка. Сервер добавляет
 `event_type_name` и `event_kind_name`. `notification_list` берётся из
 `expected_card.services`, а первый элемент считается `main_service`. Для процедурного сценария
 будущие карточки до генерации в `items[]` не перечисляются.

@@ -354,6 +354,7 @@ class ServiceStatusCreate(BaseModel):
     author_id: uuid.UUID | None = None
     source_system_id: uuid.UUID | None = None
     comment: str | None = None
+    unit_number: str | None = Field(default=None, max_length=64)
     external_event_id: str | None = Field(default=None, max_length=255)
     request_id: str | None = Field(default=None, max_length=128)
 
@@ -367,6 +368,7 @@ class ServiceStatusResponse(OrmModel):
     author_id: uuid.UUID | None
     source_system_id: uuid.UUID | None
     comment: str | None
+    unit_number: str | None
     external_event_id: str | None
 
 

@@ -82,10 +82,12 @@ function Clock() {
 export function WorkspaceHeader({
   role,
   operatorMode = false,
+  ddsMode = false,
   onCreateCard,
 }: {
   role: UserRole;
   operatorMode?: boolean;
+  ddsMode?: boolean;
   onCreateCard?: () => void;
 }) {
   const profile = useSessionStore((state) => state.profile);
@@ -95,6 +97,7 @@ export function WorkspaceHeader({
       component="header"
       className={classes.header}
       data-operator={operatorMode || undefined}
+      data-dds={ddsMode || undefined}
     >
       <div className={classes.searchPanel}>
         <TextInput

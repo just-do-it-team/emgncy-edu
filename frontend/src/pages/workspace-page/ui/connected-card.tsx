@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -9,7 +9,11 @@ import {
   Text,
 } from "@mantine/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { resolveClassification, resolveServices } from "@/entities/incident";
+import {
+  resolveClassification,
+  resolveServices,
+  type Incident,
+} from "@/entities/incident";
 import {
   apiError,
   notifyTrainingError,
@@ -29,6 +33,7 @@ import type { OperatorCardDraft } from "../model/operator-cards";
 import { OperatorCard } from "./operator-card";
 import { IncidentViewer } from "./incident-viewer";
 import { ServerServices } from "./server-services";
+import { DdsServices } from "./dds-services";
 import { ServerCardStatus } from "./server-card-status";
 import { CardAudio } from "./card-audio";
 import { ProcessedCardView } from "./processed-card-view";
@@ -39,6 +44,8 @@ type Props = {
   kinds: EventKind[];
   directory: EmergencyService[];
   readOnly: boolean;
+  eventsConnected: boolean;
+  summary?: Incident;
   onClose: () => void;
   onChanged: () => Promise<void>;
 };
@@ -55,6 +62,8 @@ export function ConnectedCard(props: Props) {
   const query = useQuery({
     queryKey,
     queryFn: ({ signal }) => trainingApi.card(props.ctx, props.cardId, signal),
+    refetchInterval:
+      props.ctx.mode === "DDS" && !props.eventsConnected ? 5000 : false,
     refetchOnMount: "always",
     refetchOnWindowFocus: false,
     meta: { showGlobalError: false },
@@ -123,6 +132,7 @@ function CardEditor({
   kinds,
   directory,
   readOnly,
+  summary,
   onClose,
   onChanged,
   onSaved,
@@ -138,6 +148,25 @@ function CardEditor({
   const [error, setError] = useState<string | null>(null);
   const outdated = initial.version > card.version;
   const disabled = readOnly || busy || needsRefresh || outdated;
+  useEffect(() => {
+    if (
+      ctx.mode === "DDS" &&
+      initial.version > card.version &&
+      !busy &&
+      !needsRefresh
+    )
+      setCard(initial);
+  }, [busy, card.version, ctx.mode, initial, needsRefresh]);
+  async function loadUpdatedCard(previousVersion: number) {
+    for (let attempt = 0; attempt < 7; attempt++) {
+      const fresh = await trainingApi.card(ctx, card.id);
+      if (fresh.version > previousVersion) return fresh;
+      await new Promise((resolve) => window.setTimeout(resolve, 400));
+    }
+    throw new Error(
+      "Карточка сохранена, но обновлённая версия ещё недоступна. Обновите данные с сервера.",
+    );
+  }
   async function reload() {
     setBusy(true);
     setError(null);
@@ -219,7 +248,7 @@ function CardEditor({
     setBusy(true);
     try {
       await trainingApi.serviceStatus(ctx, card, service.id, next, comment);
-      setCard(await trainingApi.card(ctx, card.id));
+      setCard(await loadUpdatedCard(card.version));
       await onChanged();
     } catch (err) {
       setNeedsRefresh(true);
@@ -332,7 +361,14 @@ function CardEditor({
       )}
     </Stack>
   );
-  const incident = cardIncident(card, kinds, ctx.positionCode);
+  const incident = {
+    ...cardIncident(card, kinds, ctx.positionCode),
+    type: ctx.positionCode ?? card.classification?.final_incident_type ?? "",
+    operator: summary?.operator ?? null,
+    workstation: summary?.workstation ?? null,
+    author: summary?.author ?? "",
+    descriptionCreatedAt: summary?.descriptionCreatedAt ?? card.registered_at,
+  };
   const operatorEntry = useMemo(
     () => ({
       incident: cardIncident(card, kinds, ctx.positionCode),
@@ -344,12 +380,35 @@ function CardEditor({
     return (
       <IncidentViewer
         incident={incident}
+        ddsMode
         onClose={() => {
           if (!busy) onClose();
         }}
         onServiceChange={() => {}}
-        serverServices={services()}
-        extraContent={info}
+        serverServices={
+          <DdsServices
+            ctx={ctx}
+            card={card}
+            directory={directory}
+            readOnly={disabled}
+            onStatus={status}
+          />
+        }
+        extraContent={
+          (outdated || needsRefresh || error || readOnly) && (
+            <Group p="sm" bg="white" justify="space-between">
+              <Text size="sm">
+                {error ||
+                  (readOnly
+                    ? "Карточка доступна только для просмотра."
+                    : "На сервере появилась новая версия карточки. Обновите данные перед записью.")}
+              </Text>
+              <Button size="xs" loading={busy} onClick={() => void reload()}>
+                Обновить карточку
+              </Button>
+            </Group>
+          )
+        }
       />
     );
   return (

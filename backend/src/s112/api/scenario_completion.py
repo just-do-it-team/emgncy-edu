@@ -260,7 +260,7 @@ class ScenarioCompletionService:
 
         for item in training_calls:
             if item.status == TrainingCallStatus.COMPLETED.value:
-                if item.incident_card_id is None:
+                if item.direction == "INBOUND" and item.incident_card_id is None:
                     blockers.append(
                         {
                             "code": "COMPLETED_CALL_MISSING_INCIDENT_CARD",
@@ -270,10 +270,11 @@ class ScenarioCompletionService:
                         }
                     )
                 continue
+            call_kind = "OUTGOING_CALL" if item.direction == "OUTBOUND" else "INCOMING_CALL"
             blockers.append(
                 {
-                    "code": f"INCOMING_CALL_{item.status}",
-                    "message": "An incoming call has not been completed successfully",
+                    "code": f"{call_kind}_{item.status}",
+                    "message": "A training call has not been completed successfully",
                     "scenario_item_key": item.scenario_item_key,
                     "training_call_id": str(item.id),
                 }

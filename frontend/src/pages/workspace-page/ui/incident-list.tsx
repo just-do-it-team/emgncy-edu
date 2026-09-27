@@ -39,9 +39,11 @@ interface IncidentListProps {
 function IncidentRow({
   incident,
   onOpenIncident,
+  shortNumber,
 }: {
   incident: Incident;
   onOpenIncident: IncidentListProps["onOpenIncident"];
+  shortNumber: boolean;
 }) {
   const createdAt = new Date(incident.createdAt);
   const time = createdAt.toLocaleTimeString("ru-RU", { hour12: false });
@@ -88,7 +90,12 @@ function IncidentRow({
           {incident.operator ?? "—"}
         </Table.Td>
         <Table.Td>{incident.workstation ?? "—"}</Table.Td>
-        <Table.Td>{incident.id}</Table.Td>
+        <Table.Td
+          className={shortNumber ? classes.cardNumber : undefined}
+          title={shortNumber ? incident.id : undefined}
+        >
+          {shortNumber ? incident.id.slice(0, 8) : incident.id}
+        </Table.Td>
         <Table.Td>{shortDate.format(createdAt)}</Table.Td>
         <Table.Td className={classes.incidentTime}>
           {time.slice(0, 5)}
@@ -137,8 +144,8 @@ function IncidentRow({
               {descriptionCreatedAt.toLocaleDateString("ru-RU")}{" "}
               {descriptionCreatedAt.toLocaleTimeString("ru-RU", {
                 hour12: false,
-              })}{" "}
-              {incident.author} -
+              })}
+              {incident.author ? ` ${incident.author} -` : ""}
             </span>{" "}
             <span className={classes.descriptionText}>
               {incident.description}
@@ -248,6 +255,7 @@ export function IncidentList({
                 key={incident.serverId ?? incident.id}
                 incident={incident}
                 onOpenIncident={onOpenIncident}
+                shortNumber={!operatorMode}
               />
             ))}
           </Table.Tbody>

@@ -5,6 +5,7 @@ import type {
   CardStatusHistory,
   CardCreate,
   IncomingCall,
+  OutgoingCall,
   ApiCard,
   Assignment,
   AudioMessage,
@@ -83,8 +84,7 @@ export function apiError(error: unknown): string {
       return "Объект не найден или больше недоступен.";
     if (error.response?.status === 422)
       return "Бэкенд отклонил данные. Проверьте обязательные поля и выбранные признаки.";
-    if (!error.response)
-      return "Нет ответа от API.";
+    if (!error.response) return "Нет ответа от API.";
     return `Ошибка API (${error.response.status}). Повторите загрузку.`;
   }
   return error instanceof Error
@@ -92,6 +92,33 @@ export function apiError(error: unknown): string {
     : "Не удалось выполнить действие.";
 }
 export const trainingApi = {
+  outgoingCall: async (
+    ctx: LaunchContext,
+    cardId: string,
+    signal?: AbortSignal,
+  ) =>
+    (
+      await api.get<OutgoingCall | null>(`/cards/${cardId}/outgoing-call`, {
+        ...requestConfig(ctx.userId),
+        signal,
+      })
+    ).data,
+  startOutgoingCall: async (ctx: LaunchContext, cardId: string) =>
+    (
+      await api.post<OutgoingCall>(
+        `/cards/${cardId}/outgoing-call`,
+        { user_id: ctx.userId },
+        requestConfig(ctx.userId),
+      )
+    ).data,
+  completeOutgoingCall: async (ctx: LaunchContext, callId: string) =>
+    (
+      await api.post<OutgoingCall>(
+        `/outgoing-calls/${callId}/complete`,
+        { user_id: ctx.userId },
+        requestConfig(ctx.userId),
+      )
+    ).data,
   incomingCalls: async (ctx: LaunchContext, signal?: AbortSignal) =>
     (
       await api.get<IncomingCall[]>(
@@ -449,11 +476,15 @@ export const trainingApi = {
         : audio.type === "audio/mp4"
           ? "m4a"
           : "webm";
-    form.append("audio", audio, `operator-112.${extension}`);
+    form.append(
+      "audio",
+      audio,
+      `${ctx.mode === "DDS" ? "dds" : "operator-112"}.${extension}`,
+    );
     form.append("client_sent_at", new Date().toISOString());
     return (
       await api.post<AudioMessage>(
-        `/workspaces/${ctx.workspaceId}/incoming-calls/${callId}/audio-messages`,
+        `/workspaces/${ctx.workspaceId}/${ctx.mode === "DDS" ? "outgoing-calls" : "incoming-calls"}/${callId}/audio-messages`,
         form,
         {
           ...requestConfig(ctx.userId),
@@ -470,7 +501,7 @@ export const trainingApi = {
   ) =>
     (
       await api.get<AudioMessage[]>(
-        `/workspaces/${ctx.workspaceId}/incoming-calls/${callId}/audio-messages`,
+        `/workspaces/${ctx.workspaceId}/${ctx.mode === "DDS" ? "outgoing-calls" : "incoming-calls"}/${callId}/audio-messages`,
         { ...requestConfig(ctx.userId), signal },
       )
     ).data,
