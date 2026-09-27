@@ -10,10 +10,12 @@ export type ScenarioMode = "STATIC" | "PROCEDURAL" | "HYBRID";
 
 export type ScenarioCompletionPolicy = "STUDENT_CONFIRM" | "AUTO_WHEN_READY" | "TEACHER_ONLY";
 
+export type ScenarioSourceType = "TEMPLATE" | "INLINE";
+
 export type ScenarioCardDefinitionDto = {
   key: string;
   item_type: ScenarioItemType;
-  source_type: string;
+  source_type: ScenarioSourceType;
   template_id?: string;
   initial_card?: JsonObject;
   expected_result?: JsonObject;
@@ -82,7 +84,7 @@ export interface OperatorClassificationDto {
 export interface ScenarioItemDetailDto {
   key: string;
   item_type: ScenarioItemType;
-  source_type: string;
+  source_type: ScenarioSourceType;
   template_id: string | null;
   template_name: string | null;
   initial_card: JsonObject | null;
@@ -96,11 +98,63 @@ export interface TrainingScenarioDetailDto extends TrainingScenarioDto {
   items: ScenarioItemDetailDto[];
 }
 
+export interface TrainingScenarioCreateDto {
+  name: string;
+  description: string | null;
+  difficulty: number;
+  estimated_duration_seconds: number;
+  workspace_mode: ScenarioWorkspaceMode;
+  completion_policy: ScenarioCompletionPolicy;
+  min_participants: number;
+  max_participants: number;
+  definition: ScenarioDefinitionDto;
+  status: ScenarioStatus;
+  created_by: string;
+}
+
+export interface CardTemplateDto {
+  id: string;
+  template_key: string;
+  version: number;
+  name: string;
+  description: string | null;
+  difficulty: number;
+  initial_card: JsonObject;
+  expected_result: JsonObject;
+  is_active: boolean;
+  created_by: string;
+  created_at: string;
+}
+
+export interface IncomingCallTemplateDto extends Omit<CardTemplateDto, "initial_card"> {
+  initial_call: JsonObject;
+}
+
+export type ScenarioTemplateKind = "card" | "call";
+
+export interface ScenarioTemplate {
+  id: string;
+  kind: ScenarioTemplateKind;
+  name: string;
+  version: number;
+  isActive: boolean;
+  expectedResult: JsonObject;
+}
+
+export interface ScenarioComposition {
+  itemTypes: ScenarioItemType[];
+  procedural: boolean;
+}
+
 export interface ScenarioListItem {
   id: string;
   name: string;
   difficulty: number;
   status: ScenarioStatus;
+  createdBy: string;
+  updatedAt: string;
+  itemsCount: number;
+  composition: ScenarioComposition;
 }
 
 export interface ScenarioService {
@@ -127,8 +181,12 @@ export interface ProceduralGeneration {
 export interface ScenarioItem {
   key: string;
   itemType: ScenarioItemType;
+  sourceType: ScenarioSourceType;
+  templateId: string | null;
   trigger: ScenarioTrigger | null;
   templateName: string | null;
+  expectedCard: JsonObject | null;
+  inlineExpectedResult: JsonObject | null;
   classification: ScenarioClassification | null;
   mainService: ScenarioService | null;
   notificationList: ScenarioService[];
@@ -144,8 +202,14 @@ export interface ScenarioDetail {
   mode: ScenarioMode;
   workspaceMode: ScenarioWorkspaceMode;
   completionPolicy: ScenarioCompletionPolicy;
+  minParticipants: number;
+  maxParticipants: number;
   revision: number;
   status: ScenarioStatus;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  composition: ScenarioComposition;
   items: ScenarioItem[];
   procedural: ProceduralGeneration | null;
 }
@@ -154,8 +218,62 @@ function toService(dto: ScenarioServiceDetailDto): ScenarioService {
   return { code: dto.code, name: dto.name };
 }
 
+function toComposition(definition: ScenarioDefinitionDto): ScenarioComposition {
+  return {
+    itemTypes: definition.cards.map((card) => card.item_type),
+    procedural: definition.procedural_generation !== undefined,
+  };
+}
+
 export function toScenarioListItem(dto: TrainingScenarioDto): ScenarioListItem {
-  return { id: dto.id, name: dto.name, difficulty: dto.difficulty, status: dto.status };
+  return {
+    id: dto.id,
+    name: dto.name,
+    difficulty: dto.difficulty,
+    status: dto.status,
+    createdBy: dto.created_by,
+    updatedAt: dto.updated_at,
+    itemsCount: dto.cards_count,
+    composition: toComposition(dto.definition),
+  };
+}
+
+export function toCardTemplate(dto: CardTemplateDto): ScenarioTemplate {
+  return {
+    id: dto.id,
+    kind: "card",
+    name: dto.name,
+    version: dto.version,
+    isActive: dto.is_active,
+    expectedResult: dto.expected_result,
+  };
+}
+
+export function toIncomingCallTemplate(dto: IncomingCallTemplateDto): ScenarioTemplate {
+  return {
+    id: dto.id,
+    kind: "call",
+    name: dto.name,
+    version: dto.version,
+    isActive: dto.is_active,
+    expectedResult: dto.expected_result,
+  };
+}
+
+export function toScenarioCopy(dto: TrainingScenarioDto, name: string, createdBy: string): TrainingScenarioCreateDto {
+  return {
+    name,
+    description: dto.description,
+    difficulty: dto.difficulty,
+    estimated_duration_seconds: dto.estimated_duration_seconds,
+    workspace_mode: dto.workspace_mode,
+    completion_policy: dto.completion_policy,
+    min_participants: dto.min_participants,
+    max_participants: dto.max_participants,
+    definition: dto.definition,
+    status: "DRAFT",
+    created_by: createdBy,
+  };
 }
 
 function toTrigger(card: ScenarioCardDefinitionDto | undefined): ScenarioTrigger | null {
@@ -186,8 +304,14 @@ export function toScenarioDetail(dto: TrainingScenarioDetailDto): ScenarioDetail
     mode: dto.definition.mode,
     workspaceMode: dto.workspace_mode,
     completionPolicy: dto.completion_policy,
+    minParticipants: dto.min_participants,
+    maxParticipants: dto.max_participants,
     revision: dto.revision,
     status: dto.status,
+    createdBy: dto.created_by,
+    createdAt: dto.created_at,
+    updatedAt: dto.updated_at,
+    composition: toComposition(dto.definition),
     procedural: generation
       ? {
           targetCount: generation.target_count,
@@ -198,8 +322,12 @@ export function toScenarioDetail(dto: TrainingScenarioDetailDto): ScenarioDetail
     items: dto.items.map((item) => ({
       key: item.key,
       itemType: item.item_type,
+      sourceType: item.source_type,
+      templateId: item.template_id,
       trigger: toTrigger(cardsByKey.get(item.key)),
       templateName: item.template_name,
+      expectedCard: item.expected_card,
+      inlineExpectedResult: cardsByKey.get(item.key)?.expected_result ?? null,
       classification: item.classification && {
         recordId: item.classification.record_id,
         featureCodes: [

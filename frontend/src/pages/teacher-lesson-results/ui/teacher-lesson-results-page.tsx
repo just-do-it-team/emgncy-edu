@@ -25,9 +25,8 @@ import {
 import type { EmergencyService, MonitoredSession } from "@/shared/api";
 import { ACK_TIMEOUT_SECONDS, CARD_FILL_NORM_SECONDS } from "@/shared/config";
 import { formatDayMonthTime } from "@/shared/lib";
-import { Button, ScoreBlock, tooltipEvents } from "@/shared/ui";
+import { Button, Fact, ScoreBlock, tooltipEvents } from "@/shared/ui";
 import { TeacherAttemptsTable } from "@/widgets/teacher-attempts-table";
-import { Fact } from "./fact";
 import { LessonFindings } from "./lesson-findings";
 import { LessonParticipants } from "./lesson-participants";
 import { LessonScenario } from "./lesson-scenario";

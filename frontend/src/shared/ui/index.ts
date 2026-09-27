@@ -16,5 +16,6 @@ export { TextInput } from "./text-input";
 export type { TextInputProps } from "./text-input";
 export { tooltipEvents } from "./tooltip-events";
 export { SortableTh } from "./sortable-th";
+export { Fact } from "./fact";
 export { FilteredEmpty } from "./filtered-empty";
 export { LinkRow } from "./link-row";

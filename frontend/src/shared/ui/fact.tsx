@@ -1,6 +1,6 @@
 import { Stack, Text } from "@mantine/core";
 import type { ReactNode } from "react";
-import classes from "./lesson-results.module.scss";
+import classes from "./fact.module.scss";
 
 interface FactProps {
   label: string;

@@ -74,12 +74,21 @@ export type {
   TeacherMonitoringParticipantDto,
   TeacherMonitoringSessionDto,
 } from "./teacher-monitoring";
-export { toScenarioDetail, toScenarioListItem } from "./training-scenarios";
+export {
+  toCardTemplate,
+  toIncomingCallTemplate,
+  toScenarioCopy,
+  toScenarioDetail,
+  toScenarioListItem,
+} from "./training-scenarios";
 export type {
+  CardTemplateDto,
+  IncomingCallTemplateDto,
   OperatorClassificationDto,
   ProceduralGeneration,
   ScenarioClassification,
   ScenarioCompletionPolicy,
+  ScenarioComposition,
   ScenarioDetail,
   ScenarioItem,
   ScenarioItemDetailDto,
@@ -87,10 +96,14 @@ export type {
   ScenarioListItem,
   ScenarioMode,
   ScenarioService,
+  ScenarioSourceType,
+  ScenarioTemplate,
+  ScenarioTemplateKind,
   ScenarioServiceDetailDto,
   ScenarioStatus,
   ScenarioTrigger,
   ScenarioWorkspaceMode,
+  TrainingScenarioCreateDto,
   TrainingScenarioDetailDto,
   TrainingScenarioDto,
 } from "./training-scenarios";

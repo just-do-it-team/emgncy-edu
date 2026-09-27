@@ -6,22 +6,23 @@ import { launchPolicyLabels } from "@/entities/assignment";
 import { actionTypeLabel } from "@/entities/expert-review";
 import {
   completionPolicyLabels,
+  difficultyLabel,
+  proceduralPoolText,
   scenarioItemLabels,
   scenarioModeLabels,
+  triggerText,
   useScenario,
   workspaceLabels,
 } from "@/entities/scenario";
-import { cardsPhrase, type Lesson } from "@/features/teacher-lessons";
-import type { ProceduralGeneration, ScenarioDetail, ScenarioItem, ScenarioTrigger } from "@/shared/api";
+import type { Lesson } from "@/features/teacher-lessons";
+import type { ScenarioDetail, ScenarioItem } from "@/shared/api";
 import { PROCEDURAL_PACE_BY_DIFFICULTY } from "@/shared/config";
-import { Button, tooltipEvents } from "@/shared/ui";
-import { Fact } from "./fact";
+import { Button, Fact, tooltipEvents } from "@/shared/ui";
 import classes from "./lesson-results.module.scss";
 
 const SECONDS_IN_MINUTE = 60;
-const MAX_DIFFICULTY = 5;
 const PACE_SCALE =
-  "Сложность задаёт темп процедурной подачи: от одной карточки раз в 180 с на уровне 1 до одной раз в 30 с при четырёх одновременно открытых на уровне 5.";
+  "Сложность задаёт темп процедурной подачи: чем выше уровень, тем чаще подаются карточки и тем больше их открыто одновременно.";
 
 function distinct<T>(values: T[]): T[] {
   return [...new Set(values)];
@@ -39,29 +40,9 @@ function difficultyHint(scenario: ScenarioDetail): string {
   }
   if (!pace) return PACE_SCALE;
 
-  return `${PACE_SCALE} На уровне ${scenario.difficulty}: первая карточка через ${pace.initialDelaySeconds} с от начала, далее одна раз в ${pace.releaseIntervalSeconds} с, одновременно открыто не больше ${pace.maxActive}. Шаблоны берутся сложностью не выше ${scenario.difficulty}.`;
-}
+  const level = difficultyLabel(scenario.difficulty);
 
-function triggerLabel(trigger: ScenarioTrigger | null, labelOf: (key: string) => string): string {
-  if (trigger === null) return "—";
-  if (trigger.type === "TIME_OFFSET") return `через ${trigger.offsetSeconds} с от начала`;
-
-  const delay = trigger.delaySeconds > 0 ? `с задержкой ${trigger.delaySeconds} с` : "без задержки";
-
-  const action = actionTypeLabel(trigger.actionType) ?? `${trigger.actionType} (названия нет)`;
-
-  return `после действия «${action}» по элементу «${labelOf(trigger.itemKey)}», ${delay}`;
-}
-
-function poolLabel(generation: ProceduralGeneration, difficulty: number): string {
-  const source =
-    generation.templateIds !== null
-      ? `выбранных шаблонов: ${generation.templateIds.length}`
-      : generation.classificationGroupCodes !== null
-        ? `шаблонов групп классификатора ${generation.classificationGroupCodes.join(", ")}`
-        : "всех активных шаблонов карточек";
-
-  return `${cardsPhrase(generation.targetCount)} из пула ${source}, сложностью не выше ${difficulty}. Какие именно — определяется при старте попытки.`;
+  return `${PACE_SCALE} Уровень «${level}»: первая карточка через ${pace.initialDelaySeconds} с от начала, далее одна раз в ${pace.releaseIntervalSeconds} с, одновременно открыто не больше ${pace.maxActive}. Шаблоны берутся сложностью не выше «${level}».`;
 }
 
 function ServicesCell({ item }: { item: ScenarioItem }) {
@@ -114,7 +95,7 @@ function CompositionTable({ items }: { items: ScenarioItem[] }) {
                 )}
               </Table.Td>
               <Table.Td>
-                <Text size="sm">{triggerLabel(item.trigger, labelOf)}</Text>
+                <Text size="sm">{triggerText(item.trigger, labelOf, actionTypeLabel)}</Text>
               </Table.Td>
               <Table.Td>
                 {item.classification ? (
@@ -186,7 +167,7 @@ function Composition({ scenario, assignedRevisions }: { scenario: ScenarioDetail
               <Text span size="sm" c="povDark2.6">
                 Процедурная подача:{" "}
               </Text>
-              {poolLabel(scenario.procedural, scenario.difficulty)}
+              {proceduralPoolText(scenario.procedural, scenario.difficulty)}
             </Text>
           )}
         </Stack>
@@ -229,7 +210,7 @@ function ScenarioOverview({ scenario, lesson }: { scenario: ScenarioDetail; less
               radius={0}
             >
               <span tabIndex={0} className={classes.focusable}>
-                {scenario.difficulty} из {MAX_DIFFICULTY}
+                {difficultyLabel(scenario.difficulty)}
               </span>
             </Tooltip>
           </Fact>

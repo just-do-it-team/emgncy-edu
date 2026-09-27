@@ -12,16 +12,6 @@ const participants: Partial<Record<Intl.LDMLPluralRule, string>> = {
   many: "участников",
 };
 
-const cards: Partial<Record<Intl.LDMLPluralRule, string>> = {
-  one: "карточка",
-  few: "карточки",
-  many: "карточек",
-};
-
-export function cardsPhrase(count: number): string {
-  return `${count} ${cards[pluralRules.select(count)] ?? "карточки"}`;
-}
-
 export function completedAttemptsPhrase(count: number): string {
   return `по ${count} ${completedAttempts[pluralRules.select(count)] ?? "завершённым попыткам"}`;
 }
