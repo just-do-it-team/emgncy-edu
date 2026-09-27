@@ -243,7 +243,6 @@ function CardEditor({
         `В справочнике API нет служб: ${unavailable.map((service) => service.name).join(", ")}.`,
       );
     setBusy(true);
-    setError(null);
     let coreSaved = false;
     try {
       let updated = await trainingApi.patch(
