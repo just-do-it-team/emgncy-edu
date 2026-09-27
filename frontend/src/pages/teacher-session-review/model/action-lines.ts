@@ -5,6 +5,7 @@ import {
   cardFieldLabel,
   cardStatusLabel,
   formatJsonValue,
+  outgoingCallStageLabels,
   responseStatusLabel,
   serviceLabel,
   sessionStageLabels,
@@ -16,6 +17,22 @@ export interface ActionLine {
 }
 
 const STRUCTURED_FIELDS = new Set(["classification", "questionnaire"]);
+
+const unitNounByServiceCode: Record<string, string> = {
+  "101": "расчёт",
+  "103": "бригада",
+};
+
+function unitLabel(
+  serviceId: string | null,
+  unitNumber: string,
+  services: Map<string, EmergencyService> | undefined,
+): string {
+  const code = serviceId === null ? undefined : services?.get(serviceId)?.code;
+  const noun = (code !== undefined ? unitNounByServiceCode[code] : undefined) ?? "подразделение";
+
+  return `${noun} №${unitNumber}`;
+}
 
 function changeLine(change: FieldChange): ActionLine {
   return {
@@ -76,7 +93,11 @@ export function actionLines(
         [
           {
             label: "статус",
-            value: `${event.to ? responseStatusLabel(event.to) : "—"}, ${serviceLabel(event.serviceId, services)}`,
+            value: [
+              event.to ? responseStatusLabel(event.to) : "—",
+              serviceLabel(event.serviceId, services),
+              ...(event.unitNumber ? [unitLabel(event.serviceId, event.unitNumber, services)] : []),
+            ].join(", "),
           },
         ],
         event.comment,
@@ -90,6 +111,8 @@ export function actionLines(
       ];
     case "call":
       return [{ label: callStageLabels[event.stage], value: null }];
+    case "outgoing_call":
+      return [{ label: outgoingCallStageLabels[event.stage], value: null }];
     case "session":
       return [{ label: sessionStageLabels[event.stage], value: null }];
     case "transcribed":

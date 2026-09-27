@@ -151,6 +151,44 @@ Query: `teacher_id` (uuid, обязателен).
 
 `call_id` для расшифровки и записи — `incoming_calls[].training_call_id`.
 
+**Дельта: `outgoing_calls[]`.** Исходящий звонок диспетчера ДДС (`direction = OUTBOUND`,
+`POST /cards/{card_id}/outgoing-call`) в контекст не попадает: `incoming_calls[]` отфильтрован
+по `INBOUND`, а реплики звонка приходят в `call_utterances[]` с `call_id`, которому нет
+элемента. Фронт сейчас собирает элемент «Исходящий звонок N» сам: `call_id` — из реплик и из
+действий `OUTGOING_CALL_STARTED` / `OUTGOING_CALL_COMPLETED` (`entity_id`), карточка и
+оператор — из `OUTGOING_CALL_STARTED`, начало отсчёта — время этого действия. Длительностей
+реплик нет, записи нет (`/recording` для `OUTBOUND` отвечает 404). В ограниченном разборе
+прерванной попытки реплик исходящего звонка нет вовсе: `call_utterances` там недоступны.
+
+Требуется массив `outgoing_calls[]` на верхнем уровне:
+
+| Поле | Тип | Описание |
+|---|---|---|
+| `training_call_id` | uuid | звонок |
+| `incident_card_id` | uuid | карточка, по которой звонили |
+| `operator_user_id` | uuid | диспетчер ДДС, который звонил |
+| `status` | str | `ACTIVE`, `COMPLETED`, `CANCELLED` |
+| `answered_at` | datetime | начало звонка |
+| `completed_at` | datetime \| null | завершение |
+| `automatic_result` | object \| null | результат проверки `expected_result.outbound_call` по этому звонку, если он есть |
+
+Пример:
+
+```json
+{
+  "training_call_id": "5b7d9f1a-3c5e-4a7b-9d1f-3a5c7e9b1d64",
+  "incident_card_id": "8e0a2c4e-6a8c-4e0f-9b2d-4f6a8c0e2b73",
+  "operator_user_id": "4f6b8d0a-2c4e-4a6b-8d0f-6b8d0f2a4c85",
+  "status": "COMPLETED",
+  "answered_at": "2026-09-27T10:14:05+03:00",
+  "completed_at": "2026-09-27T10:15:32+03:00",
+  "automatic_result": null
+}
+```
+
+Отдельно нужна запись исходящего звонка: `GET /training-calls/{call_id}/recording` для
+`OUTBOUND` отвечает 404 (`backend/src/s112/api/common/training/call_recording.py`).
+
 `automatic_result`: `score` (число 0..100), `passed`, `discrepancies[] {path, expected, actual,
 reason}`. У карточки есть `evaluated_at`, у звонка нет. В `session.result` тот же балл лежит
 строкой. `passed` — отсутствие расхождений; `score = (проверок − расхождений) / проверок × 100`,
@@ -241,3 +279,5 @@ bool; `comment` string ≤ 10 000 или `null`, пробелы по краям 
 | P2 | `spoken_at` у реплики расшифровки | точное положение реплики на реальной оси |
 | P2 | Событие готовности записи | опрос каждые 3 с |
 | P2 | `evaluated_at` в `automatic_result` звонка | асимметрия с карточкой |
+| P1 | `outgoing_calls[]` в `expert-review-context` | исходящий звонок ДДС собирается на фронте из реплик и действий, без статуса, длительностей и результата проверки |
+| P2 | Запись исходящего звонка (`/recording` для `OUTBOUND`) | в разборе исходящего звонка нет плеера |

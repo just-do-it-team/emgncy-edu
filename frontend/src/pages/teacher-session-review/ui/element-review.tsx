@@ -11,6 +11,7 @@ import {
   type RecordingAxis,
   type ReviewCall,
   type ReviewCard,
+  type ReviewOutgoingCall,
 } from "@/shared/api";
 import {
   actionForPath,
@@ -316,6 +317,66 @@ export function CardElementReview({
       player={
         <div className={classes.player}>
           <span className={classes.playerHint}>У карточки нет звонка, записи нет.</span>
+        </div>
+      }
+    />
+  );
+}
+
+interface OutgoingCallElementReviewProps {
+  call: ReviewOutgoingCall;
+  focusPath: string | null;
+  scopeNote: string | null;
+  limitedNote: string | null;
+  originAt: string;
+  actions: ActionEvent[];
+  roleState: RoleState;
+  services: Map<string, EmergencyService> | undefined;
+}
+
+export function OutgoingCallElementReview({
+  call,
+  focusPath,
+  scopeNote,
+  limitedNote,
+  originAt,
+  actions,
+  roleState,
+  services,
+}: OutgoingCallElementReviewProps) {
+  return (
+    <ElementLayout
+      focusPath={focusPath}
+      scopeNote={scopeNote}
+      limitedNote={
+        limitedNote ??
+        "Исходящий звонок оценивается в составе карточки: результат проверки смысла — в элементе карточки, по которой звонили."
+      }
+      originAt={originAt}
+      completedAt={call.completedAt}
+      items={buildStream(originAt, call.utterances, actions)}
+      durationsAvailable={false}
+      streamNotice={
+        call.utterances.length === 0 ? (
+          <div className={classes.state}>
+            Реплик исходящего звонка в данных разбора нет: показаны только отметки начала и завершения.
+          </div>
+        ) : null
+      }
+      emptyText="По исходящему звонку нет ни реплик, ни отметок начала и завершения."
+      timelineCaption={
+        call.startedAt === null
+          ? "Начало звонка в журнале не найдено: время отсчитано от начала попытки, длительности реплик неизвестны."
+          : "Длительности реплик для исходящего звонка сервер не передаёт: реплики отмечены засечками в момент записи."
+      }
+      activeId={null}
+      result={null}
+      roleState={roleState}
+      services={services}
+      player={
+        <div className={classes.player}>
+          <span className={classes.playerText}>Записи нет</span>
+          <span className={classes.playerHint}>Сервер собирает запись только для входящих звонков.</span>
         </div>
       }
     />

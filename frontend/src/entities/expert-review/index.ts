@@ -35,4 +35,9 @@ export {
   responseStatusLabel,
   serviceLabel,
 } from "./model/discrepancy-labels";
-export { actionTypeLabel, callStageLabels, sessionStageLabels } from "./model/action-type-labels";
+export {
+  actionTypeLabel,
+  callStageLabels,
+  outgoingCallStageLabels,
+  sessionStageLabels,
+} from "./model/action-type-labels";

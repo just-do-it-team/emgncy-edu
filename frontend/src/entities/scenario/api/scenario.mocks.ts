@@ -2,6 +2,30 @@ import type { TrainingScenarioDetailDto } from "@/shared/api";
 
 const teacherId = "6a8c0e2b-4d6f-4a1c-9e3b-5d7f9b1d3f28";
 
+const gasSmellClassification = {
+  record_id: 13020201,
+  group_code: 13,
+  feature_1_code: 2,
+  feature_2_code: 2,
+  feature_3_code: 1,
+  final_incident_type: "Запах бытового газа в квартире",
+  routing_flags: {},
+  excluded_service_codes: [],
+};
+
+const gasSmellCard = {
+  classification: gasSmellClassification,
+  description:
+    "Соседка из кв. 61 сообщает о сильном запахе газа на лестничной площадке 5 этажа, источник — кв. 58, дверь открыта.",
+  applicant_full_name: "Кравцова Нина Петровна",
+  automatic_phone_number: "+74957304518",
+  provided_phone_number: "+79161234507",
+  location_phone_number: null,
+  reported_address: "г. Москва, Ленинский проспект, д. 14, подъезд 2, этаж 5, кв. 58",
+  incident_address: "г. Москва, Ленинский проспект, д. 14, подъезд 2, этаж 5, кв. 58",
+  victims_count: 0,
+};
+
 export const scenarioDetailMocks: TrainingScenarioDetailDto[] = [
   {
     id: "c0e2a4b6-8d1f-4c3e-9a5b-7d9f1b3d5e46",
@@ -36,6 +60,15 @@ export const scenarioDetailMocks: TrainingScenarioDetailDto[] = [
             delay_seconds: 45,
           },
           source_type: "INLINE",
+          initial_card: gasSmellCard,
+          expected_result: {
+            card: {
+              ...gasSmellCard,
+              current_status: "REGISTERED",
+              services: ["104", "101"],
+              service_statuses: { "104": "ADDED", "101": "ADDED" },
+            },
+          },
         },
       ],
     },
@@ -53,7 +86,6 @@ export const scenarioDetailMocks: TrainingScenarioDetailDto[] = [
         template_id: "71a3c5e7-9b2d-4f46-8a1c-3e5a7c9e1b62",
         template_name: "Задымление в квартире, Ленинский проспект",
         initial_card: null,
-        initial_call: null,
         expected_card: null,
         classification: {
           record_id: 1050102,
@@ -77,12 +109,19 @@ export const scenarioDetailMocks: TrainingScenarioDetailDto[] = [
         source_type: "INLINE",
         template_id: null,
         template_name: null,
-        initial_card: null,
-        initial_call: null,
-        expected_card: null,
-        classification: null,
-        main_service: null,
-        notification_list: [],
+        initial_card: gasSmellCard,
+        expected_card: {
+          ...gasSmellCard,
+          current_status: "REGISTERED",
+          services: ["104", "101"],
+          service_statuses: { "104": "ADDED", "101": "ADDED" },
+        },
+        classification: gasSmellClassification,
+        main_service: { service_id: null, code: "104", name: "Аварийная газовая служба", is_main: true },
+        notification_list: [
+          { service_id: null, code: "104", name: "Аварийная газовая служба", is_main: true },
+          { service_id: "3f8a1c5e-7b2d-4a96-8e0f-5c7a9e1b3d4f", code: "101", name: "Пожарная охрана", is_main: false },
+        ],
       },
     ],
   },

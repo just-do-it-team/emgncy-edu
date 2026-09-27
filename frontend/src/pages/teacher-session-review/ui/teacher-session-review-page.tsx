@@ -10,7 +10,7 @@ import type { ExpertReviewContext, ReviewAssignment } from "@/shared/api";
 import { formatDateTime } from "@/shared/lib";
 import { elementActions, formatOffset, offsetFrom, reviewElements } from "../model/replay";
 import { ABORTED_SESSION_STATUS, participantRoleLabels } from "@/entities/monitoring";
-import { CallElementReview, CardElementReview } from "./element-review";
+import { CallElementReview, CardElementReview, OutgoingCallElementReview } from "./element-review";
 import type { RoleState } from "./review-findings";
 import classes from "./session-review.module.scss";
 
@@ -162,7 +162,9 @@ function LoadedReview({ context, teacherId, limited }: LoadedReviewProps) {
     (item) =>
       participantId === null ||
       item.kind === "card" ||
-      callOperators.get(item.call.trainingCallId) === participantId,
+      (item.kind === "outgoing"
+        ? item.call.operatorUserId === null || item.call.operatorUserId === participantId
+        : callOperators.get(item.call.trainingCallId) === participantId),
   );
   const element = elements.find((item) => item.key === selectedKey) ?? elements[0];
   const names = context.participantIds.map(
@@ -251,6 +253,13 @@ function LoadedReview({ context, teacherId, limited }: LoadedReviewProps) {
         </div>
       ) : element.kind === "call" ? (
         <CallElementReview
+          key={element.key}
+          call={element.call}
+          focusPath={element.key === linkedElement ? searchParams.get("focus") : null}
+          {...elementProps}
+        />
+      ) : element.kind === "outgoing" ? (
+        <OutgoingCallElementReview
           key={element.key}
           call={element.call}
           focusPath={element.key === linkedElement ? searchParams.get("focus") : null}

@@ -64,6 +64,7 @@ export type ActionEventBody =
         from: string | null;
         to: string | null;
         comment: string | null;
+        unitNumber: string | null;
       }
     | {
         kind: "deadline_missed";
@@ -72,6 +73,7 @@ export type ActionEventBody =
         deadlineAt: string | null;
       }
     | { kind: "call"; stage: "ringing" | "answered" | "card_linked" | "completed" }
+    | { kind: "outgoing_call"; stage: "started" | "completed" }
     | { kind: "session"; stage: "started" | "completed" | "aborted" | "expert_assessment" }
     | { kind: "transcribed"; transcript: string | null }
     | {
@@ -91,6 +93,11 @@ const callStages = {
   INCOMING_CALL_ANSWERED: "answered",
   INCIDENT_CARD_CREATED_FROM_CALL: "card_linked",
   INCOMING_CALL_COMPLETED: "completed",
+} as const;
+
+const outgoingCallStages = {
+  OUTGOING_CALL_STARTED: "started",
+  OUTGOING_CALL_COMPLETED: "completed",
 } as const;
 
 const sessionStages = {
@@ -215,6 +222,7 @@ function eventBody(dto: TrainingActionDto): ActionEventBody {
         from: text(dto.before_state, "status"),
         to: text(dto.after_state, "status"),
         comment: text(dto.details, "comment"),
+        unitNumber: text(dto.details, "unit_number"),
       };
     case "CARD_OPEN_DEADLINE_MISSED":
     case "CARD_DECISION_DEADLINE_MISSED":
@@ -229,6 +237,9 @@ function eventBody(dto: TrainingActionDto): ActionEventBody {
     case "INCIDENT_CARD_CREATED_FROM_CALL":
     case "INCOMING_CALL_COMPLETED":
       return { kind: "call", stage: callStages[dto.action_type] };
+    case "OUTGOING_CALL_STARTED":
+    case "OUTGOING_CALL_COMPLETED":
+      return { kind: "outgoing_call", stage: outgoingCallStages[dto.action_type] };
     case "SESSION_STARTED":
     case "SESSION_COMPLETED":
     case "SESSION_ABORTED":

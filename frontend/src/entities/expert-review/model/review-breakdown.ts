@@ -66,6 +66,9 @@ const HANDLING_DECISION = /^service_handling\.[^.]+\.decision$/;
 const HANDLING_STATUS = /^service_handling\.[^.]+\.(opened_at|decision)$/;
 
 const COMPLETENESS_PATHS = new Set([
+  "card.applicant_full_name",
+  "card.provided_phone_number",
+  "card.location_phone_number",
   "card.description",
   "card.questionnaire",
   "card.questionnaire.questions",

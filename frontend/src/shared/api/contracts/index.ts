@@ -49,6 +49,7 @@ export type {
   ParticipantRole,
   ReviewAssignment,
   ReviewCall,
+  ReviewOutgoingCall,
   ReviewCard,
   ReviewSession,
   ScenarioAssignmentDto,

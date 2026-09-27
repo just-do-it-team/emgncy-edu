@@ -5,6 +5,11 @@ const callActionLabels = {
   INCOMING_CALL_COMPLETED: "вызов завершён",
 } as const;
 
+const outgoingCallActionLabels = {
+  OUTGOING_CALL_STARTED: "начат исходящий звонок",
+  OUTGOING_CALL_COMPLETED: "исходящий звонок завершён",
+} as const;
+
 const sessionActionLabels = {
   SESSION_STARTED: "попытка начата",
   SESSION_COMPLETED: "попытка завершена",
@@ -24,6 +29,7 @@ const actionTypeLabels: Record<string, string> = {
   CARD_REJECTED: "отклонение карточки",
   SERVICE_STATUS_CHANGED: "смена статуса реагирования",
   ...callActionLabels,
+  ...outgoingCallActionLabels,
   ...sessionActionLabels,
 };
 
@@ -32,6 +38,11 @@ export const callStageLabels = {
   answered: callActionLabels.INCOMING_CALL_ANSWERED,
   card_linked: callActionLabels.INCIDENT_CARD_CREATED_FROM_CALL,
   completed: callActionLabels.INCOMING_CALL_COMPLETED,
+} as const;
+
+export const outgoingCallStageLabels = {
+  started: outgoingCallActionLabels.OUTGOING_CALL_STARTED,
+  completed: outgoingCallActionLabels.OUTGOING_CALL_COMPLETED,
 } as const;
 
 export const sessionStageLabels = {

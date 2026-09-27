@@ -15,6 +15,8 @@ export type ScenarioCardDefinitionDto = {
   item_type: ScenarioItemType;
   source_type: string;
   template_id?: string;
+  initial_card?: JsonObject;
+  expected_result?: JsonObject;
 } & (
   | { trigger_type: "TIME_OFFSET"; trigger_config: { offset_seconds: number } }
   | {
@@ -84,7 +86,6 @@ export interface ScenarioItemDetailDto {
   template_id: string | null;
   template_name: string | null;
   initial_card: JsonObject | null;
-  initial_call: JsonObject | null;
   expected_card: JsonObject | null;
   classification: OperatorClassificationDto | null;
   main_service: ScenarioServiceDetailDto | null;
