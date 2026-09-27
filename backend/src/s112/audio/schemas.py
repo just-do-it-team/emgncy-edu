@@ -3,20 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-
-class TTSMessageCreate(BaseModel):
-    text: str = Field(min_length=1, max_length=100_000)
-    client_sent_at: datetime | None = None
-
-    @field_validator("text")
-    @classmethod
-    def normalize_text(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("text must not be blank")
-        return normalized
+from pydantic import BaseModel, ConfigDict
 
 
 class AudioMessageResponse(BaseModel):

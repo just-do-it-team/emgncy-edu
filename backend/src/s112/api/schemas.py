@@ -200,6 +200,7 @@ class CardListItem(OrmModel):
     card_id: uuid.UUID
     workspace_id: uuid.UUID
     card_number: str
+    description: str
     event_type_id: int | None
     classification: OperatorClassification | None
     event_kind_id: int | None

@@ -1,18 +1,17 @@
-import { Alert, Anchor, Skeleton, Stack, Table, Text } from "@mantine/core";
+import { Alert, Anchor, Skeleton, Stack, Table, Text, Tooltip } from "@mantine/core";
 import { Link, useNavigate } from "react-router-dom";
 import { useTrainingHistory } from "@/entities/student";
 import type { TrainingHistoryItem } from "@/shared/api";
-import { Button, TablePagination, usePagination } from "@/shared/ui";
-import { REVIEWABLE_STATUS, sessionStatusLabels } from "../model/session-labels";
+import { formatDateTime } from "@/shared/lib";
+import {
+  ABORTED_SESSION_STATUS,
+  abortedScoreHint,
+  isReviewable,
+  reviewAccessHint,
+  sessionStatusLabels,
+} from "@/entities/monitoring";
+import { Button, TablePagination, tooltipEvents, usePagination } from "@/shared/ui";
 import classes from "./student-results.module.scss";
-
-const dateFormatter = new Intl.DateTimeFormat("ru-RU", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
 
 const scoreFormatter = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 });
 
@@ -37,9 +36,24 @@ function passedLabel(passed: boolean | null): string {
   return passed ? "зачтено" : "не зачтено";
 }
 
+function StatusText({ status }: { status: string }) {
+  const label = sessionStatusLabels[status] ?? status;
+  const hint = reviewAccessHint(status);
+
+  if (hint === null) return <Text size="sm">{label}</Text>;
+
+  return (
+    <Tooltip label={hint} events={tooltipEvents} color="povDark.6" radius={0}>
+      <Text size="sm" tabIndex={0} className={classes.focusable}>
+        {label}
+      </Text>
+    </Tooltip>
+  );
+}
+
 function AttemptRow({ item }: { item: TrainingHistoryItem }) {
   const navigate = useNavigate();
-  const reviewable = item.status === REVIEWABLE_STATUS;
+  const reviewable = isReviewable(item.status);
 
   return (
     <Table.Tr
@@ -57,12 +71,12 @@ function AttemptRow({ item }: { item: TrainingHistoryItem }) {
             onClick={(event) => event.stopPropagation()}
           >
             <Text span size="sm" lineClamp={2}>
-              {item.scenarioName || "Сценарий без названия"}
+              {item.scenarioName || "Занятие без названия"}
             </Text>
           </Anchor>
         ) : (
           <Text size="sm" lineClamp={2}>
-            {item.scenarioName || "Сценарий без названия"}
+            {item.scenarioName || "Занятие без названия"}
           </Text>
         )}
         {item.groupName && (
@@ -72,15 +86,23 @@ function AttemptRow({ item }: { item: TrainingHistoryItem }) {
         )}
       </Table.Td>
       <Table.Td className={classes.numeric}>
-        <Text size="sm">{dateFormatter.format(new Date(item.startedAt))}</Text>
+        <Text size="sm">{formatDateTime(item.startedAt)}</Text>
       </Table.Td>
       <Table.Td className={classes.numeric}>
         <Text size="sm">{duration(item)}</Text>
       </Table.Td>
       <Table.Td className={classes.numeric}>
-        <Text size="sm" fw={500}>
-          {item.score === null ? "—" : scoreFormatter.format(item.score)}
-        </Text>
+        {item.status === ABORTED_SESSION_STATUS && item.score !== null ? (
+          <Tooltip label={abortedScoreHint} events={tooltipEvents} color="povDark.6" radius={0}>
+            <Text size="sm" tabIndex={0} className={classes.muted}>
+              {scoreFormatter.format(item.score)}
+            </Text>
+          </Tooltip>
+        ) : (
+          <Text size="sm" fw={500}>
+            {item.score === null ? "—" : scoreFormatter.format(item.score)}
+          </Text>
+        )}
         {item.scoredByTeacher && (
           <Text size="xs" className={classes.muted}>
             оценка преподавателя
@@ -96,12 +118,7 @@ function AttemptRow({ item }: { item: TrainingHistoryItem }) {
         <Text size="sm">{item.attemptNumber}</Text>
       </Table.Td>
       <Table.Td>
-        <Text size="sm">{sessionStatusLabels[item.status] ?? item.status}</Text>
-        {!reviewable && (
-          <Text size="xs" className={classes.muted}>
-            разбор после завершения
-          </Text>
-        )}
+        <StatusText status={item.status} />
       </Table.Td>
     </Table.Tr>
   );
@@ -130,7 +147,7 @@ export function AttemptsPanel({ studentId, teacherId }: AttemptsPanelProps) {
     return (
       <Alert variant="outline" color="povDark2.6" title="Не удалось загрузить попытки" m="sm">
         <Stack gap="xs" align="flex-start">
-          <Text size="sm">Сервер не ответил. Повторите запрос или выберите другого обучающегося.</Text>
+          <Text size="sm">Сервер не ответил. Повторите запрос или выберите другого обучаемого.</Text>
           <Button size="xs" variant="outline" color="povDark2.6" onClick={() => history.refetch()}>
             Повторить
           </Button>
@@ -142,13 +159,13 @@ export function AttemptsPanel({ studentId, teacherId }: AttemptsPanelProps) {
   if (history.data.length === 0) {
     return (
       <div className={classes.state}>
-        У обучающегося нет попыток по вашим назначениям.
+        У обучаемого нет попыток по вашим назначениям.
         <div className={classes.stateHint}>
           Назначьте сценарий в разделе{" "}
           <Anchor component={Link} to="/teacher/lessons" size="xs" c="povDark.6" underline="always">
             «Занятия»
           </Anchor>
-          ; попытки появятся здесь, когда обучающийся их начнёт.
+          ; попытки появятся здесь, когда обучаемый их начнёт.
         </div>
       </div>
     );
@@ -160,7 +177,7 @@ export function AttemptsPanel({ studentId, teacherId }: AttemptsPanelProps) {
         <Table verticalSpacing="xs" highlightOnHover layout="fixed">
           <Table.Thead>
             <Table.Tr>
-              <Table.Th>Сценарий</Table.Th>
+              <Table.Th>Занятие</Table.Th>
               <Table.Th w={140}>Дата</Table.Th>
               <Table.Th w={104}>Длительность</Table.Th>
               <Table.Th w={112}>Балл</Table.Th>

@@ -64,30 +64,9 @@ result-outbox публикует `audio.stt.completed`. Отдельный consu
 append-only действие `AUDIO_MESSAGE_TRANSCRIBED` в `training_action`. Оно не
 изменяет состояние карточки и не заменяет действия вроде принятия карточки.
 
-## TTS
-
-```http
-POST /api/v1/workspaces/{workspaceId}/cards/{cardId}/tts-messages
-X-User-Id: <student-uuid>
-Idempotency-Key: <stable-request-id>
-Content-Type: application/json
-
-{"text":"Текст для озвучивания","client_sent_at":null}
-```
-
-Для активного входящего звонка используется аналогичный метод:
-
-```http
-POST /api/v1/workspaces/{workspaceId}/incoming-calls/{callId}/tts-messages
-X-User-Id: <student-uuid>
-Idempotency-Key: <stable-request-id>
-Content-Type: application/json
-
-{"text":"Вопрос оператора заявителю","client_sent_at":null}
-```
-
-Текст проходит тот же outbox/Kafka pipeline. TTS worker сохраняет WAV в
-SeaweedFS и публикует `audio.tts.completed` через result-outbox.
+Реплики обучаемого передаются только аудиофайлом. Методы создания TTS-реплик
+обучаемого удалены; TTS используется сервером для ответов виртуального
+собеседника.
 
 ## Чтение состояния
 

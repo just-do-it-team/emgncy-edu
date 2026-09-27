@@ -8,7 +8,7 @@ const GC_MS = 30 * 60 * 1000;
 export function useScenarios() {
   return useQuery({
     queryKey: scenarioKeys.list(),
-    queryFn: fetchScenarios,
+    queryFn: ({ signal }) => fetchScenarios(signal),
     staleTime: STALE_MS,
     gcTime: GC_MS,
     retry: false,
@@ -19,7 +19,7 @@ export function useScenarios() {
 export function useScenario(scenarioId: string) {
   return useQuery({
     queryKey: scenarioKeys.detail(scenarioId),
-    queryFn: () => fetchScenario(scenarioId),
+    queryFn: ({ signal }) => fetchScenario(scenarioId, signal),
     staleTime: STALE_MS,
     gcTime: GC_MS,
     retry: false,

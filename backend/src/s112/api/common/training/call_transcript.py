@@ -5,7 +5,7 @@ import wave
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from s112.api.dependencies import get_read_session
@@ -59,6 +59,10 @@ async def get_call_transcript(
             .where(
                 AudioMessage.training_call_id == call.id,
                 AudioMessage.status == AudioMessageStatus.COMPLETED.value,
+                or_(
+                    AudioMessage.kind == AudioMessageKind.STT.value,
+                    AudioMessage.speaker_role != "TRAINEE",
+                ),
             )
             .order_by(AudioMessage.sequence_no, AudioMessage.id)
         )
@@ -137,9 +141,7 @@ async def get_call_transcript(
                     else "RESPONSE_LEAD" if message.speaker_role == "COMMANDER"
                     else "CALLER"
                 ),
-                input_mode=(
-                    "VOICE" if is_voice else "TEXT" if is_operator else "GENERATED"
-                ),
+                input_mode="VOICE" if is_voice else "GENERATED",
                 sequence_no=message.sequence_no,
                 created_at=message.created_at,
                 text=text,

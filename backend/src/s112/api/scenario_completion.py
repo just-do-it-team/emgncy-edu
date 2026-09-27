@@ -437,6 +437,19 @@ class ScenarioCompletionService:
         session: AsyncSession,
         training_session: TrainingSession,
     ) -> tuple[dict[str, Any], bool]:
+        # Serialize readiness revisions across API requests and background workers.
+        # The caller may already have this object in its identity map, so reload it
+        # after acquiring the row lock to see the last committed revision/state.
+        # Flush the caller's own changes before populate_existing replaces ORM data.
+        await session.flush()
+        training_session = await session.scalar(
+            select(TrainingSession)
+            .where(TrainingSession.id == training_session.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if training_session is None:
+            raise ConflictError("Training session is missing")
         workspace = await self._workspace(session, training_session.id)
         state = await self.calculate(session, training_session, workspace=workspace)
         previous = dict(training_session.completion_state or {})

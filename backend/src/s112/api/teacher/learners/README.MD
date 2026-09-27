@@ -118,9 +118,7 @@ Content-Type: application/json
   },
   "incoming_call_operators": {"call-1": "student-112-uuid"},
   "launch_policy": "TEACHER_START",
-  "max_attempts": 2,
-  "available_from": "2026-09-21T09:00:00Z",
-  "due_at": "2026-09-28T18:00:00Z"
+  "max_attempts": 2
 }
 ```
 
@@ -144,6 +142,13 @@ Content-Type: application/json
 `participant_role`. Именно этот состав подтверждает готовность и запускает
 общий сценарий; роли фиксируются в назначении и рабочем пространстве.
 
+`available_from` и `due_at` необязательны при групповом и прямом назначении.
+Если `available_from` не передан или равен `null`, занятие доступно с момента
+назначения. Если `due_at` не передан или равен `null`, срок выполнения наступает
+через 7 дней после `available_from`. Оба поля можно задать явно в формате
+ISO 8601; `due_at` должен быть позже `available_from`. Ответы содержат
+рассчитанные значения обоих полей.
+
 ## Прямое назначение
 
 ```http
@@ -156,9 +161,7 @@ Content-Type: application/json
   "participant_positions": {"student-uuid": "101"},
   "assigned_by": "teacher-uuid",
   "launch_policy": "STUDENT_SELF_START",
-  "max_attempts": 1,
-  "available_from": null,
-  "due_at": null
+  "max_attempts": 1
 }
 ```
 
@@ -169,11 +172,47 @@ Content-Type: application/json
 
 ```http
 GET /api/v1/scenario-assignments?assigned_by={teacherId}&group_id={groupId}&status=ASSIGNED
+X-User-Id: <teacherId>
 ```
 
 Общий метод списка можно использовать для экрана назначений преподавателя.
 Каждое назначение содержит `scenario_name` из зафиксированной версии сценария
-и `due_at` (`null`, если срок не был задан).
+и рассчитанные `available_from` и `due_at`. У ранее созданных назначений эти
+поля могут быть `null`.
+
+Список ограничен назначениями этого преподавателя; администратор может читать
+все, а обучаемый — только назначения, в которых он участвует. При включённой
+проверке JWT значение `X-User-Id` должно совпадать с токеном.
+
+## Перенос срока и отмена назначения
+
+Передайте `X-User-Id: <teacherId>` преподавателя, создавшего назначение.
+При включённой проверке JWT этот ID должен совпадать с токеном.
+
+```http
+PATCH /api/v1/scenario-assignments/{assignmentId}
+Content-Type: application/json
+X-User-Id: <teacherId>
+
+{"available_from": "2026-10-01T09:00:00Z", "due_at": "2026-10-08T09:00:00Z"}
+```
+
+Можно передать одно из полей; второе сохранится. `null` и пустой объект
+недопустимы. Новый дедлайн должен быть позже начала и находиться в будущем.
+Ответ — обновлённый `ScenarioAssignmentResponse`.
+
+Для назначения из пакета используйте `PATCH /api/v1/assignment-batches/{batchId}`
+с тем же заголовком и телом. Он меняет сроки всех назначений пакета одной
+операцией и возвращает `AssignmentBatchResponse`.
+
+Отмена выполняется через `DELETE /api/v1/scenario-assignments/{assignmentId}`
+или `DELETE /api/v1/assignment-batches/{batchId}` с `X-User-Id: <teacherId>`.
+Оба метода возвращают `204`, в том числе при повторной отмене. Записи остаются
+в истории со статусом `CANCELLED`; пакет отменяется целиком.
+
+Перенос и отмена допустимы только до первой попытки. При наличии попытки,
+текущем выполнении или завершении API возвращает `409`. Назначение из пакета
+изменяется и отменяется только через маршрут пакета.
 
 ## Ошибки
 

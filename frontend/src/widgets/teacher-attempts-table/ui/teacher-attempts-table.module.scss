@@ -1,0 +1,28 @@
+.numeric {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.focusable:focus-visible,
+.deadline:focus-visible {
+  outline: 2px solid var(--mantine-color-povDark-6);
+  outline-offset: 2px;
+}
+
+.deadline {
+  display: inline-flex;
+  align-items: center;
+}
+
+.onTime {
+  color: var(--mantine-color-povDark2-6);
+}
+
+.late {
+  color: var(--mantine-color-povRed-6);
+}
+
+.tooltipLines {
+  white-space: pre-line;
+  font-variant-numeric: tabular-nums;
+}

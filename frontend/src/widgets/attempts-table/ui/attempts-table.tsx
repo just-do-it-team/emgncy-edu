@@ -2,14 +2,8 @@ import { Alert, Anchor, Group, Paper, Skeleton, Stack, Table, Text } from "@mant
 import type { UseQueryResult } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { attemptModeLabels, type AttemptSummary } from "@/entities/attempt";
+import { formatShortDateTime } from "@/shared/lib";
 import { Button, TablePagination, usePagination } from "@/shared/ui";
-
-const dateFormatter = new Intl.DateTimeFormat("ru-RU", {
-  day: "2-digit",
-  month: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-});
 
 function ErrorCounts({ counts }: { counts: AttemptSummary["error_counts"] }) {
   const total = counts.critical + counts.significant + counts.minor;
@@ -92,9 +86,9 @@ export function AttemptsTable({
       <Table verticalSpacing="sm" highlightOnHover layout="fixed">
         <Table.Thead>
           <Table.Tr>
-            <Table.Th>Обучающийся</Table.Th>
+            <Table.Th>Обучаемый</Table.Th>
             <Table.Th w={120}>АРМ</Table.Th>
-            <Table.Th>Сценарий</Table.Th>
+            <Table.Th>Занятие</Table.Th>
             <Table.Th w={120}>Завершена</Table.Th>
             <Table.Th w={110}>Обработка</Table.Th>
             <Table.Th w={80}>Балл</Table.Th>
@@ -129,7 +123,7 @@ export function AttemptsTable({
                 </Text>
               </Table.Td>
               <Table.Td>
-                <Text size="sm">{dateFormatter.format(new Date(attempt.completed_at))}</Text>
+                <Text size="sm">{formatShortDateTime(attempt.completed_at)}</Text>
               </Table.Td>
               <Table.Td>
                 <Text

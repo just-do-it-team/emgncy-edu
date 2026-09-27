@@ -1,5 +1,7 @@
 import { decimal } from "./decimal";
 import type { JsonObject, JsonValue } from "./json";
+import type { AssignmentParticipantStatus, LaunchPolicy } from "./assignments";
+import type { CallSpeaker, CallUtterance } from "./call-transcript";
 import { toActionTimeline, type ActionEvent, type TrainingActionDto } from "./training-actions";
 
 export type ParticipantRole = "OPERATOR_112" | "DDS";
@@ -90,7 +92,7 @@ export interface ExpertReviewCallDto {
 export interface ExpertReviewUtteranceDto {
   id: string;
   call_id: string;
-  speaker: string;
+  speaker: CallSpeaker;
   input_mode: "VOICE" | "TEXT" | "GENERATED";
   sequence_no: number;
   created_at: string;
@@ -107,6 +109,46 @@ export interface ExpertReviewContextDto {
   actions: TrainingActionDto[];
 }
 
+export interface SessionTrainingCallDto {
+  id: string;
+  training_session_id: string;
+  workspace_id: string;
+  scenario_item_key: string;
+  trigger_type: string;
+  trigger_config: JsonObject;
+  call_payload: JsonObject;
+  direction: string;
+  operator_user_id: string | null;
+  assigned_operator_user_id: string | null;
+  interlocutor_role: string;
+  status: string;
+  incident_card_id: string | null;
+  scheduled_at: string | null;
+  ringing_at: string | null;
+  answered_at: string | null;
+  completed_at: string | null;
+  attempts: number;
+  last_error: string | null;
+}
+
+export interface ScheduledCardDto {
+  id: string;
+  training_session_id: string;
+  workspace_id: string;
+  scenario_card_key: string;
+  trigger_type: string;
+  trigger_config: JsonObject;
+  status: string;
+  incident_card_id: string | null;
+  scheduled_at: string | null;
+  emitted_at: string | null;
+  attempts: number;
+  last_error: string | null;
+  generator_key: string | null;
+  generation_index: number | null;
+  source_template_id: string | null;
+}
+
 export interface ExpertAssessmentRequestDto {
   teacher_id: string;
   score: string;
@@ -116,7 +158,7 @@ export interface ExpertAssessmentRequestDto {
 
 export interface AssignmentParticipantDto {
   user_id: string;
-  status: string;
+  status: AssignmentParticipantStatus;
   position_code: string | null;
   participant_role: ParticipantRole;
   ready_at: string | null;
@@ -131,7 +173,7 @@ export interface ScenarioAssignmentDto {
   assignment_batch_id: string | null;
   assigned_by: string;
   workspace_mode: string;
-  launch_policy: string;
+  launch_policy: LaunchPolicy;
   max_attempts: number;
   status: string;
   available_from: string | null;
@@ -201,7 +243,17 @@ export interface ExpertReviewContext {
   participantIds: string[];
   cards: ReviewCard[];
   incomingCalls: ReviewCall[];
+  outgoingCalls: ReviewOutgoingCall[];
   actions: ActionEvent[];
+}
+
+export interface ReviewOutgoingCall {
+  trainingCallId: string;
+  incidentCardId: string | null;
+  operatorUserId: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  utterances: CallUtterance[];
 }
 
 export interface AssignmentParticipant {
@@ -248,13 +300,87 @@ export function toReviewSession(dto: TrainingSessionDto): ReviewSession {
   };
 }
 
-function earliestAnswer(calls: ExpertReviewCallDto[]): string | null {
+function earliestAnswer(calls: Pick<ExpertReviewCallDto, "answered_at">[]): string | null {
   const answered = calls
     .map((call) => call.answered_at)
     .filter((answeredAt): answeredAt is string => answeredAt !== null)
     .sort((first, second) => Date.parse(first) - Date.parse(second));
 
   return answered[0] ?? null;
+}
+
+const OUTGOING_CALL_STARTED = "OUTGOING_CALL_STARTED";
+const OUTGOING_CALL_COMPLETED = "OUTGOING_CALL_COMPLETED";
+
+function offsetOrNull(originAt: string | null, at: string): number | null {
+  if (originAt === null) return null;
+
+  const offset = Date.parse(at) - Date.parse(originAt);
+
+  return Number.isFinite(offset) ? offset : null;
+}
+
+function toOutgoingCalls(
+  actions: TrainingActionDto[],
+  utterances: ExpertReviewUtteranceDto[],
+  incomingCallIds: Set<string>,
+): ReviewOutgoingCall[] {
+  const calls = new Map<string, ReviewOutgoingCall>();
+  const callOf = (trainingCallId: string): ReviewOutgoingCall => {
+    const known = calls.get(trainingCallId);
+
+    if (known) return known;
+
+    const created: ReviewOutgoingCall = {
+      trainingCallId,
+      incidentCardId: null,
+      operatorUserId: null,
+      startedAt: null,
+      completedAt: null,
+      utterances: [],
+    };
+
+    calls.set(trainingCallId, created);
+
+    return created;
+  };
+
+  for (const action of actions) {
+    if (action.entity_id === null || action.result !== "SUCCESS") continue;
+
+    if (action.action_type === OUTGOING_CALL_STARTED) {
+      const call = callOf(action.entity_id);
+
+      call.startedAt = action.occurred_at;
+      call.incidentCardId = action.incident_card_id;
+      call.operatorUserId = action.actor_user_id;
+    } else if (action.action_type === OUTGOING_CALL_COMPLETED) {
+      callOf(action.entity_id).completedAt = action.occurred_at;
+    }
+  }
+
+  for (const utterance of utterances) {
+    if (incomingCallIds.has(utterance.call_id)) continue;
+
+    callOf(utterance.call_id).utterances.push({
+      id: utterance.id,
+      speaker: utterance.speaker,
+      inputMode: utterance.input_mode,
+      sequenceNo: utterance.sequence_no,
+      createdAt: utterance.created_at,
+      durationMs: null,
+      text: utterance.text,
+      audioUrls: [],
+      callOffsetMs: null,
+    });
+  }
+
+  return [...calls.values()].map((call) => ({
+    ...call,
+    utterances: call.utterances
+      .sort((first, second) => first.sequenceNo - second.sequenceNo)
+      .map((utterance) => ({ ...utterance, callOffsetMs: offsetOrNull(call.startedAt, utterance.createdAt) })),
+  }));
 }
 
 export function toExpertReviewContext(dto: ExpertReviewContextDto): ExpertReviewContext {
@@ -291,6 +417,11 @@ export function toExpertReviewContext(dto: ExpertReviewContextDto): ExpertReview
         evaluatedAt: null,
       },
     })),
+    outgoingCalls: toOutgoingCalls(
+      dto.actions,
+      dto.call_utterances,
+      new Set(dto.incoming_calls.map((call) => call.training_call_id)),
+    ),
     actions: toActionTimeline(dto.actions, earliestAnswer(dto.incoming_calls)),
   };
 }
@@ -307,5 +438,45 @@ export function toReviewAssignment(dto: ScenarioAssignmentDto): ReviewAssignment
       positionCode: participant.position_code,
       status: participant.status,
     })),
+  };
+}
+
+export interface LimitedReviewSources {
+  session: TrainingSessionDto;
+  calls: SessionTrainingCallDto[];
+  cards: ScheduledCardDto[];
+  actions: TrainingActionDto[];
+  participantIds: string[];
+}
+
+export function toLimitedReviewContext(sources: LimitedReviewSources): ExpertReviewContext {
+  return {
+    session: toReviewSession(sources.session),
+    scenarioSnapshot: {},
+    participantIds: sources.participantIds,
+    cards: sources.cards.map((card) => ({
+      scenarioCardKey: card.scenario_card_key,
+      incidentCardId: card.incident_card_id,
+      expectedResult: {},
+      currentState: null,
+      automaticResult: null,
+    })),
+    incomingCalls: sources.calls.map((call) => ({
+      scenarioItemKey: call.scenario_item_key,
+      trainingCallId: call.id,
+      incidentCardId: call.incident_card_id,
+      status: call.status,
+      ringingAt: call.ringing_at,
+      answeredAt: call.answered_at,
+      completedAt: call.completed_at,
+      expectedResult: {},
+      currentState: null,
+      automaticResult: null,
+    })),
+    outgoingCalls: toOutgoingCalls(sources.actions, [], new Set(sources.calls.map((call) => call.id))),
+    actions: toActionTimeline(
+      sources.actions,
+      earliestAnswer(sources.calls.map((call) => ({ answered_at: call.answered_at }))),
+    ),
   };
 }

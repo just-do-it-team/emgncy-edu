@@ -42,8 +42,6 @@ async def _get_recording(
     call = await session.get(TrainingCall, call_id)
     if call is None or not await can_access_training_call(session, call, user_id):
         raise HTTPException(status_code=404, detail="Training call not found")
-    if call.direction != "INBOUND":
-        raise HTTPException(status_code=404, detail="Call recording not found")
     if call.status != "COMPLETED":
         raise HTTPException(status_code=409, detail="Training call is not completed")
     recording = await session.get(TrainingCallRecording, call_id)

@@ -1,6 +1,9 @@
 import { Anchor, Skeleton } from "@mantine/core";
 import {
   buildReviewBreakdown,
+  discrepancyLabel,
+  discrepancyValue,
+  reasonLabels,
   reviewNotices,
   type ReviewFinding,
   type ReviewNote,
@@ -9,12 +12,7 @@ import {
 import type { AutomaticResult, EmergencyService, ParticipantRole } from "@/shared/api";
 import { criterionLabels } from "@/shared/config";
 import { charSpans } from "@/shared/lib";
-import {
-  discrepancyLabel,
-  discrepancyValue,
-  reasonLabels,
-  significanceLabels,
-} from "../model/review-labels";
+import { significanceLabels } from "../model/review-labels";
 import { formatOffset, type StreamItem } from "../model/replay";
 import classes from "./session-review.module.scss";
 
@@ -159,9 +157,28 @@ interface ReviewFindingsProps {
   services: Map<string, EmergencyService> | undefined;
   locate: (path: string) => StreamItem | null;
   onLocate: (item: StreamItem) => void;
+  scopeNote: string | null;
+  limitedNote: string | null;
 }
 
-export function ReviewFindings({ result, roleState, services, locate, onLocate }: ReviewFindingsProps) {
+export function ReviewFindings({
+  result,
+  roleState,
+  services,
+  locate,
+  onLocate,
+  scopeNote,
+  limitedNote,
+}: ReviewFindingsProps) {
+  if (limitedNote) {
+    return (
+      <>
+        <SectionBar title="Критерии" />
+        <div className={classes.state}>{limitedNote}</div>
+      </>
+    );
+  }
+
   if (result === null) {
     return (
       <>
@@ -214,6 +231,7 @@ export function ReviewFindings({ result, roleState, services, locate, onLocate }
   return (
     <>
       <SectionBar title="Критерии" hint="найдено расхождений" />
+      {scopeNote && <div className={classes.note}>{scopeNote}</div>}
       {breakdown.criteria.map((review) => (
         <div
           key={review.code}

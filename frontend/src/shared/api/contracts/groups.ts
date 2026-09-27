@@ -24,6 +24,7 @@ export interface GroupStudent {
 export interface Group {
   id: string;
   name: string;
+  description: string | null;
   students: GroupStudent[];
 }
 
@@ -31,6 +32,7 @@ export function toGroup(dto: GroupDto): Group {
   return {
     id: dto.id,
     name: dto.name,
+    description: dto.description,
     students: dto.members
       .filter((member) => member.removed_at === null)
       .map((member) => ({ id: member.student_id, displayName: member.display_name })),

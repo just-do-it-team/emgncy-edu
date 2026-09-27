@@ -1,19 +1,11 @@
 import { Group, Text } from "@mantine/core";
 import { Phone, PhoneOff } from "lucide-react";
 import type { Attempt } from "@/entities/attempt";
+import { formatDateTimeSeconds } from "@/shared/lib";
 import type { DiffRow } from "../model/card-diff";
 import { formatPhone } from "../model/format-phone";
 import { formatClock } from "../model/review-view";
 import classes from "./attempt-review.module.scss";
-
-const dateFormatter = new Intl.DateTimeFormat("ru-RU", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-});
 
 const phoneFields = [
   { field: "phones.aon", label: "АОН" },
@@ -33,7 +25,7 @@ export function CardStrip({ attempt, rows, incidentNumber }: CardStripProps) {
   const exceeded = attempt.timings.fill.actual_seconds > attempt.timings.fill.norm_seconds;
   const clock = formatClock(attempt.timings.fill.actual_seconds);
   const aon = rows.get("phones.aon");
-  const savedAt = dateFormatter.format(new Date(attempt.completed_at));
+  const savedAt = formatDateTimeSeconds(attempt.completed_at);
 
   return (
     <div className={classes.cardStrip}>

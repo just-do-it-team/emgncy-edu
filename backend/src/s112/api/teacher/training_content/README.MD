@@ -683,7 +683,7 @@ backend установит подходящее значение по умолч
   "schema_version": 2,
   "cards": [
     {
-      "key": "caller-fire-001",
+      "key": "incoming-call-1",
       "item_type": "INCOMING_CALL",
       "trigger_type": "TIME_OFFSET",
       "trigger_config": {"offset_seconds": 5},
@@ -691,16 +691,16 @@ backend установит подходящее значение по умолч
       "template_id": "incoming-call-template-uuid"
     },
     {
-      "key": "dispatch-followup-001",
-      "item_type": "INCIDENT_CARD",
+      "key": "incoming-call-2",
+      "item_type": "INCOMING_CALL",
       "trigger_type": "AFTER_ACTION",
       "trigger_config": {
-        "card_key": "caller-fire-001",
+        "card_key": "incoming-call-1",
         "action_type": "INCOMING_CALL_COMPLETED",
-        "delay_seconds": 30
+        "delay_seconds": 3
       },
       "source_type": "TEMPLATE",
-      "template_id": "card-template-uuid"
+      "template_id": "different-incoming-call-template-uuid"
     }
   ]
 }

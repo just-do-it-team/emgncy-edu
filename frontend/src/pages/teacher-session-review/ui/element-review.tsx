@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Skeleton } from "@mantine/core";
 import { isAxiosError } from "axios";
 import { useCallRecording } from "@/entities/call-recording";
@@ -11,6 +11,7 @@ import {
   type RecordingAxis,
   type ReviewCall,
   type ReviewCard,
+  type ReviewOutgoingCall,
 } from "@/shared/api";
 import {
   actionForPath,
@@ -40,6 +41,9 @@ interface LayoutProps {
   roleState: RoleState;
   services: Map<string, EmergencyService> | undefined;
   player: ReactNode;
+  focusPath: string | null;
+  scopeNote: string | null;
+  limitedNote: string | null;
 }
 
 function ElementLayout({
@@ -55,10 +59,21 @@ function ElementLayout({
   roleState,
   services,
   player,
+  focusPath,
+  scopeNote,
+  limitedNote,
 }: LayoutProps) {
-  const [cursorMs, setCursorMs] = useState<number | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [manualCursorMs, setCursorMs] = useState<number | null>(null);
+  const [manualSelectedId, setSelectedId] = useState<string | null>(null);
   const itemElements = useRef(new Map<string, HTMLDivElement>());
+  const linked = focusPath === null ? null : actionForPath(focusPath, items, services);
+  const cursorMs = manualCursorMs ?? linked?.offsetMs ?? null;
+  const selectedId = manualSelectedId ?? linked?.id ?? null;
+  const linkedId = linked?.id ?? null;
+
+  useEffect(() => {
+    if (linkedId !== null) itemElements.current.get(linkedId)?.scrollIntoView({ block: "center" });
+  }, [linkedId]);
   const axis = buildAxis(items, completedAt === null ? null : offsetFrom(originAt, completedAt));
 
   const registerItem = (id: string, element: HTMLDivElement | null) => {
@@ -115,6 +130,8 @@ function ElementLayout({
             services={services}
             locate={(path) => actionForPath(path, items, services)}
             onLocate={locateFinding}
+            scopeNote={scopeNote}
+            limitedNote={limitedNote}
           />
         </div>
       </div>
@@ -158,13 +175,25 @@ function transcriptProblem(error: Error): string {
 
 interface CallElementReviewProps {
   call: ReviewCall;
+  focusPath: string | null;
+  scopeNote: string | null;
+  limitedNote: string | null;
   originAt: string;
   actions: ActionEvent[];
   roleState: RoleState;
   services: Map<string, EmergencyService> | undefined;
 }
 
-export function CallElementReview({ call, originAt, actions, roleState, services }: CallElementReviewProps) {
+export function CallElementReview({
+  call,
+  focusPath,
+  scopeNote,
+  limitedNote,
+  originAt,
+  actions,
+  roleState,
+  services,
+}: CallElementReviewProps) {
   const transcript = useCallTranscript(call.trainingCallId);
   const completed = call.status === COMPLETED_CALL_STATUS;
   const recording = useCallRecording(call.trainingCallId, completed);
@@ -201,6 +230,9 @@ export function CallElementReview({ call, originAt, actions, roleState, services
 
   return (
     <ElementLayout
+      focusPath={focusPath}
+      scopeNote={scopeNote}
+      limitedNote={limitedNote}
       originAt={originAt}
       completedAt={call.completedAt}
       items={items}
@@ -239,15 +271,30 @@ export function CallElementReview({ call, originAt, actions, roleState, services
 
 interface CardElementReviewProps {
   card: ReviewCard;
+  focusPath: string | null;
+  scopeNote: string | null;
+  limitedNote: string | null;
   originAt: string;
   actions: ActionEvent[];
   roleState: RoleState;
   services: Map<string, EmergencyService> | undefined;
 }
 
-export function CardElementReview({ card, originAt, actions, roleState, services }: CardElementReviewProps) {
+export function CardElementReview({
+  card,
+  focusPath,
+  scopeNote,
+  limitedNote,
+  originAt,
+  actions,
+  roleState,
+  services,
+}: CardElementReviewProps) {
   return (
     <ElementLayout
+      focusPath={focusPath}
+      scopeNote={scopeNote}
+      limitedNote={limitedNote}
       originAt={originAt}
       completedAt={null}
       items={buildStream(originAt, [], actions)}
@@ -270,6 +317,66 @@ export function CardElementReview({ card, originAt, actions, roleState, services
       player={
         <div className={classes.player}>
           <span className={classes.playerHint}>У карточки нет звонка, записи нет.</span>
+        </div>
+      }
+    />
+  );
+}
+
+interface OutgoingCallElementReviewProps {
+  call: ReviewOutgoingCall;
+  focusPath: string | null;
+  scopeNote: string | null;
+  limitedNote: string | null;
+  originAt: string;
+  actions: ActionEvent[];
+  roleState: RoleState;
+  services: Map<string, EmergencyService> | undefined;
+}
+
+export function OutgoingCallElementReview({
+  call,
+  focusPath,
+  scopeNote,
+  limitedNote,
+  originAt,
+  actions,
+  roleState,
+  services,
+}: OutgoingCallElementReviewProps) {
+  return (
+    <ElementLayout
+      focusPath={focusPath}
+      scopeNote={scopeNote}
+      limitedNote={
+        limitedNote ??
+        "Исходящий звонок оценивается в составе карточки: результат проверки смысла — в элементе карточки, по которой звонили."
+      }
+      originAt={originAt}
+      completedAt={call.completedAt}
+      items={buildStream(originAt, call.utterances, actions)}
+      durationsAvailable={false}
+      streamNotice={
+        call.utterances.length === 0 ? (
+          <div className={classes.state}>
+            Реплик исходящего звонка в данных разбора нет: показаны только отметки начала и завершения.
+          </div>
+        ) : null
+      }
+      emptyText="По исходящему звонку нет ни реплик, ни отметок начала и завершения."
+      timelineCaption={
+        call.startedAt === null
+          ? "Начало звонка в журнале не найдено: время отсчитано от начала попытки, длительности реплик неизвестны."
+          : "Длительности реплик для исходящего звонка сервер не передаёт: реплики отмечены засечками в момент записи."
+      }
+      activeId={null}
+      result={null}
+      roleState={roleState}
+      services={services}
+      player={
+        <div className={classes.player}>
+          <span className={classes.playerText}>Записи нет</span>
+          <span className={classes.playerHint}>Сервер собирает запись только для входящих звонков.</span>
         </div>
       }
     />

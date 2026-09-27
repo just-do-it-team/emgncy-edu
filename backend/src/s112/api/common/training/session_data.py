@@ -10,12 +10,16 @@ from s112.api.simulation_schemas import (
     TrainingActionResponse,
     TrainingCallResponse,
 )
-from s112.common.enums import WorkspaceMemberRole
+from s112.common.enums import UserRole, WorkspaceMemberRole
 from s112.domain.models import (
+    AssignmentParticipant,
+    ScenarioAssignment,
     SessionScheduledCard,
     SimulationWorkspace,
     TrainingAction,
     TrainingCall,
+    TrainingSession,
+    UserAccount,
     WorkspaceMember,
 )
 
@@ -29,8 +33,32 @@ router = APIRouter(prefix="/api/v1", tags=["common/training"])
 )
 async def list_training_actions(
     session_id: uuid.UUID,
+    request: Request,
+    user_id: uuid.UUID = Header(alias="X-User-Id"),
     session: AsyncSession = Depends(get_read_session),
 ) -> list[TrainingAction]:
+    if request.app.state.auth_settings.enabled:
+        principal = getattr(request.state, "principal", None)
+        if principal is None or principal.user_id != user_id:
+            raise HTTPException(status_code=403, detail="User does not match token")
+    user = await session.get(UserAccount, user_id)
+    if user is None or user.is_blocked:
+        raise HTTPException(status_code=403, detail="User access required")
+    assignment = await session.scalar(
+        select(ScenarioAssignment)
+        .join(TrainingSession, TrainingSession.assignment_id == ScenarioAssignment.id)
+        .where(TrainingSession.id == session_id)
+    )
+    if assignment is None:
+        raise HTTPException(status_code=404, detail="Training session not found")
+    if user.role == UserRole.TEACHER.value:
+        allowed = assignment.assigned_by == user_id
+    elif user.role == UserRole.STUDENT.value:
+        allowed = await session.get(AssignmentParticipant, (assignment.id, user_id)) is not None
+    else:
+        allowed = user.role == UserRole.ADMINISTRATOR.value
+    if not allowed:
+        raise HTTPException(status_code=404, detail="Training session not found")
     return list(
         await session.scalars(
             select(TrainingAction)

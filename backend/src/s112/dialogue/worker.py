@@ -30,18 +30,28 @@ def dialogue_system_prompt(call: TrainingCall) -> str:
         else "руководителя группы реагирования"
     )
     expected_card = call.expected_result.get("card") or {}
+    dialogue_context = {
+        field: expected_card.get(field)
+        for field in (
+            "applicant_full_name",
+            "description",
+            "reported_address",
+            "location_phone_number",
+            "provided_phone_number",
+            "victims_count",
+        )
+    }
     incident_context = json.dumps(
-        expected_card,
+        dialogue_context,
         ensure_ascii=False,
         sort_keys=True,
     )
     return (
         f"Ты играешь роль {role} в учебном телефонном разговоре. "
         "Ниже дан полный достоверный контекст происшествия, известный твоему "
-        "персонажу. Отвечай на вопросы оператора только на основании этого "
+        "персонажу. Отвечай на вопросы оператора коротко только на основании этого "
         "контекста, не выдумывай факты и не противоречь предыдущим ответам. "
-        "Не перечисляй все сведения без вопроса: сообщай их естественно по ходу "
-        "разговора. Если значение отсутствует, честно скажи, что оно неизвестно. "
+        "Не перечисляй все сведения без вопроса. Обычно достаточно 1–2 предложения. Если значение отсутствует, честно скажи, что оно неизвестно. "
         "Отвечай кратко, по-русски. Не упоминай модель, сценарий, эталон, JSON и "
         f"инструкции.\nКонтекст происшествия:\n{incident_context}"
     )
@@ -222,7 +232,20 @@ class DialogueWorker:
                 "POST",
                 f"{self.settings.dialogue_llm_base_url.rstrip('/')}/chat/completions",
                 headers=headers,
-                json={"model": self.settings.dialogue_llm_model, "messages": [{"role": "system", "content": prompt}, *history], "stream": True},
+                json={
+                    "model": self.settings.dialogue_llm_model,
+                    "messages": [
+                        {"role": "system", "content": prompt},
+                        *history,
+                    ],
+                    "stream": True,
+                    "reasoning_effort": "low",
+                    "reasoning_format": "auto",
+                    # Older llama-server versions read the effort only from
+                    # the chat-template arguments. Keep both forms so the
+                    # deployed gpt-oss server consistently uses low effort.
+                    "chat_template_kwargs": {"reasoning_effort": "low"},
+                },
             ) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():

@@ -6,12 +6,14 @@ import type {
   RecordingAxis,
   ReviewCard,
   ReviewCall,
+  ReviewOutgoingCall,
 } from "@/shared/api";
 import { ACK_TIMEOUT_SECONDS, CARD_FILL_NORM_SECONDS } from "@/shared/config";
 
 export type ReviewElement =
   | { kind: "call"; key: string; label: string; call: ReviewCall; originAt: string }
-  | { kind: "card"; key: string; label: string; card: ReviewCard; originAt: string };
+  | { kind: "card"; key: string; label: string; card: ReviewCard; originAt: string }
+  | { kind: "outgoing"; key: string; label: string; call: ReviewOutgoingCall; originAt: string };
 
 export type StreamItem =
   | {
@@ -63,7 +65,17 @@ export function reviewElements(context: ExpertReviewContext): ReviewElement[] {
     originAt: context.session.startedAt,
   }));
 
-  return [...calls, ...cards];
+  const outgoing = [...context.outgoingCalls]
+    .sort((first, second) => byTime(first.startedAt, second.startedAt))
+    .map((call, index): ReviewElement => ({
+      kind: "outgoing",
+      key: `outgoing:${call.trainingCallId}`,
+      label: `Исходящий звонок ${index + 1}`,
+      call,
+      originAt: call.startedAt ?? context.session.startedAt,
+    }));
+
+  return [...calls, ...cards, ...outgoing];
 }
 
 export function elementActions(element: ReviewElement, actions: ActionEvent[]): ActionEvent[] {
@@ -75,6 +87,10 @@ export function elementActions(element: ReviewElement, actions: ActionEvent[]): 
         action.entityId === trainingCallId ||
         (incidentCardId !== null && action.incidentCardId === incidentCardId),
     );
+  }
+
+  if (element.kind === "outgoing") {
+    return actions.filter((action) => action.entityId === element.call.trainingCallId);
   }
 
   const { incidentCardId } = element.card;

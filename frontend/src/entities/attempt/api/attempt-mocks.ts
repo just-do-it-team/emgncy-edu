@@ -6,35 +6,17 @@ import type {
   QuestionnaireOption,
   SelectedFeature,
 } from "../model/references";
+import { localTimeOfDay } from "@/shared/lib";
 
 const FILL_NORM_SECONDS = 180;
 const ACK_NORM_SECONDS = 30;
 
-const MOSCOW_OFFSET_MS = 3 * 60 * 60 * 1000;
-
-function moscowIso(time: number): string {
-  return `${new Date(time + MOSCOW_OFFSET_MS).toISOString().slice(0, 19)}+03:00`;
-}
-
 function daysAgoAt(days: number, hours: number, minutes: number, seconds: number): string {
-  const moscowNow = new Date(Date.now() + MOSCOW_OFFSET_MS);
-
-  return moscowIso(
-    Date.UTC(
-      moscowNow.getUTCFullYear(),
-      moscowNow.getUTCMonth(),
-      moscowNow.getUTCDate() - days,
-      hours,
-      minutes,
-      seconds,
-    ) - MOSCOW_OFFSET_MS,
-  );
+  return localTimeOfDay(days, hours, minutes, seconds).toISOString();
 }
 
 function at(startedAt: string, offsetSeconds: number): string {
-  const time = new Date(startedAt).getTime() + offsetSeconds * 1000 + MOSCOW_OFFSET_MS;
-
-  return `${new Date(time).toISOString().slice(0, 19)}+03:00`;
+  return new Date(Date.parse(startedAt) + offsetSeconds * 1000).toISOString();
 }
 
 const services = {
@@ -731,7 +713,7 @@ const ddsStatusAttempt: Attempt = {
     previous_total: 70,
     total: 62,
     comment:
-      "Снижено за статус «Не принята» без причины: на разборе занятия это ключевая ошибка, отдельно отмечено обучающемуся.",
+      "Снижено за статус «Не принята» без причины: на разборе занятия это ключевая ошибка, отдельно отмечено обучаемому.",
   },
 };
 
@@ -844,7 +826,7 @@ const toponymAttempt: Attempt = {
       expected: "Дубнинская улица, дом 21 (САО, Восточное Дегунино)",
       actual: "Дубининская улица, дом 21 (ЦАО, Замоскворечье)",
       explanation:
-        "В Москве существуют обе улицы: Дубнинская в САО и Дубининская в ЦАО, дом 21 есть на каждой. Расчёт выехал бы в Замоскворечье вместо Восточного Дегунина, это около 20 километров и другой пожарный гарнизон. Заявитель назвал улицу, обучающийся выбрал первую подсказку из списка и не переспросил округ.",
+        "В Москве существуют обе улицы: Дубнинская в САО и Дубининская в ЦАО, дом 21 есть на каждой. Расчёт выехал бы в Замоскворечье вместо Восточного Дегунина, это около 20 километров и другой пожарный гарнизон. Заявитель назвал улицу, обучаемый выбрал первую подсказку из списка и не переспросил округ.",
       action_id: "d3f9a517-6c80-4e42-9a05-7b9c3e5f1d68",
     },
     {

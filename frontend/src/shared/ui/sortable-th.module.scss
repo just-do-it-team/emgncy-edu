@@ -1,0 +1,24 @@
+.button.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  line-height: inherit;
+  color: inherit;
+  white-space: nowrap;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--mantine-color-povDark-6);
+  outline-offset: 2px;
+}
+
+.iconActive {
+  flex: none;
+  color: var(--mantine-color-povDark-6);
+}
+
+.iconIdle {
+  flex: none;
+  color: var(--mantine-color-povDark2-6);
+}

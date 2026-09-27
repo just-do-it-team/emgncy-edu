@@ -511,12 +511,6 @@ services:
         read_only: true
         bind:
           create_host_path: false
-      - type: bind
-        source: ${TTS_REFS_DIR:-./refs}
-        target: /models/refs
-        read_only: true
-        bind:
-          create_host_path: false
     ports:
       - "${APP_BIND_ADDRESS:?APP_BIND_ADDRESS_is_required}:${SPEECH_API_PORT:-8083}:8083"
     healthcheck:

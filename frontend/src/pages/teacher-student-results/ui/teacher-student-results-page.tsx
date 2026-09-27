@@ -33,7 +33,7 @@ function StudentResults({ teacherId }: { teacherId: string }) {
     return (
       <div className={classes.screen}>
         <div className={classes.listColumn}>
-          <SectionBar title="Обучающиеся" />
+          <SectionBar title="Обучаемые" />
           <Stack gap="xs" p="sm">
             {[0, 1, 2, 3, 4, 5].map((row) => (
               <Skeleton key={row} height={34} radius={0} />
@@ -49,7 +49,7 @@ function StudentResults({ teacherId }: { teacherId: string }) {
 
   if (students.isError) {
     return (
-      <Alert variant="outline" color="povDark2.6" title="Не удалось загрузить обучающихся">
+      <Alert variant="outline" color="povDark2.6" title="Не удалось загрузить обучаемых">
         <Stack gap="xs" align="flex-start">
           <Text size="sm">Сервер не ответил. Повторите запрос позже.</Text>
           <Button size="xs" variant="outline" color="povDark2.6" onClick={() => students.refetch()}>
@@ -66,7 +66,7 @@ function StudentResults({ teacherId }: { teacherId: string }) {
   return (
     <div className={classes.screen}>
       <div className={classes.listColumn}>
-        <SectionBar title="Обучающиеся" hint={String(students.data.length)} />
+        <SectionBar title="Обучаемые" hint={String(students.data.length)} />
         <div className={classes.search}>
           <TextInput
             size="sm"
@@ -80,7 +80,7 @@ function StudentResults({ teacherId }: { teacherId: string }) {
         <div className={classes.list}>
           {students.data.length === 0 && (
             <div className={classes.state}>
-              У вас пока нет обучающихся.
+              У вас пока нет обучаемых.
               <div className={classes.stateHint}>
                 Добавьте их в группу в разделе{" "}
                 <Anchor component={Link} to="/teacher/groups" size="xs" c="povDark.6" underline="always">
@@ -92,7 +92,7 @@ function StudentResults({ teacherId }: { teacherId: string }) {
           )}
           {students.data.length > 0 && visible.length === 0 && (
             <div className={classes.state}>
-              Нет обучающихся с такой фамилией.
+              Нет обучаемых с такой фамилией.
               <div className={classes.stateHint}>Проверьте написание или очистите поиск.</div>
             </div>
           )}
@@ -119,7 +119,7 @@ function StudentResults({ teacherId }: { teacherId: string }) {
         <SectionBar title="Попытки" hint={selected?.displayName} />
         {selectedId === null && (
           <div className={classes.state}>
-            Выберите обучающегося в списке слева.
+            Выберите обучаемого в списке слева.
             <div className={classes.stateHint}>
               Строка завершённой попытки открывает её разбор.
             </div>
@@ -127,8 +127,8 @@ function StudentResults({ teacherId }: { teacherId: string }) {
         )}
         {selectedId !== null && selected === null && (
           <div className={classes.state}>
-            Обучающийся не найден среди ваших.
-            <div className={classes.stateHint}>Выберите обучающегося в списке слева.</div>
+            Обучаемый не найден среди ваших.
+            <div className={classes.stateHint}>Выберите обучаемого в списке слева.</div>
           </div>
         )}
         {selected && <AttemptsPanel key={selected.id} studentId={selected.id} teacherId={teacherId} />}

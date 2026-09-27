@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy import and_, func, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from s112.api.schemas import CardCreate
@@ -28,6 +28,7 @@ from s112.api.simulation_schemas import (
     IncomingCallTemplateCreate,
     IncomingCallTemplateDeleteRequest,
     ScenarioAssignmentCreate,
+    ScenarioAssignmentScheduleUpdate,
     ScenarioDefinition,
     ScenarioDeleteRequest,
     ScenarioSnapshot,
@@ -100,6 +101,16 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _assignment_window(
+    available_from: datetime | None, due_at: datetime | None
+) -> tuple[datetime, datetime]:
+    start = _as_utc(available_from) if available_from is not None else utcnow()
+    deadline = _as_utc(due_at) if due_at is not None else start + timedelta(days=7)
+    if deadline <= start:
+        raise ValidationError("due_at must be later than available_from")
+    return start, deadline
 
 
 PROCEDURAL_PRESETS: dict[int, dict[str, int]] = {
@@ -580,14 +591,15 @@ class SimulationApplicationService:
         if scenario.workspace_mode == WorkspaceMode.SHARED.value and len(student_ids) > 100:
             raise ValidationError("A shared assignment supports at most 100 participants")
 
+        available_from, due_at = _assignment_window(request.available_from, request.due_at)
         batch = AssignmentBatch(
             group_id=group_id,
             scenario_id=request.scenario_id,
             assigned_by=request.assigned_by,
             launch_policy=request.launch_policy.value,
             max_attempts=request.max_attempts,
-            available_from=request.available_from,
-            due_at=request.due_at,
+            available_from=available_from,
+            due_at=due_at,
         )
         session.add(batch)
         await session.flush()
@@ -617,8 +629,8 @@ class SimulationApplicationService:
                     assigned_by=request.assigned_by,
                     launch_policy=request.launch_policy,
                     max_attempts=request.max_attempts,
-                    available_from=request.available_from,
-                    due_at=request.due_at,
+                    available_from=available_from,
+                    due_at=due_at,
                 ),
             )
             assignment.assignment_batch_id = batch.id
@@ -788,6 +800,7 @@ class SimulationApplicationService:
             },
         }
         ScenarioSnapshot.model_validate(snapshot)
+        available_from, due_at = _assignment_window(request.available_from, request.due_at)
         assignment = ScenarioAssignment(
             scenario_id=scenario.id,
             scenario_revision=scenario.revision,
@@ -797,8 +810,8 @@ class SimulationApplicationService:
             launch_policy=request.launch_policy.value,
             max_attempts=request.max_attempts,
             status=AssignmentStatus.ASSIGNED.value,
-            available_from=request.available_from,
-            due_at=request.due_at,
+            available_from=available_from,
+            due_at=due_at,
         )
         session.add(assignment)
         await session.flush()
@@ -815,6 +828,152 @@ class SimulationApplicationService:
         )
         await session.flush()
         return assignment
+
+    async def _assert_assignment_not_started(
+        self, session: AsyncSession, assignment: ScenarioAssignment
+    ) -> None:
+        if assignment.status not in {
+            AssignmentStatus.ASSIGNED.value,
+            AssignmentStatus.EXPIRED.value,
+        }:
+            raise ConflictError("Only an unstarted assignment can be changed")
+        attempt_id = await session.scalar(
+            select(TrainingSession.id)
+            .where(TrainingSession.assignment_id == assignment.id)
+            .limit(1)
+        )
+        if attempt_id is not None:
+            raise ConflictError("An assignment with attempts cannot be changed")
+
+    @staticmethod
+    def _apply_assignment_schedule(
+        assignment: ScenarioAssignment,
+        request: ScenarioAssignmentScheduleUpdate,
+    ) -> tuple[datetime, datetime]:
+        start = (
+            request.available_from
+            if "available_from" in request.model_fields_set
+            else assignment.available_from or assignment.created_at
+        )
+        due = (
+            request.due_at
+            if "due_at" in request.model_fields_set
+            else assignment.due_at or _as_utc(start) + timedelta(days=7)
+        )
+        available_from, due_at = _assignment_window(start, due)
+        if due_at <= utcnow():
+            raise ValidationError("due_at must be in the future")
+        assignment.available_from = available_from
+        assignment.due_at = due_at
+        assignment.status = AssignmentStatus.ASSIGNED.value
+        return available_from, due_at
+
+    async def update_assignment_schedule(
+        self,
+        session: AsyncSession,
+        assignment_id: uuid.UUID,
+        teacher_id: uuid.UUID,
+        request: ScenarioAssignmentScheduleUpdate,
+    ) -> ScenarioAssignment:
+        await self._require_user_role(
+            session, teacher_id, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
+        )
+        assignment = await session.scalar(
+            select(ScenarioAssignment)
+            .where(ScenarioAssignment.id == assignment_id)
+            .with_for_update()
+        )
+        if assignment is None or assignment.assigned_by != teacher_id:
+            raise NotFoundError("Scenario assignment not found")
+        if assignment.assignment_batch_id is not None:
+            raise ConflictError("Use the assignment batch endpoint")
+        await self._assert_assignment_not_started(session, assignment)
+        self._apply_assignment_schedule(assignment, request)
+        await session.flush()
+        return assignment
+
+    async def cancel_assignment(
+        self, session: AsyncSession, assignment_id: uuid.UUID, teacher_id: uuid.UUID
+    ) -> None:
+        await self._require_user_role(
+            session, teacher_id, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
+        )
+        assignment = await session.scalar(
+            select(ScenarioAssignment)
+            .where(ScenarioAssignment.id == assignment_id)
+            .with_for_update()
+        )
+        if assignment is None or assignment.assigned_by != teacher_id:
+            raise NotFoundError("Scenario assignment not found")
+        if assignment.assignment_batch_id is not None:
+            raise ConflictError("Use the assignment batch endpoint")
+        if assignment.status == AssignmentStatus.CANCELLED.value:
+            return
+        await self._assert_assignment_not_started(session, assignment)
+        assignment.status = AssignmentStatus.CANCELLED.value
+        assignment.cancelled_at = utcnow()
+        await session.flush()
+
+    async def _lock_assignment_batch(
+        self, session: AsyncSession, batch_id: uuid.UUID, teacher_id: uuid.UUID
+    ) -> tuple[AssignmentBatch, list[ScenarioAssignment]]:
+        await self._require_user_role(
+            session, teacher_id, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
+        )
+        batch = await session.scalar(
+            select(AssignmentBatch)
+            .where(AssignmentBatch.id == batch_id)
+            .with_for_update()
+        )
+        if batch is None or batch.assigned_by != teacher_id:
+            raise NotFoundError("Assignment batch not found")
+        assignments = list(
+            await session.scalars(
+                select(ScenarioAssignment)
+                .where(ScenarioAssignment.assignment_batch_id == batch_id)
+                .order_by(ScenarioAssignment.id)
+                .with_for_update()
+            )
+        )
+        if not assignments:
+            raise ConflictError("Assignment batch has no assignments")
+        return batch, assignments
+
+    async def update_assignment_batch_schedule(
+        self,
+        session: AsyncSession,
+        batch_id: uuid.UUID,
+        teacher_id: uuid.UUID,
+        request: ScenarioAssignmentScheduleUpdate,
+    ) -> tuple[AssignmentBatch, list[ScenarioAssignment]]:
+        batch, assignments = await self._lock_assignment_batch(session, batch_id, teacher_id)
+        for assignment in assignments:
+            await self._assert_assignment_not_started(session, assignment)
+        available_from, due_at = self._apply_assignment_schedule(assignments[0], request)
+        for assignment in assignments[1:]:
+            assignment.available_from = available_from
+            assignment.due_at = due_at
+            assignment.status = AssignmentStatus.ASSIGNED.value
+        batch.available_from = available_from
+        batch.due_at = due_at
+        await session.flush()
+        return batch, assignments
+
+    async def cancel_assignment_batch(
+        self, session: AsyncSession, batch_id: uuid.UUID, teacher_id: uuid.UUID
+    ) -> None:
+        _, assignments = await self._lock_assignment_batch(session, batch_id, teacher_id)
+        pending = [
+            assignment for assignment in assignments
+            if assignment.status != AssignmentStatus.CANCELLED.value
+        ]
+        for assignment in pending:
+            await self._assert_assignment_not_started(session, assignment)
+        now = utcnow()
+        for assignment in pending:
+            assignment.status = AssignmentStatus.CANCELLED.value
+            assignment.cancelled_at = now
+        await session.flush()
 
     async def mark_participant_ready(
         self,
@@ -1772,8 +1931,11 @@ class SimulationApplicationService:
         training_session = await session.get(TrainingSession, session_id)
         if training_session is None:
             raise NotFoundError("Training session not found")
-        if training_session.status != TrainingSessionStatus.COMPLETED.value:
-            raise ConflictError("Expert review is available after session completion")
+        if training_session.status not in {
+            TrainingSessionStatus.COMPLETED.value,
+            TrainingSessionStatus.ABORTED.value,
+        }:
+            raise ConflictError("Expert review is available after the session ends")
         assignment = await session.get(ScenarioAssignment, training_session.assignment_id)
         if assignment is None:
             raise ConflictError("Scenario assignment is missing")
@@ -1805,6 +1967,10 @@ class SimulationApplicationService:
                     AudioMessage.training_session_id == training_session.id,
                     AudioMessage.training_call_id.is_not(None),
                     AudioMessage.status == AudioMessageStatus.COMPLETED.value,
+                    or_(
+                        AudioMessage.kind == AudioMessageKind.STT.value,
+                        AudioMessage.speaker_role != "TRAINEE",
+                    ),
                 )
                 .order_by(AudioMessage.sequence_no, AudioMessage.id)
             )
@@ -1829,7 +1995,6 @@ class SimulationApplicationService:
                     ),
                     "input_mode": (
                         "VOICE" if message.kind == AudioMessageKind.STT.value
-                        else "TEXT" if message.speaker_role == "TRAINEE"
                         else "GENERATED"
                     ),
                     "sequence_no": message.sequence_no,
@@ -1909,12 +2074,33 @@ class SimulationApplicationService:
                     "automatic_result": stored_call_results.get(str(item.id)),
                 }
             )
+        outgoing_calls = list(
+            await session.scalars(
+                select(TrainingCall)
+                .where(
+                    TrainingCall.training_session_id == training_session.id,
+                    TrainingCall.direction == "OUTBOUND",
+                )
+                .order_by(TrainingCall.answered_at, TrainingCall.id)
+            )
+        )
         return {
             "session": training_session,
             "scenario_snapshot": assignment.scenario_snapshot,
             "participant_ids": participant_ids,
             "cards": cards,
             "incoming_calls": incoming_calls,
+            "outgoing_calls": [
+                {
+                    "id": call.id,
+                    "card_id": call.incident_card_id,
+                    "status": call.status,
+                    "started_at": call.answered_at,
+                    "completed_at": call.completed_at,
+                    "interlocutor_role": call.interlocutor_role,
+                }
+                for call in outgoing_calls
+            ],
             "call_utterances": call_utterances,
             "actions": actions,
         }
@@ -2372,6 +2558,7 @@ class SimulationApplicationService:
         now = utcnow()
         item.status = TrainingCallStatus.COMPLETED.value
         item.completed_at = now
+        session.add(TrainingCallRecording(training_call_id=item.id))
         self._add_training_call_action(
             session, item, user_id, "OUTGOING_CALL_COMPLETED", now,
             incident_card_id=item.incident_card_id,

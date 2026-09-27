@@ -1,6 +1,7 @@
 import {
   api,
   toExpertReviewContext,
+  toLimitedReviewContext,
   toReviewAssignment,
   toReviewSession,
   type ExpertAssessmentRequestDto,
@@ -9,6 +10,9 @@ import {
   type ReviewAssignment,
   type ReviewSession,
   type ScenarioAssignmentDto,
+  type ScheduledCardDto,
+  type SessionTrainingCallDto,
+  type TrainingActionDto,
   type TrainingSessionDto,
 } from "@/shared/api";
 import { CARD_API_URL, mocks } from "@/shared/config";
@@ -68,4 +72,26 @@ export async function updateExpertAssessment(
   );
 
   return toReviewSession(data);
+}
+
+export async function fetchLimitedReviewContext(
+  trainingSessionId: string,
+  signal?: AbortSignal,
+): Promise<ExpertReviewContext> {
+  const base = `${CARD_API_URL}/training-sessions/${trainingSessionId}`;
+  const [session, calls, cards, actions] = await Promise.all([
+    api.get<TrainingSessionDto>(base, { signal }),
+    api.get<SessionTrainingCallDto[]>(`${base}/incoming-calls`, { signal }),
+    api.get<ScheduledCardDto[]>(`${base}/scheduled-cards`, { signal }),
+    api.get<TrainingActionDto[]>(`${base}/actions`, { signal }),
+  ]);
+  const assignment = await fetchReviewAssignment(session.data.assignment_id, signal);
+
+  return toLimitedReviewContext({
+    session: session.data,
+    calls: calls.data,
+    cards: cards.data,
+    actions: actions.data,
+    participantIds: assignment.participants.map((participant) => participant.userId),
+  });
 }

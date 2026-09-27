@@ -48,8 +48,8 @@ export const reviewNotices = {
   incidentAddress:
     "Адрес происшествия оператор уточняет по карте и ориентирам, он может законно отличаться от эталона. В C4 учитывается только адрес со слов заявителя, это расхождение — сведение, а не ошибка.",
   automaticPhoneNumber:
-    "Номер АОН определяется автоматически, обучающийся его не вводит. Расхождение — сведение, а не ошибка обучающегося.",
-  notApplicable: "не оценивается в этом сценарии",
+    "Номер АОН определяется автоматически, обучаемый его не вводит. Расхождение — сведение, а не ошибка обучаемого.",
+  notApplicable: "не оценивается в этом занятии",
   literalComments:
     "Комментарии сравниваются с эталоном буквально: верный по смыслу, но иначе сформулированный комментарий даёт расхождение.",
   modelEvaluation:
@@ -66,6 +66,9 @@ const HANDLING_DECISION = /^service_handling\.[^.]+\.decision$/;
 const HANDLING_STATUS = /^service_handling\.[^.]+\.(opened_at|decision)$/;
 
 const COMPLETENESS_PATHS = new Set([
+  "card.applicant_full_name",
+  "card.provided_phone_number",
+  "card.location_phone_number",
   "card.description",
   "card.questionnaire",
   "card.questionnaire.questions",

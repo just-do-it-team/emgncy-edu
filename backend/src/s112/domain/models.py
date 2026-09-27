@@ -431,6 +431,7 @@ class CardListProjection(Base):
         ForeignKey("simulation_workspace.id", ondelete="CASCADE"), nullable=False
     )
     card_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
     event_type_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     classification: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
     event_kind_id: Mapped[int | None] = mapped_column(Integer)
