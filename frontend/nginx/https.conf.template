@@ -1,0 +1,66 @@
+server {
+    listen 80;
+    server_name ${DOMAIN};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name ${DOMAIN};
+
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+
+    root /usr/share/nginx/html;
+    index index.html;
+    client_max_body_size 26m;
+
+    location /student-api/ {
+        proxy_pass http://card-api:8080/;
+        include /etc/nginx/proxy.conf;
+    }
+
+    location /auth-api/ {
+        proxy_pass http://auth-api:8084/;
+        include /etc/nginx/proxy.conf;
+    }
+
+    location /realtime-gateway/ {
+        proxy_pass http://realtime-gateway:8081/;
+        include /etc/nginx/proxy.conf;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 1h;
+    }
+
+    location /admin-api/ {
+        proxy_pass http://admin-api:8082/;
+        include /etc/nginx/proxy.conf;
+    }
+
+    location /speech-api/ {
+        auth_request /_speech_auth;
+        proxy_pass http://speech-api:8083/;
+        include /etc/nginx/proxy.conf;
+        proxy_read_timeout 300s;
+    }
+
+    location = /_speech_auth {
+        internal;
+        proxy_pass http://auth-api:8084/api/v1/auth/profile;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        include /etc/nginx/proxy.conf;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

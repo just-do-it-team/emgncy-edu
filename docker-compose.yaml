@@ -1,0 +1,921 @@
+x-app-environment: &app-environment
+  S112_DATABASE_URL: ${S112_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-primary:5432/${POSTGRES_DB:-s112}}
+  S112_READ_DATABASE_URL: ${S112_READ_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-replica:5432/${POSTGRES_DB:-s112}}
+  S112_KAFKA_BOOTSTRAP_SERVERS: kafka-1:19092,kafka-2:19092,kafka-3:19092
+  S112_KAFKA_TOPIC: ${S112_KAFKA_TOPIC:-card.events}
+  S112_AUDIO_STT_REQUEST_TOPIC: ${S112_AUDIO_STT_REQUEST_TOPIC:-audio.stt.requested.v1}
+  S112_AUDIO_STT_RESULT_TOPIC: ${S112_AUDIO_STT_RESULT_TOPIC:-audio.stt.completed.v1}
+  S112_AUDIO_TTS_REQUEST_TOPIC: ${S112_AUDIO_TTS_REQUEST_TOPIC:-audio.tts.requested.v1}
+  S112_AUDIO_TTS_RESULT_TOPIC: ${S112_AUDIO_TTS_RESULT_TOPIC:-audio.tts.completed.v1}
+  S112_DIALOGUE_REQUEST_TOPIC: ${S112_DIALOGUE_REQUEST_TOPIC:-dialogue.requested.v1}
+  S112_OUTBOX_POLL_INTERVAL_SECONDS: ${S112_OUTBOX_POLL_INTERVAL_SECONDS:-0.05}
+  S112_CALL_VAD_SILENCE_MS: ${S112_CALL_VAD_SILENCE_MS:-600}
+  S112_DIALOGUE_LLM_BASE_URL: ${S112_DIALOGUE_LLM_BASE_URL:-http://host.docker.internal:4555/v1}
+  S112_DIALOGUE_LLM_MODEL: ${S112_DIALOGUE_LLM_MODEL:-gpt-oss-20b}
+  S112_DIALOGUE_LLM_API_KEY: ${S112_DIALOGUE_LLM_API_KEY:-}
+  S112_DIALOGUE_LLM_TIMEOUT_SECONDS: ${S112_DIALOGUE_LLM_TIMEOUT_SECONDS:-120}
+  S112_DIALOGUE_LLM_HISTORY_MESSAGES: ${S112_DIALOGUE_LLM_HISTORY_MESSAGES:-12}
+  S112_TEMPLATE_GENERATION_TIMEOUT_SECONDS: ${S112_TEMPLATE_GENERATION_TIMEOUT_SECONDS:-600}
+  S112_TEMPLATE_GENERATION_POLL_INTERVAL_SECONDS: ${S112_TEMPLATE_GENERATION_POLL_INTERVAL_SECONDS:-1}
+  S112_TEMPLATE_GENERATION_RETRY_LIMIT: ${S112_TEMPLATE_GENERATION_RETRY_LIMIT:-3}
+  S112_TEMPLATE_GENERATION_STALE_SECONDS: ${S112_TEMPLATE_GENERATION_STALE_SECONDS:-900}
+  S112_TEMPLATE_GENERATION_MALE_VOICE_ID: ${S112_TEMPLATE_GENERATION_MALE_VOICE_ID:-112_male.mp3}
+  S112_TEMPLATE_GENERATION_FEMALE_VOICE_ID: ${S112_TEMPLATE_GENERATION_FEMALE_VOICE_ID:-female.mp3}
+  S112_AUDIO_FAILED_TOPIC: ${S112_AUDIO_FAILED_TOPIC:-audio.processing.failed.v1}
+  S112_SPEECH_REQUEST_CONSUMER_GROUP: ${S112_SPEECH_REQUEST_CONSUMER_GROUP:-speech-request-worker-v1}
+  S112_SPEECH_RESULT_CONSUMER_GROUP: ${S112_SPEECH_RESULT_CONSUMER_GROUP:-speech-result-worker-v1}
+  S112_SEMANTIC_EVALUATION_REQUEST_TOPIC: ${S112_SEMANTIC_EVALUATION_REQUEST_TOPIC:-training.semantic-evaluation.requested.v1}
+  S112_SEMANTIC_EVALUATION_RESULT_TOPIC: ${S112_SEMANTIC_EVALUATION_RESULT_TOPIC:-training.semantic-evaluation.completed.v1}
+  S112_SEMANTIC_REQUEST_CONSUMER_GROUP: ${S112_SEMANTIC_REQUEST_CONSUMER_GROUP:-semantic-evaluation-request-worker-v1}
+  S112_SEMANTIC_RESULT_CONSUMER_GROUP: ${S112_SEMANTIC_RESULT_CONSUMER_GROUP:-semantic-evaluation-result-worker-v1}
+  S112_SEAWEED_FILER_URLS: ${S112_SEAWEED_FILER_URLS:-http://seaweed-filer-1:8888,http://seaweed-filer-2:8888}
+  S112_SEAWEED_AUDIO_PREFIX: ${S112_SEAWEED_AUDIO_PREFIX:-/audio}
+  S112_SEAWEED_TIMEOUT_SECONDS: ${S112_SEAWEED_TIMEOUT_SECONDS:-60}
+  S112_AUDIO_MAX_UPLOAD_BYTES: ${S112_AUDIO_MAX_UPLOAD_BYTES:-26214400}
+  S112_TTS_MAX_TEXT_CHARS: ${S112_TTS_MAX_TEXT_CHARS:-8000}
+  S112_SPEECH_API_URL: ${S112_SPEECH_API_URL:-http://speech-api:8083}
+  S112_AUTH_ENABLED: "true"
+  S112_AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?Set_AUTH_JWT_SECRET_in_root_.env}
+  S112_AUTH_JWT_ISSUER: ${AUTH_JWT_ISSUER:-s112-auth}
+  S112_AUTH_JWT_AUDIENCE: ${AUTH_JWT_AUDIENCE:-s112-api}
+  S112_AUTH_ACCESS_TOKEN_TTL_SECONDS: ${AUTH_ACCESS_TOKEN_TTL_SECONDS:-3600}
+
+x-kafka-environment: &kafka-environment
+  KAFKA_CFG_PROCESS_ROLES: broker,controller
+  KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
+  KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+  KAFKA_CFG_LISTENERS: CONTROLLER://:9093,INTERNAL://:19092,EXTERNAL://:9092
+  KAFKA_CFG_INTER_BROKER_LISTENER_NAME: INTERNAL
+  KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+  KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+  KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: 2
+  KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: 3
+  KAFKA_CFG_MIN_INSYNC_REPLICAS: 2
+  KAFKA_CFG_NUM_PARTITIONS: 6
+  KAFKA_CFG_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+  KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "false"
+  KAFKA_KRAFT_CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
+
+x-kafka-common: &kafka-common
+  image: bitnamilegacy/kafka:3.4
+  restart: unless-stopped
+  healthcheck:
+    test: ["CMD-SHELL", "/opt/bitnami/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:19092 >/dev/null 2>&1"]
+    interval: 10s
+    timeout: 5s
+    retries: 12
+    start_period: 20s
+
+services:
+  postgres-primary:
+    image: postgres:17.11-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-s112}
+      POSTGRES_USER: ${POSTGRES_USER:-s112}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-s112}
+      POSTGRES_REPLICATION_USER: ${POSTGRES_REPLICATION_USER:-replicator}
+      POSTGRES_REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD:-replicator-password}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
+      - -c
+      - max_slot_wal_keep_size=2048MB
+      - -c
+      - hot_standby=on
+      - -c
+      - password_encryption=scram-sha-256
+    volumes:
+      - postgres-primary-data:/var/lib/postgresql/data
+      - ./backend/infra/postgres/primary-init.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-s112} -d ${POSTGRES_DB:-s112}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  postgres-replica:
+    image: postgres:17.11-bookworm
+    restart: unless-stopped
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-s112}
+      POSTGRES_USER: ${POSTGRES_USER:-s112}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-s112}
+      POSTGRES_REPLICATION_USER: ${POSTGRES_REPLICATION_USER:-replicator}
+      POSTGRES_REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD:-replicator-password}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    entrypoint: ["sh", "/scripts/replica-entrypoint.sh"]
+    volumes:
+      - postgres-replica-data:/var/lib/postgresql/data
+      - ./backend/infra/postgres/replica-entrypoint.sh:/scripts/replica-entrypoint.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-s112} -d ${POSTGRES_DB:-s112} && psql -U ${POSTGRES_USER:-s112} -d ${POSTGRES_DB:-s112} -tAc 'SELECT pg_is_in_recovery()' | grep -q t"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  seaweed-master-1:
+    image: chrislusf/seaweedfs:4.47
+    restart: unless-stopped
+    command:
+      - master
+      - -ip=seaweed-master-1
+      - -ip.bind=0.0.0.0
+      - -mdir=/data
+      - -peers=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      - -defaultReplication=010
+    volumes:
+      - seaweed-master-1-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:9333/cluster/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  seaweed-master-2:
+    image: chrislusf/seaweedfs:4.47
+    restart: unless-stopped
+    command:
+      - master
+      - -ip=seaweed-master-2
+      - -ip.bind=0.0.0.0
+      - -mdir=/data
+      - -peers=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      - -defaultReplication=010
+    volumes:
+      - seaweed-master-2-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:9333/cluster/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  seaweed-master-3:
+    image: chrislusf/seaweedfs:4.47
+    restart: unless-stopped
+    command:
+      - master
+      - -ip=seaweed-master-3
+      - -ip.bind=0.0.0.0
+      - -mdir=/data
+      - -peers=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      - -defaultReplication=010
+    volumes:
+      - seaweed-master-3-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:9333/cluster/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  seaweed-volume-1:
+    image: chrislusf/seaweedfs:4.47
+    restart: unless-stopped
+    command:
+      - volume
+      - -ip=seaweed-volume-1
+      - -ip.bind=0.0.0.0
+      - -port=8080
+      - -mserver=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      - -dir=/data
+      - -max=0
+      - -dataCenter=dc1
+      - -rack=rack1
+    volumes:
+      - seaweed-volume-1-data:/data
+    depends_on:
+      seaweed-master-1:
+        condition: service_healthy
+      seaweed-master-2:
+        condition: service_healthy
+      seaweed-master-3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  seaweed-volume-2:
+    image: chrislusf/seaweedfs:4.47
+    restart: unless-stopped
+    command:
+      - volume
+      - -ip=seaweed-volume-2
+      - -ip.bind=0.0.0.0
+      - -port=8080
+      - -mserver=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      - -dir=/data
+      - -max=0
+      - -dataCenter=dc1
+      - -rack=rack2
+    volumes:
+      - seaweed-volume-2-data:/data
+    depends_on:
+      seaweed-master-1:
+        condition: service_healthy
+      seaweed-master-2:
+        condition: service_healthy
+      seaweed-master-3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  seaweed-filer-1:
+    image: chrislusf/seaweedfs:4.47
+    restart: unless-stopped
+    command:
+      - filer
+      - -ip=seaweed-filer-1
+      - -ip.bind=0.0.0.0
+      - -port=8888
+      - -master=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      - -defaultReplicaPlacement=010
+    environment: &seaweed-filer-environment
+      WEED_LEVELDB2_ENABLED: "false"
+      WEED_POSTGRES_ENABLED: "true"
+      WEED_POSTGRES_HOSTNAME: postgres-primary
+      WEED_POSTGRES_PORT: "5432"
+      WEED_POSTGRES_USERNAME: ${POSTGRES_USER:-s112}
+      WEED_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-s112}
+      WEED_POSTGRES_DATABASE: ${POSTGRES_DB:-s112}
+      WEED_POSTGRES_SSLMODE: disable
+    volumes:
+      - ./backend/infra/seaweedfs/filer.toml:/etc/seaweedfs/filer.toml:ro
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      seaweed-volume-1:
+        condition: service_healthy
+      seaweed-volume-2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8888/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  seaweed-filer-2:
+    image: chrislusf/seaweedfs:4.47
+    restart: unless-stopped
+    command:
+      - filer
+      - -ip=seaweed-filer-2
+      - -ip.bind=0.0.0.0
+      - -port=8888
+      - -master=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      - -defaultReplicaPlacement=010
+    environment:
+      <<: *seaweed-filer-environment
+    volumes:
+      - ./backend/infra/seaweedfs/filer.toml:/etc/seaweedfs/filer.toml:ro
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      seaweed-volume-1:
+        condition: service_healthy
+      seaweed-volume-2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8888/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  kafka-1:
+    <<: *kafka-common
+    hostname: kafka-1
+    environment:
+      <<: *kafka-environment
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka-1:19092,EXTERNAL://${KAFKA_ADVERTISED_HOST:-localhost}:${KAFKA_1_PORT:-29092}
+    volumes:
+      - kafka-1-data:/bitnami/kafka
+
+  kafka-2:
+    <<: *kafka-common
+    hostname: kafka-2
+    environment:
+      <<: *kafka-environment
+      KAFKA_CFG_NODE_ID: 2
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka-2:19092,EXTERNAL://${KAFKA_ADVERTISED_HOST:-localhost}:${KAFKA_2_PORT:-39092}
+    volumes:
+      - kafka-2-data:/bitnami/kafka
+
+  kafka-3:
+    <<: *kafka-common
+    hostname: kafka-3
+    environment:
+      <<: *kafka-environment
+      KAFKA_CFG_NODE_ID: 3
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka-3:19092,EXTERNAL://${KAFKA_ADVERTISED_HOST:-localhost}:${KAFKA_3_PORT:-49092}
+    volumes:
+      - kafka-3-data:/bitnami/kafka
+
+  kafka-init:
+    image: bitnamilegacy/kafka:3.4
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |-
+        for topic in \
+        ${S112_KAFKA_TOPIC:-card.events} \
+        ${S112_AUDIO_STT_REQUEST_TOPIC:-audio.stt.requested.v1} \
+        ${S112_AUDIO_STT_RESULT_TOPIC:-audio.stt.completed.v1} \
+        ${S112_AUDIO_TTS_REQUEST_TOPIC:-audio.tts.requested.v1} \
+        ${S112_AUDIO_TTS_RESULT_TOPIC:-audio.tts.completed.v1} \
+        ${S112_DIALOGUE_REQUEST_TOPIC:-dialogue.requested.v1} \
+        ${S112_AUDIO_FAILED_TOPIC:-audio.processing.failed.v1} \
+        ${S112_SEMANTIC_EVALUATION_REQUEST_TOPIC:-training.semantic-evaluation.requested.v1} \
+        ${S112_SEMANTIC_EVALUATION_RESULT_TOPIC:-training.semantic-evaluation.completed.v1};
+        do
+          /opt/bitnami/kafka/bin/kafka-topics.sh \
+          --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092 \
+          --create --if-not-exists \
+          --topic "$${topic}" \
+          --partitions 6 \
+          --replication-factor 3 \
+          --config min.insync.replicas=2;
+        done
+        /opt/bitnami/kafka/bin/kafka-topics.sh \
+        --bootstrap-server kafka-1:19092 \
+        --list
+    restart: "no"
+
+  migrate:
+    build:
+      context: ./backend
+    environment:
+      <<: *app-environment
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    restart: "no"
+
+  card-api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+    command: ["uvicorn", "s112.api.main:app", "--host", "0.0.0.0", "--port", "8080"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres-replica:
+        condition: service_healthy
+      seaweed-filer-1:
+        condition: service_healthy
+      seaweed-filer-2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  auth-api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      S112_DATABASE_URL: ${S112_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-primary:5432/${POSTGRES_DB:-s112}}
+      S112_READ_DATABASE_URL: ${S112_READ_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-replica:5432/${POSTGRES_DB:-s112}}
+      S112_AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?Set_AUTH_JWT_SECRET_in_root_.env}
+      S112_AUTH_JWT_ISSUER: ${AUTH_JWT_ISSUER:-s112-auth}
+      S112_AUTH_JWT_AUDIENCE: ${AUTH_JWT_AUDIENCE:-s112-api}
+      S112_AUTH_ACCESS_TOKEN_TTL_SECONDS: ${AUTH_ACCESS_TOKEN_TTL_SECONDS:-3600}
+    command: ["uvicorn", "s112.auth.main:app", "--host", "0.0.0.0", "--port", "8084"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8084/health', timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  speech-tts-build:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.speech
+      target: tts-builder
+      args:
+        CUDA_VERSION: ${CUDA_VERSION:-13.0.2}
+        CUDA_ARCHITECTURES: ${CUDA_ARCHITECTURES:-75-real}
+        LLAMA_CPP_REF: ${LLAMA_CPP_REF:-master}
+    restart: "no"
+    volumes:
+      - type: volume
+        source: speech-tts-runtime
+        target: /opt/speech/bin
+      - type: volume
+        source: speech-tts-build-cache
+        target: /build/voice-build
+
+  speech-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.speech
+      target: runtime
+      args:
+        CUDA_VERSION: ${CUDA_VERSION:-13.0.2}
+        PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cu130}
+    restart: unless-stopped
+    init: true
+    environment:
+      S112_PRELOAD_MODELS: ${S112_PRELOAD_MODELS:-true}
+      S112_AUDIO_MAX_UPLOAD_BYTES: ${S112_AUDIO_MAX_UPLOAD_BYTES:-26214400}
+      S112_TTS_MAX_TEXT_CHARS: ${S112_TTS_MAX_TEXT_CHARS:-8000}
+      S112_STT_MODEL_PATH: /models/GigaAM-v3-e2e-rnnt
+      S112_STT_DEVICE: ${S112_STT_DEVICE:-auto}
+      S112_STT_FP16: ${S112_STT_FP16:-true}
+      S112_TTS_WORKER_BINARY: /opt/speech/bin/qwen-tts-worker
+      S112_TTS_MODEL_PATH: /models/Qwen3-TTS-12Hz-0.6B-Base-Q8_0.gguf
+      S112_TTS_MMPROJ_PATH: /models/mmproj-Qwen3-TTS-12Hz-0.6B-Base-F16.gguf
+      S112_TTS_REFERENCES_DIR: /models/refs
+      S112_TTS_DEFAULT_VOICE_ID: ${TTS_DEFAULT_VOICE_ID:-reference.mp3}
+      S112_TTS_LANGUAGE: ${S112_TTS_LANGUAGE:-ru}
+      S112_TTS_TIMEOUT_SECONDS: ${S112_TTS_TIMEOUT_SECONDS:-180}
+      S112_TTS_STARTUP_TIMEOUT_SECONDS: ${S112_TTS_STARTUP_TIMEOUT_SECONDS:-180}
+      S112_TTS_GPU_LAYERS: ${S112_TTS_GPU_LAYERS:-99}
+      S112_TTS_CONTEXT_SIZE: ${S112_TTS_CONTEXT_SIZE:-4096}
+      S112_TTS_BATCH_SIZE: ${S112_TTS_BATCH_SIZE:-512}
+      S112_TTS_UBATCH_SIZE: ${S112_TTS_UBATCH_SIZE:-512}
+      S112_TTS_MAX_FRAMES: ${S112_TTS_MAX_FRAMES:-160}
+      S112_TTS_TOP_K: ${S112_TTS_TOP_K:-40}
+      S112_TTS_TOP_P: ${S112_TTS_TOP_P:-0.9}
+      S112_TTS_TEMPERATURE: ${S112_TTS_TEMPERATURE:-0.8}
+      S112_TTS_SEED: ${S112_TTS_SEED:--1}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    shm_size: "2gb"
+    depends_on:
+      speech-tts-build:
+        condition: service_completed_successfully
+    volumes:
+      - type: volume
+        source: speech-tts-runtime
+        target: /opt/speech/bin
+        read_only: true
+      - type: bind
+        source: ${ROOT_SPEECH_MODELS_DIR:-./backend/models}
+        target: /models
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8083/health', timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 180s
+
+  outbox-worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+    command: ["python", "-m", "s112.outbox_worker.main"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+
+  speech-request-worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      S112_SPEECH_WORKER_RETRY_LIMIT: ${S112_SPEECH_WORKER_RETRY_LIMIT:-5}
+      S112_SPEECH_WORKER_RETRY_BASE_SECONDS: ${S112_SPEECH_WORKER_RETRY_BASE_SECONDS:-1}
+      S112_SPEECH_WORKER_MAX_POLL_INTERVAL_SECONDS: ${S112_SPEECH_WORKER_MAX_POLL_INTERVAL_SECONDS:-1800}
+      S112_SPEECH_API_TIMEOUT_SECONDS: ${S112_SPEECH_API_TIMEOUT_SECONDS:-240}
+    command: ["python", "-m", "s112.speech_worker.request_main"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+      speech-api:
+        condition: service_healthy
+      seaweed-filer-1:
+        condition: service_healthy
+      seaweed-filer-2:
+        condition: service_healthy
+
+  speech-result-worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+    command: ["python", "-m", "s112.speech_worker.result_main"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+
+  call-recording-worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+    command: ["python", "-m", "s112.audio.recording_worker_main"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      speech-api:
+        condition: service_healthy
+      seaweed-filer-1:
+        condition: service_healthy
+      seaweed-filer-2:
+        condition: service_healthy
+
+  dialogue-worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["python", "-m", "s112.dialogue.main"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+
+  template-generation-worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["python", "-m", "s112.template_generation.main"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  semantic-evaluation-request-worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      S112_SEMANTIC_EVALUATION_API_URL: ${S112_SEMANTIC_EVALUATION_API_URL:-http://host.docker.internal:4555}
+      S112_SEMANTIC_EVALUATION_MODEL: ${S112_SEMANTIC_EVALUATION_MODEL:-gpt-oss-20b}
+      S112_SEMANTIC_EVALUATION_TIMEOUT_SECONDS: ${S112_SEMANTIC_EVALUATION_TIMEOUT_SECONDS:-120}
+      S112_SEMANTIC_EVALUATION_RETRY_LIMIT: ${S112_SEMANTIC_EVALUATION_RETRY_LIMIT:-5}
+      S112_SEMANTIC_EVALUATION_RETRY_BASE_SECONDS: ${S112_SEMANTIC_EVALUATION_RETRY_BASE_SECONDS:-1}
+      S112_SEMANTIC_EVALUATION_MAX_POLL_INTERVAL_SECONDS: ${S112_SEMANTIC_EVALUATION_MAX_POLL_INTERVAL_SECONDS:-1800}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["python", "-m", "s112.semantic_evaluation.request_main"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+
+  semantic-evaluation-result-worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+    command: ["python", "-m", "s112.semantic_evaluation.result_main"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+
+  audio-reconciler:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      S112_AUDIO_RECONCILE_INTERVAL_SECONDS: ${S112_AUDIO_RECONCILE_INTERVAL_SECONDS:-300}
+      S112_AUDIO_ORPHAN_GRACE_SECONDS: ${S112_AUDIO_ORPHAN_GRACE_SECONDS:-3600}
+    command: ["python", "-m", "s112.audio.reconciler_main"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      seaweed-filer-1:
+        condition: service_healthy
+      seaweed-filer-2:
+        condition: service_healthy
+
+  scenario-worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      S112_SCENARIO_WORKER_POLL_INTERVAL_SECONDS: ${S112_SCENARIO_WORKER_POLL_INTERVAL_SECONDS:-0.5}
+      S112_SCENARIO_WORKER_BATCH_SIZE: ${S112_SCENARIO_WORKER_BATCH_SIZE:-100}
+      S112_SCENARIO_WORKER_RETRY_LIMIT: ${S112_SCENARIO_WORKER_RETRY_LIMIT:-5}
+      S112_PRESENCE_TIMEOUT_SECONDS: ${S112_PRESENCE_TIMEOUT_SECONDS:-30}
+      S112_PRESENCE_SWEEP_INTERVAL_SECONDS: ${S112_PRESENCE_SWEEP_INTERVAL_SECONDS:-5}
+    command: ["python", "-m", "s112.scenario_worker.main"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  realtime-gateway:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      S112_REALTIME_INSTANCE_ID: ${S112_REALTIME_INSTANCE_ID:-realtime-1}
+    command: ["uvicorn", "s112.realtime_gateway.main:app", "--host", "0.0.0.0", "--port", "8081"]
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/health', timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  admin-api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      S112_ADMIN_DATABASE_URL: ${S112_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-primary:5432/${POSTGRES_DB:-s112}}
+      S112_ADMIN_READ_DATABASE_URL: ${S112_READ_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-replica:5432/${POSTGRES_DB:-s112}}
+      S112_ADMIN_PROMETHEUS_URL: http://prometheus:9090
+      S112_ADMIN_LOKI_URL: http://loki:3100
+      S112_ADMIN_GRAFANA_PUBLIC_URL: ${GRAFANA_PUBLIC_URL:-http://localhost:3000}
+      S112_ADMIN_REQUEST_TIMEOUT_SECONDS: ${ADMIN_REQUEST_TIMEOUT_SECONDS:-5}
+      S112_ADMIN_MAX_LOG_EXPORT_ROWS: ${ADMIN_MAX_LOG_EXPORT_ROWS:-5000}
+      S112_AUTH_ENABLED: "true"
+      S112_AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?Set_AUTH_JWT_SECRET_in_root_.env}
+      S112_AUTH_JWT_ISSUER: ${AUTH_JWT_ISSUER:-s112-auth}
+      S112_AUTH_JWT_AUDIENCE: ${AUTH_JWT_AUDIENCE:-s112-api}
+      S112_AUTH_ACCESS_TOKEN_TTL_SECONDS: ${AUTH_ACCESS_TOKEN_TTL_SECONDS:-3600}
+    command: ["uvicorn", "s112.admin_api.main:app", "--host", "0.0.0.0", "--port", "8082"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres-replica:
+        condition: service_healthy
+      prometheus:
+        condition: service_started
+      loki:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8082/health', timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=5GB
+      - --web.enable-lifecycle
+    volumes:
+      - ./backend/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./backend/observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:13.2.2
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me}
+      GF_SECURITY_COOKIE_SAMESITE: strict
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    depends_on:
+      prometheus:
+        condition: service_started
+      loki:
+        condition: service_started
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./backend/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./backend/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  loki:
+    image: grafana/loki:3.7.0
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./backend/observability/loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+
+  alloy:
+    image: grafana/alloy:v1.19.2
+    restart: unless-stopped
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    depends_on:
+      loki:
+        condition: service_started
+    volumes:
+      - ./backend/observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+
+  blackbox-exporter:
+    image: quay.io/prometheus/blackbox-exporter:v0.28.0
+    restart: unless-stopped
+    command: ["--config.file=/etc/blackbox_exporter/blackbox.yml"]
+    volumes:
+      - ./backend/observability/blackbox/blackbox.yml:/etc/blackbox_exporter/blackbox.yml:ro
+
+  node-exporter:
+    image: quay.io/prometheus/node-exporter:v1.12.1
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/containers/storage/.+)($|/)
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.2
+    restart: unless-stopped
+    privileged: true
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=15s
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+
+  postgres-primary-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-primary:5432/${POSTGRES_DB:-s112}?sslmode=disable
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+
+  postgres-replica-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-replica:5432/${POSTGRES_DB:-s112}?sslmode=disable
+    depends_on:
+      postgres-replica:
+        condition: service_healthy
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.9.0
+    restart: unless-stopped
+    command:
+      - --kafka.server=kafka-1:19092
+      - --kafka.server=kafka-2:19092
+      - --kafka.server=kafka-3:19092
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+
+  nvidia-gpu-exporter:
+    image: docker.io/utkuozdemir/nvidia_gpu_exporter:1.13.1
+    profiles: ["gpu"]
+    restart: unless-stopped
+    runtime: nvidia
+    command:
+      - --collect.interval=15s
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: utility
+
+  nginx:
+    build:
+      context: ./frontend
+      args:
+        VITE_USE_MOCKS: ${VITE_USE_MOCKS:-false}
+        VITE_DEMO: ${VITE_DEMO:-false}
+        VITE_STUDENT_API_ENABLED: ${VITE_STUDENT_API_ENABLED:-true}
+        VITE_ARM_API_URL: ${VITE_ARM_API_URL:-/student-api}
+        VITE_AUTH_API_URL: ${VITE_AUTH_API_URL:-/auth-api}
+        VITE_REALTIME_GATEWAY_URL: ${VITE_REALTIME_GATEWAY_URL:-/realtime-gateway}
+        VITE_MOCK_AI: ${VITE_MOCK_AI:-false}
+        VITE_MOCK_ASSIGNMENTS: ${VITE_MOCK_ASSIGNMENTS:-false}
+        VITE_MOCK_CALL_TRANSCRIPT: ${VITE_MOCK_CALL_TRANSCRIPT:-false}
+        VITE_MOCK_CARD_TIMELINE: ${VITE_MOCK_CARD_TIMELINE:-false}
+        VITE_MOCK_EXPERT_REVIEW: ${VITE_MOCK_EXPERT_REVIEW:-false}
+        VITE_MOCK_GROUPS: ${VITE_MOCK_GROUPS:-false}
+        VITE_MOCK_MONITORING: ${VITE_MOCK_MONITORING:-false}
+        VITE_MOCK_SCENARIOS: ${VITE_MOCK_SCENARIOS:-false}
+        VITE_MOCK_SERVICES: ${VITE_MOCK_SERVICES:-false}
+        VITE_MOCK_STUDENTS: ${VITE_MOCK_STUDENTS:-false}
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?Set_DOMAIN_in_root_.env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot-webroot:/var/www/certbot:ro
+    depends_on:
+      - card-api
+      - auth-api
+      - realtime-gateway
+      - admin-api
+      - speech-api
+
+  certbot:
+    image: certbot/certbot:latest
+    profiles: ["tls"]
+    command:
+      - certonly
+      - --webroot
+      - --webroot-path=/var/www/certbot
+      - --email=${CERTBOT_EMAIL:?Set_CERTBOT_EMAIL_in_root_.env}
+      - --agree-tos
+      - --no-eff-email
+      - --non-interactive
+      - --domain=${DOMAIN:?Set_DOMAIN_in_root_.env}
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+
+volumes:
+  postgres-primary-data:
+  postgres-replica-data:
+  seaweed-master-1-data:
+  seaweed-master-2-data:
+  seaweed-master-3-data:
+  seaweed-volume-1-data:
+  seaweed-volume-2-data:
+  kafka-1-data:
+  kafka-2-data:
+  kafka-3-data:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  alloy-data:
+  speech-tts-runtime:
+  speech-tts-build-cache:
+  letsencrypt:
+  certbot-webroot:

@@ -1,5 +1,42 @@
 # emgncy-edu
 
+## Развёртывание через корневой Compose
+
+`docker-compose.yaml` поднимает бэкенд и nginx с фронтендом. Фронтенд собирается
+в отдельном этапе Dockerfile: в конечный образ попадают только nginx и файлы `dist`.
+Порты бэкенда и инфраструктуры не публикуются на хосте; nginx занимает 80 и 443.
+
+1. Заполните `backend/.env` по образцу `backend/.env.example`: задайте уникальные
+   пароли и секрет JWT. Заполните `frontend/.env` по образцу `frontend/.env.example`:
+   для production установите `VITE_USE_MOCKS=false`, `VITE_DEMO=false` и адреса API
+   `/student-api`, `/auth-api`, `/realtime-gateway`. Переменные
+   `VITE_*_PROXY_TARGET` используются только dev-сервером и в production-сборку
+   не передаются. Скопируйте корневой `.env.example` в `.env` и задайте домен
+   и почту Certbot. Домен должен указывать на сервер, а порты 80 и 443 должны быть
+   доступны. Для другого каталога моделей задайте `ROOT_SPEECH_MODELS_DIR` в корневом
+   `.env` (путь отсчитывается от корня проекта).
+2. Запустите стек:
+   `docker compose --env-file frontend/.env --env-file backend/.env --env-file .env up -d`.
+   До выпуска сертификата nginx обслуживает только HTTP-проверку домена и отвечает
+   503 на остальные запросы. Значения `VITE_*` встраиваются при сборке фронтенда:
+   после их изменения пересоберите nginx.
+3. Один раз выпустите сертификат:
+   `docker compose --env-file frontend/.env --env-file backend/.env --env-file .env --profile tls run --rm certbot`.
+   Затем выполните
+   `docker compose --env-file frontend/.env --env-file backend/.env --env-file .env restart nginx`, чтобы включить HTTPS.
+
+Сертификаты хранятся в volume `letsencrypt`, поэтому пересборка фронтенда их не
+затрагивает. Сертификат нужно регулярно продлевать командой
+`docker compose --env-file frontend/.env --env-file backend/.env --env-file .env --profile tls run --rm certbot renew`;
+после успешного продления выполните
+`docker compose --env-file frontend/.env --env-file backend/.env --env-file .env exec nginx nginx -s reload`. Эти две команды следует
+запланировать на сервере.
+
+nginx направляет `/student-api`, `/auth-api`, `/realtime-gateway`, `/admin-api` и
+`/speech-api` к соответствующим сервисам во внутренней сети. Публичный доступ к
+speech API требует токен авторизации; остальные защищённые методы проверяют JWT в
+самих сервисах. Для корневого стека авторизация включена по умолчанию.
+
 ## Демо-стенд
 
 Приложение работает на реальном бэкенде в части входа: логин и пароль проверяет сервис
