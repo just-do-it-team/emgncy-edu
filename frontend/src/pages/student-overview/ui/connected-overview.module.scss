@@ -1,0 +1,39 @@
+.assignmentsTable {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.workplaceColumn {
+  width: 165px;
+}
+
+.dueColumn {
+  width: 205px;
+}
+
+.statusColumn {
+  width: 165px;
+}
+
+.actionColumn {
+  width: 195px;
+}
+
+.scenarioCell {
+  overflow-wrap: anywhere;
+}
+
+.dueCell,
+.statusCell,
+.actionCell {
+  white-space: nowrap;
+}
+
+.statusBadge {
+  max-width: none;
+
+  :global(.mantine-Badge-label) {
+    overflow: visible;
+    text-overflow: clip;
+  }
+}

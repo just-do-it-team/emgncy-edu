@@ -256,6 +256,7 @@ export function OutgoingCalls({
           </>
         ) : (
           <Button
+            data-guidance="call-brigade"
             size="sm"
             color="green"
             leftSection={<PhoneCall size={16} />}

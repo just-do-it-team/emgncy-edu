@@ -248,6 +248,47 @@
 .trainingRight {
   justify-self: end;
   justify-content: flex-end;
+  column-gap: 18px;
+}
+
+.trainingStatus {
+  padding-right: 18px;
+  border-right: 1px solid var(--pov-card-border);
+}
+
+.trainingHelp {
+  flex-wrap: nowrap;
+}
+
+.hintsToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 16px;
+  border-right: 1px solid var(--pov-card-border);
+  white-space: nowrap;
+}
+
+.hintsIcon {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #f1cc72;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #fffaf0, #ffe7aa);
+  box-shadow: 0 2px 5px rgb(134 84 14 / 14%);
+  color: #9b5c08;
+}
+
+.hintsToggle[data-disabled] .hintsIcon {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+
+.hintsToggle[data-disabled] :global(.mantine-Switch-root) {
+  pointer-events: none;
 }
 
 .onboardingButton {

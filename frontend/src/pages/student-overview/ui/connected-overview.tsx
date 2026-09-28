@@ -28,6 +28,7 @@ import {
   trainingKeys,
   type Assignment,
 } from "@/entities/training";
+import classes from "./connected-overview.module.scss";
 
 export function ConnectedOverview() {
   const userId = useSessionStore((state) => state.profile?.userId);
@@ -75,8 +76,15 @@ function Assignments({ userId }: { userId: string }) {
         </Alert>
       )}
       <Paper withBorder>
-        <Table.ScrollContainer minWidth={850}>
-          <Table verticalSpacing="md">
+        <Table.ScrollContainer minWidth={1180}>
+          <Table verticalSpacing="md" className={classes.assignmentsTable}>
+            <colgroup>
+              <col />
+              <col className={classes.workplaceColumn} />
+              <col className={classes.dueColumn} />
+              <col className={classes.statusColumn} />
+              <col className={classes.actionColumn} />
+            </colgroup>
             <Table.Thead>
               <Table.Tr>
                 {["Занятие", "Рабочее место", "Срок", "Статус", "Действие"].map(
@@ -196,7 +204,7 @@ function AssignmentRow({
   // A persisted start key also allows recovery when the first POST succeeded but its response was lost.
   return (
     <Table.Tr>
-      <Table.Td>
+      <Table.Td className={classes.scenarioCell}>
         <Text fw={600}>{scenario.name}</Text>
         <Text size="xs" c="dimmed">
           {scenario.description}
@@ -218,15 +226,18 @@ function AssignmentRow({
             : "Служба 112"}
         </Text>
       </Table.Td>
-      <Table.Td>
+      <Table.Td className={classes.dueCell}>
         {assignment.due_at ? formatApiDate(assignment.due_at) : "Без срока"}
       </Table.Td>
-      <Table.Td>
-        <Badge color={assignment.status === "ASSIGNED" ? "green" : "gray"}>
+      <Table.Td className={classes.statusCell}>
+        <Badge
+          className={classes.statusBadge}
+          color={assignment.status === "ASSIGNED" ? "green" : "gray"}
+        >
           {statusLabels[assignment.status] ?? assignment.status}
         </Badge>
       </Table.Td>
-      <Table.Td>
+      <Table.Td className={classes.actionCell}>
         {assignment.status !== "COMPLETED" && (
           <Button
             size="sm"

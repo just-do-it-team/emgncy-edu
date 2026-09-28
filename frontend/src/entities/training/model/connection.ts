@@ -30,6 +30,7 @@ export function assignmentLaunchContext(
     mode: assignment.participant.position_code === null ? "ARM112" : "DDS",
     positionCode: assignment.participant.position_code,
     title: assignment.scenario.name,
+    difficulty: assignment.scenario.difficulty,
   };
 }
 

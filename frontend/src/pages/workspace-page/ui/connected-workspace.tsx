@@ -9,7 +9,9 @@ import {
   Loader,
   Modal,
   Stack,
+  Switch,
   Text,
+  Tooltip,
 } from "@mantine/core";
 import {
   useInfiniteQuery,
@@ -18,7 +20,7 @@ import {
   useQueries,
 } from "@tanstack/react-query";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
-import { CircleHelp } from "lucide-react";
+import { CircleHelp, Lightbulb } from "lucide-react";
 import { useSessionStore } from "@/entities/session";
 import { WorkspaceHeader } from "@/widgets/workspace-header";
 import {
@@ -42,9 +44,19 @@ import { OutgoingCalls } from "./outgoing-calls";
 import { useWorkspaceEvents } from "./use-workspace-events";
 import { useTrainingPresence } from "./use-training-presence";
 import { ArmOnboarding } from "./arm-onboarding";
+import { TrainingHints } from "./training-hints";
 import classes from "./workspace-page.module.scss";
 
 class PendingSessionError extends Error {}
+
+const headerTooltipProps = {
+  multiline: true,
+  w: 280,
+  withArrow: true,
+  position: "bottom" as const,
+  color: "povDark.6",
+  radius: "sm" as const,
+};
 
 const finishedSessionKey = (userId: string, sessionId: string) =>
   `finished-training-session:${userId}:${sessionId}`;
@@ -174,6 +186,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
   const [openCardRequest, setOpenCardRequest] = useState(0);
   const [finishAfterBusy, setFinishAfterBusy] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [hintsEnabled, setHintsEnabled] = useState(ctx.difficulty <= 2);
   const onboardingButtonRef = useRef<HTMLButtonElement>(null);
   const backAction = useRef<() => void>(() => {});
   const [needsRefresh, setNeedsRefresh] = useState(false);
@@ -504,6 +517,25 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     setOnboardingOpen(false);
     onboardingButtonRef.current?.focus();
   }, []);
+  const roleTooltip =
+    ctx.mode === "DDS"
+      ? "Ваша роль в занятии — диспетчер ДДС. Вы принимаете карточки, связываетесь с бригадой и обновляете статус реагирования."
+      : "Ваша роль в занятии — оператор 112. Вы принимаете звонки и оформляете карточки происшествий.";
+  const connectionTooltip =
+    connection === "disconnected"
+      ? "Связь с событиями прервана. После восстановления данные обновятся автоматически."
+      : requestConnectionLost
+        ? "Не удалось загрузить данные. Повторяем загрузку автоматически."
+        : presence === "unavailable"
+          ? "Сервер пока не принимает подтверждение присутствия. Занятие остаётся открытым; повторяем запрос."
+          : presence === "interrupted"
+            ? "Не удалось подтвердить присутствие. Повторяем запрос каждые 5 секунд."
+            : connectionActive
+              ? "Связь с учебным занятием активна. Новые звонки и карточки поступают в АРМ."
+              : "Проверяем связь с учебным занятием.";
+  const hintsTooltip =
+    "Режим подсказок показывает следующий шаг в обучении: что нужно сделать и куда нажать. Доступен для сценариев сложности «Простой» и «Средний»." +
+    (ctx.difficulty > 2 ? " В этом сценарии режим недоступен." : "");
   return (
     <div className={classes.page} data-card-open={editingCard || undefined}>
       <Modal
@@ -588,56 +620,76 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
           )}
         </div>
         <Group className={classes.trainingRight}>
-          <Badge>
-            {ctx.mode === "DDS"
-              ? `ДДС · ${ctx.positionCode ?? "служба не назначена"}`
-              : "Оператор 112"}
-          </Badge>
-          <Badge
-            data-tour="connection-status"
-            variant={connectionActive ? undefined : "filled"}
-            color={connectionActive ? "green" : "red"}
-            title={
-              connection === "disconnected"
-                ? "Связь с событиями прервана. После восстановления соединения данные обновятся автоматически."
-                : requestConnectionLost
-                  ? "Не удалось загрузить данные. Повторяем загрузку автоматически."
-                  : presence === "unavailable"
-                    ? "Сервер пока не принимает подтверждение присутствия. Занятие остаётся открытым; повторяем запрос."
-                    : presence === "interrupted"
-                      ? "Не удалось подтвердить присутствие. Повторяем запрос каждые 5 секунд."
-                      : !connectionActive
-                        ? "Проверяем связь с занятием."
-                        : undefined
-            }
-            aria-live="polite"
-          >
-            {connectionActive ? "Связь активна" : "Связь не активна"}
-          </Badge>
-          {(refreshing ||
-            activeCardSyncState?.busy ||
-            (presenceActive && !connectionActive)) && (
-            <Loader
-              size="sm"
-              aria-label={
-                connectionActive ? "Обновление данных" : "Восстанавливаем связь"
-              }
-            />
-          )}
-          <Button
-            ref={onboardingButtonRef}
-            className={classes.onboardingButton}
-            variant="subtle"
-            color="povBlue"
-            size="compact-md"
-            aria-label="Открыть обучение по АРМ"
-            aria-expanded={onboardingOpen}
-            aria-controls="arm-onboarding-dialog"
-            title="Обучение по АРМ"
-            onClick={() => setOnboardingOpen(true)}
-          >
-            <CircleHelp size={22} />
-          </Button>
+          <Group gap="xs" className={classes.trainingStatus}>
+            <Tooltip {...headerTooltipProps} label={roleTooltip}>
+              <Badge>
+                {ctx.mode === "DDS"
+                  ? `ДДС · ${ctx.positionCode ?? "служба не назначена"}`
+                  : "Оператор 112"}
+              </Badge>
+            </Tooltip>
+            <Tooltip {...headerTooltipProps} label={connectionTooltip}>
+              <Badge
+                data-tour="connection-status"
+                variant={connectionActive ? undefined : "filled"}
+                color={connectionActive ? "green" : "red"}
+                aria-live="polite"
+              >
+                {connectionActive ? "Связь активна" : "Связь не активна"}
+              </Badge>
+            </Tooltip>
+            {(refreshing ||
+              activeCardSyncState?.busy ||
+              (presenceActive && !connectionActive)) && (
+              <Loader
+                size="sm"
+                aria-label={
+                  connectionActive
+                    ? "Обновление данных"
+                    : "Восстанавливаем связь"
+                }
+              />
+            )}
+          </Group>
+          <Group gap="sm" className={classes.trainingHelp}>
+            <Tooltip {...headerTooltipProps} label={hintsTooltip}>
+              <span
+                className={classes.hintsToggle}
+                data-disabled={ctx.difficulty > 2 || undefined}
+              >
+                <span className={classes.hintsIcon} aria-hidden="true">
+                  <Lightbulb size={19} strokeWidth={2.4} fill="#ffe7a0" />
+                </span>
+                <Switch
+                  size="sm"
+                  aria-label="Режим подсказок"
+                  checked={hintsEnabled}
+                  disabled={ctx.difficulty > 2}
+                  onChange={(event) =>
+                    setHintsEnabled(event.currentTarget.checked)
+                  }
+                />
+              </span>
+            </Tooltip>
+            <Tooltip
+              {...headerTooltipProps}
+              label="Открывает обзор интерфейса АРМ и объясняет назначение его основных элементов."
+            >
+              <Button
+                ref={onboardingButtonRef}
+                className={classes.onboardingButton}
+                variant="subtle"
+                color="povBlue"
+                size="compact-md"
+                aria-label="Открыть обучение по АРМ"
+                aria-expanded={onboardingOpen}
+                aria-controls="arm-onboarding-dialog"
+                onClick={() => setOnboardingOpen(true)}
+              >
+                <CircleHelp size={22} />
+              </Button>
+            </Tooltip>
+          </Group>
         </Group>
         {ctx.mode !== "DDS" && activeCardSyncState?.message && (
           <Text
@@ -746,6 +798,17 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
           onClose={closeOnboarding}
         />
       )}
+      <TrainingHints
+        ctx={ctx}
+        enabled={hintsEnabled && ctx.difficulty <= 2}
+        active={active && !exiting && !onboardingOpen && !finishOpen}
+        calls={calls.data ?? []}
+        cards={visibleCards}
+        selectedId={selectedId}
+        cardOpen={cardOpen || (ctx.mode === "ARM112" && !!selectedId)}
+        draft={callDraft}
+        directory={reference.data?.services ?? []}
+      />
     </div>
   );
 }

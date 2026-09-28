@@ -44,6 +44,7 @@ export interface LaunchContext {
   mode: ArmMode;
   positionCode: string | null;
   title: string;
+  difficulty: number;
 }
 export interface StartedSession {
   session_id: string;

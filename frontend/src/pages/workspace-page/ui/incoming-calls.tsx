@@ -393,6 +393,7 @@ export function IncomingCalls({
                 </Button>
               )}
               <Button
+                data-guidance="hang-up"
                 size="sm"
                 color="red"
                 className={classes.callHangup}
@@ -496,6 +497,7 @@ export function IncomingCalls({
             </Button>
           )}
           <Button
+            data-guidance="answer-call"
             size="lg"
             variant="outline"
             color="white"

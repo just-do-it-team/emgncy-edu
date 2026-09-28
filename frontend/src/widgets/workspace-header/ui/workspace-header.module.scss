@@ -220,11 +220,12 @@
   left: 10px;
   top: 73px;
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 3px;
   color: var(--pov-header-muted);
   font-size: 11px;
+  text-align: center;
 }
 .operatorNav {
   display: flex;
