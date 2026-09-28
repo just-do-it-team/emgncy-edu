@@ -2,6 +2,7 @@ import { Group, NumberInput, Paper, SegmentedControl, Select, Stack, Text, TextI
 import type { UseFormReturnType } from "@mantine/form";
 import {
   completionPolicyLabels,
+  difficultyLabel,
   difficultyLevel,
   difficultyOptions,
   MAX_PASSING_SCORE,
@@ -25,11 +26,15 @@ function isWorkspaceMode(value: string): value is ScenarioWorkspaceMode {
 
 interface ScenarioParamsProps {
   form: UseFormReturnType<ScenarioDraft>;
+  aiOriginal: ScenarioDraft | null;
+  suggestedDifficulty: number | null;
   services: ServiceOption[];
   templates: Map<string, ScenarioTemplate>;
 }
 
-export function ScenarioParams({ form, services, templates }: ScenarioParamsProps) {
+const AI_FIELD_HINT = "Предложено ИИ — проверьте";
+
+export function ScenarioParams({ form, aiOriginal, suggestedDifficulty, services, templates }: ScenarioParamsProps) {
   const draft = form.values;
   const shared = draft.workspaceMode === "SHARED";
   const count = (value: string | number) => (typeof value === "number" ? Math.round(value) : 0);
@@ -40,13 +45,31 @@ export function ScenarioParams({ form, services, templates }: ScenarioParamsProp
         <Title order={3} size="h5" fw={600}>
           Параметры
         </Title>
-        <TextInput size="xs" label="Название" withAsterisk maxLength={255} {...form.getInputProps("name")} />
-        <Textarea size="xs" label="Описание" autosize minRows={2} {...form.getInputProps("description")} />
+        <TextInput
+          size="xs"
+          label="Название"
+          description={aiOriginal !== null && draft.name === aiOriginal.name ? AI_FIELD_HINT : undefined}
+          withAsterisk
+          maxLength={255}
+          {...form.getInputProps("name")}
+        />
+        <Textarea
+          size="xs"
+          label="Описание"
+          description={aiOriginal !== null && draft.description === aiOriginal.description ? AI_FIELD_HINT : undefined}
+          autosize
+          minRows={2}
+          {...form.getInputProps("description")}
+        />
         <Select
           size="xs"
           w={220}
           label="Сложность"
-          description="Задаёт темп процедурной подачи и пул шаблонов"
+          description={
+            suggestedDifficulty === null
+              ? "Задаёт темп процедурной подачи и пул шаблонов"
+              : `ИИ предлагает: ${difficultyLabel(suggestedDifficulty)}. Можно изменить`
+          }
           data={difficultyOptions}
           value={String(difficultyLevel(draft.difficulty))}
           onChange={(value) => {

@@ -3,16 +3,17 @@ import { Alert, Anchor, SegmentedControl, Skeleton, Stack, Text } from "@mantine
 import { isAxiosError } from "axios";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useEmergencyServices } from "@/entities/emergency-service";
-import { useExpertReviewContext, useReviewAssignment } from "@/entities/expert-review";
+import { discrepancyLabel, useExpertReviewContext, useReviewAssignment } from "@/entities/expert-review";
 import { useSessionStore } from "@/entities/session";
 import { useStudentNames } from "@/entities/student";
 import type { ExpertReviewContext, ReviewAssignment } from "@/shared/api";
 import { formatDateTime } from "@/shared/lib";
 import { elementActions, formatOffset, offsetFrom, reviewElements } from "../model/replay";
-import { abortReasonText } from "../model/review-labels";
+import { abortReasonText, type AbortActor } from "../model/review-labels";
 import { ABORTED_SESSION_STATUS, participantRoleLabels } from "@/entities/monitoring";
 import { CallElementReview, CardElementReview, OutgoingCallElementReview } from "./element-review";
-import type { RoleState } from "./review-findings";
+import { ExpertAssessmentCell } from "./expert-assessment";
+import type { FindingDismissal, RoleState } from "./review-findings";
 import classes from "./session-review.module.scss";
 
 const scoreFormatter = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 });
@@ -128,6 +129,15 @@ function passedLabel(passed: boolean | null): string {
 }
 
 const WHOLE_GROUP = "all";
+
+function abortActorOf(context: ExpertReviewContext): AbortActor {
+  const aborted = context.actions.find((action) => action.kind === "session" && action.stage === "aborted");
+  const actor = aborted?.actorUserId ?? null;
+
+  if (actor === null) return "unknown";
+
+  return context.participantIds.includes(actor) ? "participant" : "teacher";
+}
 interface LoadedReviewProps {
   context: ExpertReviewContext;
   teacherId: string;
@@ -138,6 +148,7 @@ function LoadedReview({ context, teacherId, aborted }: LoadedReviewProps) {
   const assignment = useReviewAssignment(context.session.assignmentId);
   const students = useStudentNames(teacherId);
   const services = useEmergencyServices();
+  const [dismissed, setDismissed] = useState<ReadonlyMap<string, string>>(new Map());
   const [searchParams] = useSearchParams();
   const linkedElement = searchParams.get("element");
   const [selectedKey, setSelectedKey] = useState<string | null>(linkedElement);
@@ -174,7 +185,24 @@ function LoadedReview({ context, teacherId, aborted }: LoadedReviewProps) {
     assignment.data?.scenarioName ??
     (typeof context.scenarioSnapshot.name === "string" ? context.scenarioSnapshot.name : "—");
   const roleState = roleStateOf(context, assignment, participantId);
+  const dismissal: FindingDismissal | null =
+    aborted || element === undefined
+      ? null
+      : {
+          isDismissed: (path) => dismissed.has(`${element.key}::${path}`),
+          onChange: (path, value) =>
+            setDismissed((current) => {
+              const next = new Map(current);
+              const key = `${element.key}::${path}`;
+
+              if (value) next.set(key, `${element.label}: ${discrepancyLabel(path, services.data)}`);
+              else next.delete(key);
+
+              return next;
+            }),
+        };
   const elementProps = element && {
+    dismissal,
     originAt: element.originAt,
     actions: elementActions(element, context.actions).filter(
       (action) => participantId === null || action.actorUserId === null || action.actorUserId === participantId,
@@ -222,12 +250,10 @@ function LoadedReview({ context, teacherId, aborted }: LoadedReviewProps) {
             ? "не считались"
             : `${discrepancyCount(context)}${aborted ? " на момент прерывания" : ""}`}
         </Cell>
-        {aborted && <Cell label="Причина прерывания">{abortReasonText(session.abortReason)}</Cell>}
-        {session.expertAssessment && (
-          <Cell label="Оценка преподавателя">
-            {`${scoreFormatter.format(session.expertAssessment.score)}, ${passedLabel(session.expertAssessment.passed)}`}
-          </Cell>
+        {aborted && (
+          <Cell label="Причина прерывания">{abortReasonText(session.abortReason, abortActorOf(context))}</Cell>
         )}
+        <ExpertAssessmentCell session={session} teacherId={teacherId} aborted={aborted} dismissed={[...dismissed.values()]} />
         {context.participantIds.length > 1 && (
           <SegmentedControl
             size="xs"

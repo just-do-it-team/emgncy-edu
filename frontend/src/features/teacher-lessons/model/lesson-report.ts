@@ -17,10 +17,11 @@ import {
   attemptResultLabel,
   participantRoleLabels,
 } from "@/entities/monitoring";
-import type { EmergencyService, MonitoredSession } from "@/shared/api";
+import type { EmergencyService, ExpertAssessment, MonitoredSession } from "@/shared/api";
 import { criterionLabels, REACTION_NORMS_TEXT } from "@/shared/config";
 import { formatDateTime, localDayKey } from "@/shared/lib";
 import type { Lesson } from "./build-lessons";
+import type { LessonAiReview } from "./lesson-ai-review";
 import type { AttemptLink, LessonFindingsSummary } from "./lesson-summary";
 import { completedAttemptsPhrase } from "./plurals";
 
@@ -55,6 +56,8 @@ export interface LessonReport {
   findings: LessonFindingsSummary;
   findingsTotal: number;
   services: Map<string, EmergencyService> | undefined;
+  aiReview: LessonAiReview | null;
+  assessments: ReadonlyMap<string, ExpertAssessment>;
   generatedAt: Date;
 }
 
@@ -240,7 +243,64 @@ function deadlinesContent({ findings }: LessonReport, palette: ReportPalette): P
   return section("Нарушения сроков", [grid(palette, [180, "*", 90], ["Нарушение", "Обучаемый", "Элемент"], rows)]);
 }
 
-function attemptsContent({ lesson }: LessonReport, palette: ReportPalette): PdfContent[] {
+function aiReviewContent({ aiReview }: LessonReport, palette: ReportPalette): PdfContent[] {
+  if (aiReview === null || aiReview.source !== "ai") return [];
+
+  const origin = [aiReview.model, aiReview.generatedAt === null ? null : formatDateTime(aiReview.generatedAt)]
+    .filter(Boolean)
+    .join(", ");
+
+  return section("Разбор ИИ", [
+    text(`Сформировано ИИ, требует проверки преподавателем${origin ? ` (${origin})` : ""}.`, {
+      color: palette.muted,
+      margin: NOTE_MARGIN,
+    }),
+    text(aiReview.summary, { margin: NOTE_MARGIN }),
+    ...(aiReview.typicalErrors.length === 0
+      ? []
+      : [
+          grid(
+            palette,
+            [150, "*", 60],
+            ["Типичная ошибка", "Описание", "Обучаемых"],
+            aiReview.typicalErrors.map((error) => [text(error.title), text(error.description), number(error.studentsCount)]),
+          ),
+        ]),
+    text("Рекомендации преподавателю", { bold: true, margin: SECTION_MARGIN }),
+    ...aiReview.recommendations.map((recommendation) => text(`— ${recommendation}`)),
+    ...(aiReview.studentNotes.length === 0
+      ? []
+      : [
+          text("По обучаемым", { bold: true, margin: SECTION_MARGIN }),
+          grid(
+            palette,
+            [150, "*"],
+            ["Обучаемый", "Заметка"],
+            aiReview.studentNotes.map((note) => [text(note.students), text(note.note)]),
+          ),
+        ]),
+  ]);
+}
+
+function attemptOutcomeCells(
+  session: MonitoredSession,
+  assessment: ExpertAssessment | undefined,
+  palette: ReportPalette,
+): PdfTextNode[] {
+  if (assessment) {
+    return [
+      text(`${scoreFormatter.format(assessment.score)} преп.`, { alignment: "right" }),
+      text(assessment.passed ? "Зачёт" : "Не зачтено", assessment.passed ? {} : { color: palette.deviation }),
+    ];
+  }
+
+  return [
+    session.score === null ? text("—", { alignment: "right" }) : number(session.score),
+    text(attemptResultLabel(session), attemptResultKind(session) === "failed" ? { color: palette.deviation } : {}),
+  ];
+}
+
+function attemptsContent({ lesson, assessments }: LessonReport, palette: ReportPalette): PdfContent[] {
   if (lesson.attempts.length === 0) return [];
 
   const assignments = new Map(lesson.assignments.map((assignment) => [assignment.id, assignment]));
@@ -248,7 +308,12 @@ function attemptsContent({ lesson }: LessonReport, palette: ReportPalette): PdfC
     (first, second) => Date.parse(first.completedAt ?? "") - Date.parse(second.completedAt ?? ""),
   );
 
+  const teacherScored = ordered.some((session) => assessments.has(session.sessionId));
+
   return section("Попытки", [
+    ...(teacherScored
+      ? [text("«преп.» — оценка преподавателя, она заменяет автоматическую.", { color: palette.muted, margin: NOTE_MARGIN })]
+      : []),
     grid(
       palette,
       ["*", 90, 90, 40, 70, 60],
@@ -260,11 +325,7 @@ function attemptsContent({ lesson }: LessonReport, palette: ReportPalette): PdfC
           text(studentsOf(session)),
           text(rolesOf(session)),
           text(session.completedAt ? formatDateTime(session.completedAt) : "—"),
-          session.score === null ? text("—", { alignment: "right" }) : number(session.score),
-          text(
-            attemptResultLabel(session),
-            attemptResultKind(session) === "failed" ? { color: palette.deviation } : {},
-          ),
+          ...attemptOutcomeCells(session, assessments.get(session.sessionId), palette),
           deadline === "late"
             ? text("с опозданием", { color: palette.deviation })
             : text(deadline === "on_time" ? "в срок" : "—"),
@@ -289,6 +350,7 @@ export function lessonReportDocument(report: LessonReport, palette: ReportPalett
       ...criteriaContent(report, palette),
       ...repeatedContent(report, palette),
       ...deadlinesContent(report, palette),
+      ...aiReviewContent(report, palette),
       ...attemptsContent(report, palette),
     ],
     footer: (currentPage, pageCount) => ({

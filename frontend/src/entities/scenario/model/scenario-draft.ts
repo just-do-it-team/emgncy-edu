@@ -1,4 +1,5 @@
 import type {
+  GeneratedScenarioDto,
   JsonObject,
   JsonValue,
   OperatorClassificationDto,
@@ -304,5 +305,60 @@ export function scenarioDraftFromDetail(detail: ScenarioDetail): ScenarioDraft {
           groupCodes: generation.classificationGroupCodes ?? [],
         }
       : emptyProcedural,
+  };
+}
+
+function triggerFromDefinition(card: ScenarioCardDefinitionDto): TriggerDraft {
+  if (card.trigger_type === "AFTER_ACTION") {
+    return {
+      kind: "after",
+      itemKey: card.trigger_config.card_key,
+      actionType: card.trigger_config.action_type,
+      delaySeconds: card.trigger_config.delay_seconds,
+    };
+  }
+
+  return card.trigger_config.offset_seconds > 0
+    ? { kind: "offset", seconds: card.trigger_config.offset_seconds }
+    : { kind: "immediate" };
+}
+
+function itemFromDefinition(card: ScenarioCardDefinitionDto): ScenarioItemDraft {
+  const trigger = triggerFromDefinition(card);
+
+  if (card.source_type === "TEMPLATE" && card.template_id !== undefined) {
+    return { key: card.key, itemType: card.item_type, trigger, source: { kind: "TEMPLATE", templateId: card.template_id } };
+  }
+
+  const expectedJson = card.expected_result ?? { card: {} };
+  const expected = expectedFromJson(expectedJson, "INLINE");
+
+  return {
+    key: card.key,
+    itemType: card.item_type,
+    trigger,
+    source: {
+      kind: "INLINE",
+      variant: isDispatcherResult(expectedJson) ? "cardDds" : "card112",
+      card: cardSourceFromJson(card.initial_card ?? null, expected),
+      expected,
+    },
+  };
+}
+
+export function scenarioDraftFromGenerated(scenario: GeneratedScenarioDto): ScenarioDraft {
+  return {
+    name: scenario.name,
+    description: scenario.description ?? "",
+    difficulty: scenario.difficulty,
+    workspaceMode: scenario.workspace_mode,
+    completionPolicy: scenario.completion_policy,
+    minParticipants: scenario.min_participants,
+    maxParticipants: scenario.max_participants,
+    passingScore: scenario.passing_score,
+    requiredPositions: scenario.required_participant_positions,
+    schemaVersion: scenario.definition.schema_version,
+    items: scenario.definition.cards.map(itemFromDefinition),
+    procedural: emptyProcedural,
   };
 }

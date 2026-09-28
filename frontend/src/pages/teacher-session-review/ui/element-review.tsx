@@ -25,7 +25,7 @@ import {
 import { CallStream } from "./call-stream";
 import { CallTimeline } from "./call-timeline";
 import { RecordingPlayer } from "./recording-player";
-import { ReviewFindings, type RoleState } from "./review-findings";
+import { ReviewFindings, type FindingDismissal, type RoleState } from "./review-findings";
 import classes from "./session-review.module.scss";
 
 interface LayoutProps {
@@ -44,6 +44,7 @@ interface LayoutProps {
   focusPath: string | null;
   scopeNote: string | null;
   limitedNote: string | null;
+  dismissal: FindingDismissal | null;
 }
 
 function ElementLayout({
@@ -62,6 +63,7 @@ function ElementLayout({
   focusPath,
   scopeNote,
   limitedNote,
+  dismissal,
 }: LayoutProps) {
   const [manualCursorMs, setCursorMs] = useState<number | null>(null);
   const [manualSelectedId, setSelectedId] = useState<string | null>(null);
@@ -132,6 +134,7 @@ function ElementLayout({
             onLocate={locateFinding}
             scopeNote={scopeNote}
             limitedNote={limitedNote}
+            dismissal={dismissal}
           />
         </div>
       </div>
@@ -186,6 +189,7 @@ interface RecordedCallReviewProps {
   focusPath: string | null;
   scopeNote: string | null;
   limitedNote: string | null;
+  dismissal: FindingDismissal | null;
   originAt: string;
   actions: ActionEvent[];
   roleState: RoleState;
@@ -198,6 +202,7 @@ function RecordedCallReview({
   focusPath,
   scopeNote,
   limitedNote,
+  dismissal,
   originAt,
   actions,
   roleState,
@@ -242,6 +247,7 @@ function RecordedCallReview({
       focusPath={focusPath}
       scopeNote={scopeNote}
       limitedNote={limitedNote}
+      dismissal={dismissal}
       originAt={originAt}
       completedAt={call.completedAt}
       items={items}
@@ -283,6 +289,7 @@ interface CallElementReviewProps {
   focusPath: string | null;
   scopeNote: string | null;
   limitedNote: string | null;
+  dismissal: FindingDismissal | null;
   originAt: string;
   actions: ActionEvent[];
   roleState: RoleState;
@@ -309,6 +316,7 @@ interface CardElementReviewProps {
   focusPath: string | null;
   scopeNote: string | null;
   limitedNote: string | null;
+  dismissal: FindingDismissal | null;
   originAt: string;
   actions: ActionEvent[];
   roleState: RoleState;
@@ -320,6 +328,7 @@ export function CardElementReview({
   focusPath,
   scopeNote,
   limitedNote,
+  dismissal,
   originAt,
   actions,
   roleState,
@@ -330,6 +339,7 @@ export function CardElementReview({
       focusPath={focusPath}
       scopeNote={scopeNote}
       limitedNote={limitedNote}
+      dismissal={dismissal}
       originAt={originAt}
       completedAt={null}
       items={buildStream(originAt, [], actions)}
@@ -363,6 +373,7 @@ interface OutgoingCallElementReviewProps {
   focusPath: string | null;
   scopeNote: string | null;
   limitedNote: string | null;
+  dismissal: FindingDismissal | null;
   originAt: string;
   actions: ActionEvent[];
   roleState: RoleState;

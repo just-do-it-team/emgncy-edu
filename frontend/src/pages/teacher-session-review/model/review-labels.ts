@@ -16,8 +16,12 @@ const abortReasonLabels: Record<string, string> = {
   PRESENCE_TIMEOUT: "обучаемый потерял связь с тренажёром, попытка прервана автоматически",
 };
 
-export function abortReasonText(reason: string | null): string {
-  if (reason === null) return "прервана преподавателем";
+export type AbortActor = "participant" | "teacher" | "unknown";
 
-  return abortReasonLabels[reason] ?? `причина от сервера без расшифровки: ${reason}`;
+export function abortReasonText(reason: string | null, actor: AbortActor): string {
+  if (reason !== null) return abortReasonLabels[reason] ?? `причина от сервера без расшифровки: ${reason}`;
+  if (actor === "participant") return "обучаемый прервал попытку";
+  if (actor === "teacher") return "прервана преподавателем";
+
+  return "Попытка прервана";
 }

@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { Group, List, Modal, Stack, Text } from "@mantine/core";
+import { Group, List, Modal, Stack, Text, Tooltip } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { Link, useNavigate } from "react-router-dom";
 import {
+  aiApprovalBlock,
+  loadAiReview,
   scenarioItemLabels,
   useArchiveScenario,
   useCopyScenario,
@@ -10,7 +12,7 @@ import {
   useUnpublishScenario,
 } from "@/entities/scenario";
 import type { ScenarioDetail } from "@/shared/api";
-import { Button } from "@/shared/ui";
+import { Button, tooltipEvents } from "@/shared/ui";
 import { scenarioActionError } from "../model/action-error";
 
 type PendingAction = "publish" | "unpublish" | "archive";
@@ -50,6 +52,12 @@ export function ScenarioActions({ scenario, userId, own, onConflict }: ScenarioA
   const [issues, setIssues] = useState<string[]>([]);
   const busy = publish.isPending || unpublish.isPending || archive.isPending || copy.isPending;
   const itemLabels = scenarioItemLabels(scenario.items);
+  const itemKeys = scenario.items.map((item) => item.key);
+  const approvalBlock = aiApprovalBlock(
+    loadAiReview(scenario.id),
+    itemKeys,
+    (key) => itemLabels[itemKeys.indexOf(key)] ?? key,
+  );
 
   const close = () => {
     setPending(null);
@@ -122,9 +130,20 @@ export function ScenarioActions({ scenario, userId, own, onConflict }: ScenarioA
           </Button>
         )}
         {own && scenario.status === "DRAFT" && (
-          <Button size="sm" disabled={busy} onClick={() => setPending("publish")}>
-            Утвердить
-          </Button>
+          <Tooltip label={approvalBlock} disabled={approvalBlock === null} events={tooltipEvents} multiline w={320} color="povDark.6" radius={0}>
+            <Button
+              size="sm"
+              disabled={busy}
+              data-disabled={approvalBlock !== null || undefined}
+              aria-disabled={approvalBlock !== null}
+              onClick={(event) => {
+                if (approvalBlock !== null) event.preventDefault();
+                else setPending("publish");
+              }}
+            >
+              Утвердить
+            </Button>
+          </Tooltip>
         )}
         {own && scenario.status === "PUBLISHED" && (
           <Button size="sm" variant="outline" color="povDark2.6" disabled={busy} onClick={() => setPending("unpublish")}>

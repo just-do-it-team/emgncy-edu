@@ -13,12 +13,13 @@ import {
   type Lesson,
 } from "@/features/teacher-lessons";
 import { formatDayMonthTime, localDayKey, sortRows, useTableQuery } from "@/shared/lib";
-import type { MonitoredSession } from "@/shared/api";
+import type { ExpertAssessment, MonitoredSession } from "@/shared/api";
 import { Button, FilteredEmpty, LinkRow, SortableTh, tooltipEvents } from "@/shared/ui";
 import { TeacherAttemptsTable } from "@/widgets/teacher-attempts-table";
 import classes from "./teacher-overview.module.scss";
 
 const UPCOMING_LIMIT = 5;
+const NO_TEACHER_ASSESSMENTS = new Map<string, ExpertAssessment>();
 
 const UPCOMING_SORT_KEYS = ["lesson", "assigned", "due", "participants"] as const;
 const UPCOMING_FILTER_KEYS = ["group"] as const;
@@ -224,8 +225,9 @@ function Overview({ teacherId }: OverviewProps) {
   const assignments = useAssignments({ assignedBy: teacherId });
   const assignmentsById = assignments.data && new Map(assignments.data.map((item) => [item.id, item]));
 
-  const current = running.data?.[0];
-  const otherRunning = new Set((running.data ?? []).map(lessonIdOf)).size - 1;
+  const runningLessons = [
+    ...new Map((running.data ?? []).map((session) => [lessonIdOf(session), session])).entries(),
+  ];
   const today = localDayKey(new Date());
   const todayAttempts = (attempts.data ?? []).filter(
     (session) => session.completedAt !== null && localDayKey(session.completedAt) === today,
@@ -248,31 +250,27 @@ function Overview({ teacherId }: OverviewProps) {
 
       {running.isSuccess && (
         <Paper withBorder p="md">
-          {current ? (
-            <Group justify="space-between" align="flex-start" wrap="wrap" gap="md">
-              <Stack gap={4}>
-                <Text size="xs" c="povDark2.6">
-                  Текущее занятие · Идёт
-                  {otherRunning > 0 ? ` · ещё идут: ${otherRunning}` : ""}
-                </Text>
-                <Title order={2} size="h4" fw={600}>
-                  {current.scenarioName}
-                </Title>
-                <Text size="sm">
-                  {current.groupName ?? "Без группы"} · начато{" "}
-                  {formatDayMonthTime(current.startedAt)}
-                </Text>
-              </Stack>
-              <Anchor
-                component={Link}
-                to={`/teacher/monitor/${lessonIdOf(current)}`}
-                size="sm"
-                c="povDark2.6"
-                underline="always"
-              >
-                Открыть монитор занятия
-              </Anchor>
-            </Group>
+          {runningLessons.length > 0 ? (
+            <Stack gap="md">
+              <Text size="xs" c="povDark2.6">
+                Идут занятия: {runningLessons.length}
+              </Text>
+              {runningLessons.map(([lessonId, session]) => (
+                <Group key={lessonId} justify="space-between" align="flex-start" wrap="wrap" gap="md">
+                  <Stack gap={4}>
+                    <Title order={2} size="h4" fw={600}>
+                      {session.scenarioName}
+                    </Title>
+                    <Text size="sm">
+                      {session.groupName ?? "Без группы"} · начато {formatDayMonthTime(session.startedAt)}
+                    </Text>
+                  </Stack>
+                  <Button size="xs" component={Link} to={`/teacher/monitor/${lessonId}`}>
+                    Монитор
+                  </Button>
+                </Group>
+              ))}
+            </Stack>
           ) : (
             <Group justify="space-between" align="flex-start" wrap="wrap" gap="md">
               <Stack gap={4}>
@@ -307,6 +305,7 @@ function Overview({ teacherId }: OverviewProps) {
         <TeacherAttemptsTable
           query={attempts}
           sessions={todayAttempts}
+          assessments={NO_TEACHER_ASSESSMENTS}
           assignments={assignmentsById}
           queryPrefix="today"
           showGroup

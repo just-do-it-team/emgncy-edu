@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Group, Paper, SegmentedControl, Select, Stack, Switch, Text, Title } from "@mantine/core";
+import { Checkbox, Group, Paper, SegmentedControl, Select, Stack, Switch, Text, Title } from "@mantine/core";
 import type { UseFormReturnType } from "@mantine/form";
 import { ArrowDown, ArrowUp, GripVertical, Trash2 } from "lucide-react";
 import {
@@ -32,8 +32,16 @@ function isInlineVariant(value: string): value is InlineVariant {
   return value === "card112" || value === "cardDds";
 }
 
+export interface ItemReview {
+  requiredKeys: ReadonlySet<string>;
+  checkedKeys: ReadonlySet<string>;
+  generated: ReadonlyMap<string, ScenarioItemDraft>;
+  onCheck: (key: string, checked: boolean) => void;
+}
+
 interface CompositionEditorProps {
   form: UseFormReturnType<ScenarioDraft>;
+  aiReview: ItemReview | null;
   templates: Map<string, ScenarioTemplate>;
   entries: TemplateEntry[];
   services: ServiceOption[];
@@ -175,7 +183,7 @@ function InlineSource({ form, index, services, errors }: Pick<ItemEditorProps, "
 }
 
 function ItemEditor(props: ItemEditorProps) {
-  const { form, index, templates, entries, expanded, dragging, onToggle, onDragStart, onDragEnd, onDrop, errors } = props;
+  const { form, index, templates, entries, expanded, dragging, onToggle, onDragStart, onDragEnd, onDrop, errors, aiReview } = props;
   const items = form.values.items;
   const item = items[index];
   const [over, setOver] = useState(false);
@@ -184,6 +192,8 @@ function ItemEditor(props: ItemEditorProps) {
 
   const label = itemLabel(items, index);
   const sourceError = errors[`items.${index}.source`];
+  const generated = aiReview?.generated.get(item.key);
+  const untouched = generated !== undefined && JSON.stringify(generated) === JSON.stringify(item);
   const move = (to: number, direction: "up" | "down") => {
     form.setFieldValue("items", moveItem(items, index, to));
     requestAnimationFrame(() => {
@@ -240,6 +250,7 @@ function ItemEditor(props: ItemEditorProps) {
             </Text>
             <Text size="xs" c="povDark2.6">
               {item.source.kind === "TEMPLATE" ? "из шаблона" : "встроенная"}
+              {untouched ? ", предложено ИИ" : ""}
             </Text>
           </Group>
           <Group gap={4} wrap="nowrap">
@@ -271,6 +282,16 @@ function ItemEditor(props: ItemEditorProps) {
             </ActionIcon>
           </Group>
         </Group>
+
+        {aiReview && aiReview.requiredKeys.has(item.key) && (
+          <Checkbox
+            size="xs"
+            label="Эталон проверен"
+            description="Отметьте после того, как сверили карточку, службы и статусы с тем, что должен сделать обучаемый"
+            checked={aiReview.checkedKeys.has(item.key)}
+            onChange={(event) => aiReview.onCheck(item.key, event.currentTarget.checked)}
+          />
+        )}
 
         {item.source.kind === "TEMPLATE" && (
           <TemplateSource form={form} index={index} template={templates.get(item.source.templateId)} entries={entries} />

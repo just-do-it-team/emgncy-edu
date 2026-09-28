@@ -44,6 +44,7 @@ export interface MonitoredParticipant {
   userId: string;
   displayName: string;
   role: ParticipantRole;
+  positionCode: string | null;
 }
 
 export interface MonitoredSession {
@@ -52,12 +53,14 @@ export interface MonitoredSession {
   batchId: string | null;
   groupName: string | null;
   scenarioName: string;
+  workspaceId: string;
   status: string;
   attemptNumber: number;
   startedAt: string;
   completedAt: string | null;
   score: number | null;
   passed: boolean | null;
+  lastActivityAt: string | null;
   participants: MonitoredParticipant[];
 }
 
@@ -68,16 +71,19 @@ export function toMonitoredSession(dto: TeacherMonitoringSessionDto): MonitoredS
     batchId: dto.assignment_batch_id,
     groupName: dto.group_name,
     scenarioName: dto.scenario_name,
+    workspaceId: dto.workspace_id,
     status: dto.status,
     attemptNumber: dto.attempt_number,
     startedAt: dto.started_at,
     completedAt: dto.completed_at,
     score: decimal(dto.score),
     passed: dto.passed,
+    lastActivityAt: dto.last_activity_at,
     participants: dto.participants.map((participant) => ({
       userId: participant.user_id,
       displayName: participant.display_name,
       role: participant.participant_role,
+      positionCode: participant.position_code,
     })),
   };
 }

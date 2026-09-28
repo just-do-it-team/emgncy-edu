@@ -1,13 +1,15 @@
 import { useState } from "react";
-import { Alert, Anchor, Skeleton, Stack, Text } from "@mantine/core";
-import { Link, useParams } from "react-router-dom";
-import { emptyScenarioDraft, scenarioDraftFromDetail, useScenario, useTemplates } from "@/entities/scenario";
+import { Alert, Anchor, Skeleton, Stack, Text, Title } from "@mantine/core";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { emptyScenarioDraft, loadAiReview, scenarioDraftFromDetail, useScenario, useTemplates } from "@/entities/scenario";
 import { useSessionStore } from "@/entities/session";
+import { GenerateScenarioForm, type GeneratedScenario } from "@/features/generate-scenario";
 import type { ScenarioTemplate } from "@/shared/api";
 import { Button } from "@/shared/ui";
 import { ScenarioEditorForm } from "./scenario-editor-form";
 
 const SCENARIOS_PATH = "/teacher/scenarios";
+const GENERATE_PARAM = "ai";
 
 function LoadError({ title, onRetry }: { title: string; onRetry: () => void }) {
   return (
@@ -74,6 +76,8 @@ function ExistingEditor({ scenarioId, templates, userId }: ExistingEditorProps) 
     <ScenarioEditorForm
       key={generation}
       initial={scenarioDraftFromDetail(detail)}
+      aiReview={loadAiReview(scenarioId)}
+      aiOriginal={null}
       target={{ scenarioId, revision: detail.revision }}
       templates={templates}
       userId={userId}
@@ -83,8 +87,42 @@ function ExistingEditor({ scenarioId, templates, userId }: ExistingEditorProps) 
   );
 }
 
+interface GeneratedEditorProps {
+  templates: ScenarioTemplate[];
+  userId: string;
+}
+
+function GeneratedEditor({ templates, userId }: GeneratedEditorProps) {
+  const [generated, setGenerated] = useState<GeneratedScenario | null>(null);
+
+  if (generated === null) {
+    return (
+      <Stack gap="md">
+        <Title order={2} size="h4" fw={600}>
+          Сценарий с помощью ИИ
+        </Title>
+        <GenerateScenarioForm teacherId={userId} onGenerated={setGenerated} />
+      </Stack>
+    );
+  }
+
+  return (
+    <ScenarioEditorForm
+      initial={generated.draft}
+      aiReview={generated.review}
+      aiOriginal={generated.draft}
+      target={null}
+      templates={templates}
+      userId={userId}
+      cancelPath={SCENARIOS_PATH}
+      onReload={() => undefined}
+    />
+  );
+}
+
 const TeacherScenarioEditorPage = () => {
   const { scenarioId } = useParams();
+  const [searchParams] = useSearchParams();
   const userId = useSessionStore((state) => state.profile?.userId ?? null);
   const templates = useTemplates();
 
@@ -98,9 +136,13 @@ const TeacherScenarioEditorPage = () => {
     return <ExistingEditor key={scenarioId} scenarioId={scenarioId} templates={templates.data} userId={userId} />;
   }
 
+  if (searchParams.get(GENERATE_PARAM) !== null) return <GeneratedEditor templates={templates.data} userId={userId} />;
+
   return (
     <ScenarioEditorForm
       initial={emptyScenarioDraft}
+      aiReview={null}
+      aiOriginal={null}
       target={null}
       templates={templates.data}
       userId={userId}

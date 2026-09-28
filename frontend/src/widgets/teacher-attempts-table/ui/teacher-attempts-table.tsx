@@ -25,7 +25,7 @@ import {
   isReviewable,
   reviewAccessHint,
 } from "@/entities/monitoring";
-import type { MonitoredSession, TeacherAssignment } from "@/shared/api";
+import type { ExpertAssessment, MonitoredSession, TeacherAssignment } from "@/shared/api";
 import { compareNullable, formatShortDateTime, sortRows, useTableQuery } from "@/shared/lib";
 import {
   Button,
@@ -175,7 +175,29 @@ function GroupCell({ session, group }: { session: MonitoredSession; group: strin
   );
 }
 
-function ScoreCell({ session }: { session: MonitoredSession }) {
+function passedText(passed: boolean | null): string {
+  return passed === null ? "без решения о зачёте" : passed ? "зачтено" : "не зачтено";
+}
+
+function ScoreCell({ session, automatic }: { session: MonitoredSession; automatic: MonitoredSession | null }) {
+  if (automatic !== null && session.score !== null) {
+    const automaticText =
+      automatic.score === null ? "не рассчитан" : `${scoreFormatter.format(automatic.score)}, ${passedText(automatic.passed)}`;
+
+    return (
+      <Tooltip label={`Автоматически: ${automaticText}`} events={tooltipEvents} color="povDark.6" radius={0}>
+        <div tabIndex={0} className={classes.focusable}>
+          <Text size="sm" fw={600} className={classes.numeric}>
+            {scoreFormatter.format(session.score)}
+          </Text>
+          <Text size="xs" c="povDark2.6">
+            оценка преподавателя
+          </Text>
+        </div>
+      </Tooltip>
+    );
+  }
+
   if (session.score === null) {
     return (
       <Text size="sm" className={classes.numeric}>
@@ -250,6 +272,7 @@ function DeadlineCell({ session, assignment }: { session: MonitoredSession; assi
 interface TeacherAttemptsTableProps {
   query: UseQueryResult<MonitoredSession[], Error>;
   sessions: MonitoredSession[];
+  assessments: ReadonlyMap<string, ExpertAssessment>;
   assignments: Map<string, TeacherAssignment> | undefined;
   showGroup: boolean;
   queryPrefix: string;
@@ -259,7 +282,8 @@ interface TeacherAttemptsTableProps {
 
 export function TeacherAttemptsTable({
   query,
-  sessions,
+  sessions: loaded,
+  assessments,
   assignments,
   showGroup,
   queryPrefix,
@@ -267,6 +291,12 @@ export function TeacherAttemptsTable({
   emptyHint,
 }: TeacherAttemptsTableProps) {
   const table = useTableQuery(queryPrefix, SORT_KEYS, FILTER_KEYS);
+  const automaticById = new Map(loaded.flatMap((session) => (assessments.has(session.sessionId) ? [[session.sessionId, session] as const] : [])));
+  const sessions = loaded.map((session) => {
+    const assessment = assessments.get(session.sessionId);
+
+    return assessment ? { ...session, score: assessment.score, passed: assessment.passed } : session;
+  });
   const assignmentOf = (session: MonitoredSession) => assignments?.get(session.assignmentId);
   const result = table.filter("result");
   const role = table.filter("role");
@@ -482,7 +512,7 @@ export function TeacherAttemptsTable({
                       </Text>
                     </Table.Td>
                     <Table.Td>
-                      <ScoreCell session={session} />
+                      <ScoreCell session={session} automatic={automaticById.get(session.sessionId) ?? null} />
                     </Table.Td>
                     <Table.Td>
                       <ResultCell session={session} />

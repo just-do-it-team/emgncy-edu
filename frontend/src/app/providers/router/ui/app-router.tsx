@@ -11,6 +11,7 @@ import { TeacherOverviewPage } from "@/pages/teacher-overview";
 import { TeacherLessonsPage } from "@/pages/teacher-lessons";
 import { TeacherLessonAssignPage } from "@/pages/teacher-lesson-assign";
 import { TeacherLessonResultsPage } from "@/pages/teacher-lesson-results";
+import { TeacherLessonMonitorPage } from "@/pages/teacher-lesson-monitor";
 import { TeacherScenariosPage } from "@/pages/teacher-scenarios";
 import { TeacherScenarioCardPage } from "@/pages/teacher-scenario-card";
 import { TeacherScenarioEditorPage } from "@/pages/teacher-scenario-editor";
@@ -86,10 +87,7 @@ const AppRouter: FC = () => {
           <Route path="lessons" element={<TeacherLessonsPage />} />
           <Route path="lessons/new" element={<TeacherLessonAssignPage />} />
           <Route path="lessons/:lessonId" element={<TeacherLessonResultsPage />} />
-          <Route
-            path="monitor/:lessonId"
-            element={<SectionPlaceholder title="Монитор занятия" />}
-          />
+          <Route path="monitor/:lessonId" element={<TeacherLessonMonitorPage />} />
           <Route path="scenarios" element={<TeacherScenariosPage />} />
           <Route path="scenarios/new" element={<TeacherScenarioEditorPage />} />
           <Route path="scenarios/:scenarioId" element={<TeacherScenarioCardPage />} />

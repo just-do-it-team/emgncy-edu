@@ -105,6 +105,17 @@ export type {
   TrainingScenarioDetailDto,
   TrainingScenarioDto,
 } from "./training-scenarios";
+export type {
+  LessonReviewDto,
+  LessonReviewRequestDto,
+  LessonReviewStudentNoteDto,
+  LessonReviewTypicalErrorDto,
+} from "./lesson-review";
+export type {
+  GeneratedScenarioDto,
+  ScenarioGenerationDto,
+  ScenarioGenerationRequestDto,
+} from "./scenario-generation";
 export { toTeacherAssignment } from "./assignments";
 export type {
   AssignmentBatchDto,

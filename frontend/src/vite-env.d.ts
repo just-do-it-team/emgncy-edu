@@ -5,6 +5,8 @@ interface ImportMetaEnv {
   readonly VITE_AUTH_API_URL?: string;
   readonly VITE_ARM_API_URL?: string;
   readonly VITE_REALTIME_GATEWAY_URL?: string;
+  readonly VITE_DEMO?: string;
+  readonly VITE_MOCK_AI?: string;
   readonly VITE_MOCK_ASSIGNMENTS?: string;
   readonly VITE_MOCK_CALL_TRANSCRIPT?: string;
   readonly VITE_MOCK_CARD_TIMELINE?: string;

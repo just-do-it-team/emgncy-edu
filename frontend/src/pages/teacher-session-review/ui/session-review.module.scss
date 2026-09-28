@@ -471,3 +471,22 @@ button.finding:focus-visible {
   line-height: 16px;
   color: var(--mantine-color-povDark2-6);
 }
+
+.tooltipLines {
+  white-space: pre-line;
+}
+
+.focusable:focus-visible {
+  outline: 2px solid var(--mantine-color-povDark-6);
+  outline-offset: 2px;
+}
+
+.findingDismiss {
+  padding: 4px 10px 8px 13px;
+  border-bottom: 1px solid var(--mantine-color-povLine-6);
+  background: var(--mantine-color-white);
+}
+
+.findingGroup .finding {
+  border-bottom: 0;
+}

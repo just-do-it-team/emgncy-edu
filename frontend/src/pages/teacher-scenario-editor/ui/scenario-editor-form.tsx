@@ -1,12 +1,16 @@
 import { useState } from "react";
-import { Group, Modal, Stack, Text, Title } from "@mantine/core";
+import { Alert, Group, Modal, Stack, Text, Title, Tooltip } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { notifications } from "@mantine/notifications";
 import { Link, useNavigate } from "react-router-dom";
 import {
+  aiApprovalBlock,
+  aiReviewProgress,
   estimateDurationSeconds,
   groupTemplates,
   hasErrors,
+  itemLabel,
+  saveAiReview,
   scenarioCreateBody,
   scenarioPathOf,
   scenarioUpdateBody,
@@ -14,6 +18,8 @@ import {
   usePublishScenario,
   useUpdateScenario,
   validateScenarioDraft,
+  withItemChecked,
+  type AiReview,
   type DraftIssue,
   type SavedScenario,
   type ScenarioDraft,
@@ -26,10 +32,10 @@ import {
 } from "@/features/expected-result-form";
 import type { ScenarioTemplate } from "@/shared/api";
 import { CARD_OPEN_NORM_SECONDS, FIRST_ENTRY_NORM_SECONDS, PROCEDURAL_PACE_BY_DIFFICULTY } from "@/shared/config";
-import { errorMessages, focusFormField, useLeaveGuard } from "@/shared/lib";
-import { Button, IssuesList, LeaveConfirmModal } from "@/shared/ui";
+import { errorMessages, focusFormField, formatDateTime, useLeaveGuard } from "@/shared/lib";
+import { Button, IssuesList, LeaveConfirmModal, tooltipEvents } from "@/shared/ui";
 import { useServiceNames } from "@/widgets/expected-result-view";
-import { CompositionEditor } from "./composition-editor";
+import { CompositionEditor, type ItemReview } from "./composition-editor";
 import { ProceduralEditor } from "./procedural-editor";
 import { ScenarioParams } from "./scenario-params";
 import { ScenarioSummary } from "./scenario-summary";
@@ -45,6 +51,8 @@ export interface ScenarioTarget {
 
 interface ScenarioEditorFormProps {
   initial: ScenarioDraft;
+  aiReview: AiReview | null;
+  aiOriginal: ScenarioDraft | null;
   target: ScenarioTarget | null;
   templates: ScenarioTemplate[];
   userId: string;
@@ -62,7 +70,16 @@ function durationOf(draft: ScenarioDraft): number {
   });
 }
 
-export function ScenarioEditorForm({ initial, target, templates, userId, cancelPath, onReload }: ScenarioEditorFormProps) {
+export function ScenarioEditorForm({
+  initial,
+  aiReview,
+  aiOriginal,
+  target,
+  templates,
+  userId,
+  cancelPath,
+  onReload,
+}: ScenarioEditorFormProps) {
   const navigate = useNavigate();
   const services = useActiveServices();
   const serviceNames = useServiceNames();
@@ -74,6 +91,7 @@ export function ScenarioEditorForm({ initial, target, templates, userId, cancelP
   const [conflict, setConflict] = useState(false);
   const [confirmPublish, setConfirmPublish] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [review, setReview] = useState(aiReview);
   const form = useForm<ScenarioDraft>({ initialValues: initial });
   const guard = useLeaveGuard(form.isDirty() && !saved);
   const draft = form.values;
@@ -85,6 +103,19 @@ export function ScenarioEditorForm({ initial, target, templates, userId, cancelP
   const liveIssues = issues === null ? null : validateScenarioDraft(draft, context);
   const durationSeconds = durationOf(draft);
   const busy = create.isPending || update.isPending || publish.isPending;
+  const itemKeys = draft.items.map((item) => item.key);
+  const labelOf = (key: string) => itemLabel(draft.items, itemKeys.indexOf(key));
+  const approvalBlock = aiApprovalBlock(review, itemKeys, labelOf);
+  const progress = review === null ? null : aiReviewProgress(review, itemKeys);
+  const itemReview: ItemReview | null =
+    review === null
+      ? null
+      : {
+          requiredKeys: new Set(review.itemKeys),
+          checkedKeys: new Set(review.checkedKeys),
+          generated: new Map((aiOriginal?.items ?? []).map((item) => [item.key, item])),
+          onCheck: (key, checked) => setReview(withItemChecked(review, key, checked)),
+        };
 
   const focus = (path: string) => focusFormField(path === "" ? null : form.getInputNode(path));
 
@@ -99,6 +130,7 @@ export function ScenarioEditorForm({ initial, target, templates, userId, cancelP
 
   const finish = (scenario: SavedScenario, title: string) => {
     setSaved(true);
+    if (review !== null) saveAiReview(scenario.id, review);
     notifications.show({ title, message: draft.name.trim(), color: "gray" });
     navigate(`${SCENARIOS_PATH}/${scenario.id}`);
   };
@@ -112,6 +144,7 @@ export function ScenarioEditorForm({ initial, target, templates, userId, cancelP
           const failure = serverFailure(error, scenarioPathOf);
 
           setSaved(true);
+          if (review !== null) saveAiReview(scenario.id, review);
           notifications.show({
             title: "Черновик сохранён, но не утверждён",
             message:
@@ -146,6 +179,8 @@ export function ScenarioEditorForm({ initial, target, templates, userId, cancelP
   };
 
   const save = (andPublish: boolean) => {
+    if (andPublish && approvalBlock !== null) return;
+
     const found = validateScenarioDraft(draft, context);
 
     if (hasErrors(found)) {
@@ -195,10 +230,32 @@ export function ScenarioEditorForm({ initial, target, templates, userId, cancelP
         {target === null ? "Новый сценарий" : `Редактирование: ${initial.name}`}
       </Title>
 
-      <ScenarioParams form={form} services={services.data ?? []} templates={templatesById} />
+      {review !== null && progress !== null && (
+        <Alert variant="outline" color="povDark2.6" title="Сгенерировано ИИ — проверьте эталон перед утверждением">
+          <Stack gap={4}>
+            <Text size="sm">
+              Проверено {progress.checked} из {progress.total}. Отметьте «Эталон проверен» у каждого элемента, когда
+              сверите карточку, службы и статусы. Пока проверены не все, сценарий нельзя утвердить и назначить
+              обучаемым. Неизменённые предложения модели подписаны «предложено ИИ».
+            </Text>
+            <Text size="xs" c="povDark2.6">
+              Модель {review.model}, {formatDateTime(review.generatedAt)}
+            </Text>
+          </Stack>
+        </Alert>
+      )}
+
+      <ScenarioParams
+        form={form}
+        aiOriginal={aiOriginal}
+        suggestedDifficulty={review?.suggestedDifficulty ?? null}
+        services={services.data ?? []}
+        templates={templatesById}
+      />
 
       <CompositionEditor
         form={form}
+        aiReview={itemReview}
         templates={templatesById}
         entries={entries}
         services={services.data ?? []}
@@ -216,9 +273,22 @@ export function ScenarioEditorForm({ initial, target, templates, userId, cancelP
         <Button size="sm" variant="outline" color="povDark2.6" component={Link} to={cancelPath}>
           Отмена
         </Button>
-        <Button size="sm" variant="outline" color="povDark2.6" loading={busy} onClick={() => setConfirmPublish(true)}>
-          Сохранить и утвердить
-        </Button>
+        <Tooltip label={approvalBlock} disabled={approvalBlock === null} events={tooltipEvents} multiline w={320} color="povDark.6" radius={0}>
+          <Button
+            size="sm"
+            variant="outline"
+            color="povDark2.6"
+            loading={busy}
+            data-disabled={approvalBlock !== null || undefined}
+            aria-disabled={approvalBlock !== null}
+            onClick={(event) => {
+              if (approvalBlock !== null) event.preventDefault();
+              else setConfirmPublish(true);
+            }}
+          >
+            Сохранить и утвердить
+          </Button>
+        </Tooltip>
         <Button size="sm" loading={busy} onClick={() => save(false)}>
           Сохранить черновик
         </Button>

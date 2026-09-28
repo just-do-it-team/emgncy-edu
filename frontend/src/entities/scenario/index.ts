@@ -102,6 +102,7 @@ export {
   nextItemKey,
   scenarioCreateBody,
   scenarioDraftFromDetail,
+  scenarioDraftFromGenerated,
   scenarioUpdateBody,
   workspaceDefaults,
 } from "./model/scenario-draft";
@@ -119,3 +120,6 @@ export { strictnessOf } from "./model/strictness";
 export type { ExpectedSource } from "./model/strictness";
 export { expectedPathOf, failureOf, forbiddenMessage, scenarioPathOf } from "./model/server-failure";
 export type { LocMapper, ServerFailure } from "./model/server-failure";
+export { aiApprovalBlock, aiReviewProgress, withItemChecked } from "./model/ai-review";
+export type { AiReview, AiReviewProgress } from "./model/ai-review";
+export { loadAiReview, saveAiReview } from "./model/ai-review-storage";

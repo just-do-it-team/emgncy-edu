@@ -332,9 +332,14 @@ function Scenarios({ teacherId }: { teacherId: string }) {
       <ScenarioLibraryTabs
         active="scenarios"
         actions={
-          <Button size="sm" component={Link} to="/teacher/scenarios/new">
-            Создать сценарий
-          </Button>
+          <Group gap="xs">
+            <Button size="sm" variant="outline" color="povDark2.6" component={Link} to="/teacher/scenarios/new?ai=1">
+              Сгенерировать с ИИ
+            </Button>
+            <Button size="sm" component={Link} to="/teacher/scenarios/new">
+              Создать сценарий
+            </Button>
+          </Group>
         }
       />
 
