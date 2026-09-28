@@ -20,6 +20,8 @@ from s112.common.enums import (
     ScenarioTriggerActionType,
     ScenarioTriggerType,
     ServiceResponseStatus,
+    TemplateGenerationStatus,
+    TemplateStatus,
     WorkspaceMode,
 )
 from s112.semantic_evaluation.rules import OutboundCallRule
@@ -437,6 +439,7 @@ class CardTemplateCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
     difficulty: int = Field(default=1, ge=1, le=4)
+    voice_id: str | None = Field(default=None, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*\.(?:wav|mp3)$")
     initial_card: CardCreate
     expected_result: ExpectedResult
     created_by: uuid.UUID
@@ -457,13 +460,38 @@ class CardTemplateResponse(OrmModel):
     difficulty: int
     initial_card: dict[str, Any]
     expected_result: dict[str, Any]
+    status: TemplateStatus
+    generated_by_ai: bool
+    ai_review_state: dict[str, str] | None
+    generation_id: uuid.UUID | None
     is_active: bool
     created_by: uuid.UUID
+    created_by_name: str | None = None
     created_at: datetime
 
 
 class CardTemplateDeleteRequest(BaseModel):
     deleted_by: uuid.UUID
+
+
+class CardTemplateUpdate(BaseModel):
+    updated_by: uuid.UUID
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    difficulty: int | None = Field(default=None, ge=1, le=4)
+    voice_id: str | None = Field(default=None, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*\.(?:wav|mp3)$")
+    initial_card: CardCreate | None = None
+    expected_result: ExpectedResult | None = None
+    review_decisions: dict[
+        str, Literal["CONFIRMED", "EDITED", "REJECTED"]
+    ] = Field(default_factory=dict)
+    status: Literal[TemplateStatus.PUBLISHED] | None = None
+
+    @model_validator(mode="after")
+    def require_final_card(self) -> "CardTemplateUpdate":
+        if self.expected_result is not None and self.expected_result.card is None:
+            raise ValueError("Card template requires expected_result.card")
+        return self
 
 
 class IncomingCallTemplateCreate(BaseModel):
@@ -472,6 +500,7 @@ class IncomingCallTemplateCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
     difficulty: int = Field(default=1, ge=1, le=4)
+    voice_id: str | None = Field(default=None, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*\.(?:wav|mp3)$")
     initial_call: InitialIncomingCall
     expected_result: ExpectedResult
     created_by: uuid.UUID
@@ -496,13 +525,72 @@ class IncomingCallTemplateResponse(OrmModel):
     difficulty: int
     initial_call: dict[str, Any]
     expected_result: dict[str, Any]
+    status: TemplateStatus
+    generated_by_ai: bool
+    ai_review_state: dict[str, str] | None
+    generation_id: uuid.UUID | None
     is_active: bool
     created_by: uuid.UUID
+    created_by_name: str | None = None
     created_at: datetime
 
 
 class IncomingCallTemplateDeleteRequest(BaseModel):
     deleted_by: uuid.UUID
+
+
+class IncomingCallTemplateUpdate(BaseModel):
+    updated_by: uuid.UUID
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    difficulty: int | None = Field(default=None, ge=1, le=4)
+    voice_id: str | None = Field(default=None, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*\.(?:wav|mp3)$")
+    initial_call: InitialIncomingCall | None = None
+    expected_result: ExpectedResult | None = None
+    review_decisions: dict[
+        str, Literal["CONFIRMED", "EDITED", "REJECTED"]
+    ] = Field(default_factory=dict)
+    status: Literal[TemplateStatus.PUBLISHED] | None = None
+
+    @model_validator(mode="after")
+    def require_compatible_result(self) -> "IncomingCallTemplateUpdate":
+        if self.expected_result is None:
+            return self
+        if self.expected_result.card is None:
+            raise ValueError("Incoming call template requires expected_result.card")
+        if self.expected_result.outbound_call is not None:
+            raise ValueError("Incoming call template cannot require an outbound call")
+        if self.expected_result.service_status_history is not None:
+            raise ValueError("Incoming call template cannot require DDS service status history")
+        return self
+
+
+class CardTemplateGenerationCreate(BaseModel):
+    dds_service_codes: list[Literal["101", "102", "103", "104"]] = Field(
+        min_length=1, max_length=4
+    )
+    created_by: uuid.UUID
+
+    @field_validator("dds_service_codes")
+    @classmethod
+    def require_unique_services(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("dds_service_codes must be unique")
+        return value
+
+
+class CardTemplateGenerationResponse(OrmModel):
+    id: uuid.UUID
+    dds_service_codes: list[str]
+    status: TemplateGenerationStatus
+    attempts: int
+    last_error: str | None
+    incoming_call_template_id: uuid.UUID | None
+    card_template_ids: list[uuid.UUID]
+    created_by: uuid.UUID
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
 
 
 class TrainingScenarioCreate(BaseModel):
@@ -636,6 +724,7 @@ class TrainingScenarioResponse(OrmModel):
     revision: int
     status: str
     created_by: uuid.UUID
+    created_by_name: str | None = None
     updated_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
@@ -883,6 +972,9 @@ class TrainingCallOutcome(BaseModel):
 class TrainingSessionResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    passing_score: Decimal | None = Field(
+        default=None, ge=0, le=100, max_digits=5, decimal_places=2
+    )
     cards: list[TrainingCardOutcome] = Field(default_factory=list)
     incoming_calls: list[TrainingCallOutcome] = Field(default_factory=list)
     abort_reason: str | None = None
@@ -929,6 +1021,8 @@ class TrainingSessionSummary(OrmModel):
     expert_score: Decimal | None
     expert_passed: bool | None
     expert_evaluated_at: datetime | None
+    final_score: Decimal | None = None
+    final_passed: bool | None = None
 
 
 class CompletionBlocker(BaseModel):
@@ -1210,6 +1304,10 @@ class TeacherMonitoringSession(BaseModel):
     completed_at: datetime | None
     score: Decimal | None
     passed: bool | None
+    expert_score: Decimal | None
+    expert_passed: bool | None
+    final_score: Decimal | None
+    final_passed: bool | None
     cards_total: int
     cards_pending: int
     cards_emitted: int

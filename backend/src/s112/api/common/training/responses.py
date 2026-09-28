@@ -258,6 +258,18 @@ async def teacher_monitoring_response(
         completed_at=training_session.completed_at,
         score=training_session.score,
         passed=training_session.passed,
+        expert_score=training_session.expert_score,
+        expert_passed=training_session.expert_passed,
+        final_score=(
+            training_session.expert_score
+            if training_session.expert_score is not None
+            else training_session.score
+        ),
+        final_passed=(
+            training_session.expert_passed
+            if training_session.expert_passed is not None
+            else training_session.passed
+        ),
         cards_total=len(scheduled_cards),
         cards_pending=sum(
             item.status == ScheduledCardStatus.PENDING.value for item in scheduled_cards

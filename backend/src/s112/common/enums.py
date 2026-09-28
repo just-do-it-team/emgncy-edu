@@ -84,6 +84,19 @@ class ScenarioStatus(str, Enum):
     ARCHIVED = "ARCHIVED"
 
 
+class TemplateStatus(str, Enum):
+    DRAFT = "DRAFT"
+    PUBLISHED = "PUBLISHED"
+    ARCHIVED = "ARCHIVED"
+
+
+class TemplateGenerationStatus(str, Enum):
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
 class ScenarioMode(str, Enum):
     STATIC = "STATIC"
     PROCEDURAL = "PROCEDURAL"

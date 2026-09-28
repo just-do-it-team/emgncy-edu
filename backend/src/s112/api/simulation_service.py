@@ -11,6 +11,7 @@ from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from s112.api.schemas import CardCreate
+from s112.audio.voice import resolve_call_voice_id
 from s112.api.scenario_completion import (
     CompletionNotReadyError,
     ScenarioCompletionService,
@@ -24,6 +25,8 @@ from s112.api.service import (
 from s112.api.simulation_schemas import (
     CardTemplateCreate,
     CardTemplateDeleteRequest,
+    CardTemplateGenerationCreate,
+    CardTemplateUpdate,
     ExpertAssessmentUpdate,
     ExpectedResult,
     GroupScenarioAssignmentCreate,
@@ -33,6 +36,7 @@ from s112.api.simulation_schemas import (
     LearningGroupUpdate,
     IncomingCallTemplateCreate,
     IncomingCallTemplateDeleteRequest,
+    IncomingCallTemplateUpdate,
     ScenarioAssignmentCreate,
     ScenarioAssignmentScheduleUpdate,
     ScenarioDefinition,
@@ -60,9 +64,11 @@ from s112.common.enums import (
     ScenarioStatus,
     ScenarioTriggerType,
     ScheduledCardStatus,
+    ServiceResponseStatus,
     TrainingActionResult,
     TrainingCallStatus,
     TrainingSessionStatus,
+    TemplateStatus,
     UserRole,
     WorkspaceMemberRole,
     WorkspaceMode,
@@ -75,6 +81,7 @@ from s112.domain.models import (
     AssignmentParticipant,
     CardService,
     CardTemplate,
+    CardTemplateGeneration,
     EmergencyService,
     IncidentCard,
     IncomingCallTemplate,
@@ -128,6 +135,32 @@ PROCEDURAL_PRESETS: dict[int, dict[str, int]] = {
     4: {"initial_delay_seconds": 0, "release_interval_seconds": 60, "max_active": 3},
 }
 
+CARD_TEMPLATE_REVIEW_SECTIONS = {
+    "classification",
+    "incident_details",
+    "routing",
+    "response_statuses",
+    "outbound_call",
+}
+INCOMING_CALL_TEMPLATE_REVIEW_SECTIONS = {
+    "classification",
+    "incident_details",
+    "contacts",
+    "routing",
+}
+SHARED_GENERATED_CARD_FIELDS = {
+    "classification",
+    "description",
+    "questionnaire",
+    "applicant_full_name",
+    "automatic_phone_number",
+    "provided_phone_number",
+    "location_phone_number",
+    "reported_address",
+    "incident_address",
+    "victims_count",
+}
+
 
 class SimulationApplicationService:
     def __init__(
@@ -177,13 +210,45 @@ class SimulationApplicationService:
             name=request.name,
             description=request.description,
             difficulty=request.difficulty,
+            voice_id=request.voice_id,
             initial_card=card_payload,
             expected_result=request.expected_result.model_dump(mode="json"),
+            status=TemplateStatus.PUBLISHED.value,
             created_by=request.created_by,
         )
         session.add(template)
         await session.flush()
         return template
+
+    async def create_card_template_generation(
+        self,
+        session: AsyncSession,
+        request: CardTemplateGenerationCreate,
+    ) -> CardTemplateGeneration:
+        await self._require_user_role(
+            session, request.created_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
+        )
+        active_codes = set(
+            await session.scalars(
+                select(EmergencyService.code).where(
+                    EmergencyService.code.in_(request.dds_service_codes),
+                    EmergencyService.is_active.is_(True),
+                )
+            )
+        )
+        missing = set(request.dds_service_codes) - active_codes
+        if missing:
+            raise ValidationError(
+                "Generation services are unknown or inactive: "
+                + ", ".join(sorted(missing))
+            )
+        generation = CardTemplateGeneration(
+            dds_service_codes=list(request.dds_service_codes),
+            created_by=request.created_by,
+        )
+        session.add(generation)
+        await session.flush()
+        return generation
 
     async def delete_template(
         self,
@@ -233,7 +298,67 @@ class SimulationApplicationService:
                     "Card template is referenced by an active procedural scenario"
                 )
         template.is_active = False
+        template.status = TemplateStatus.ARCHIVED.value
         await session.flush()
+
+    async def update_template(
+        self,
+        session: AsyncSession,
+        template_id: uuid.UUID,
+        request: CardTemplateUpdate,
+    ) -> CardTemplate:
+        actor = await self._require_user_role(
+            session, request.updated_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
+        )
+        template = await session.scalar(
+            select(CardTemplate)
+            .where(CardTemplate.id == template_id)
+            .with_for_update()
+        )
+        if template is None or not template.is_active:
+            raise NotFoundError("Active card template not found")
+        self._require_template_owner(template, actor)
+        if template.status != TemplateStatus.DRAFT.value:
+            raise ConflictError("Only a draft card template can be edited")
+
+        initial_card = request.initial_card or CardCreate.model_validate(
+            template.initial_card
+        )
+        expected_result = request.expected_result or ExpectedResult.model_validate(
+            template.expected_result
+        )
+        await self._validate_template_content(
+            session,
+            initial_card=initial_card,
+            expected_result=expected_result,
+            location="card template",
+        )
+        self._apply_template_review_decisions(
+            template,
+            request.review_decisions,
+            CARD_TEMPLATE_REVIEW_SECTIONS,
+        )
+        if request.name is not None:
+            template.name = request.name
+        if "description" in request.model_fields_set:
+            template.description = request.description
+        if request.difficulty is not None:
+            template.difficulty = request.difficulty
+        if "voice_id" in request.model_fields_set:
+            template.voice_id = request.voice_id
+        if request.initial_card is not None:
+            payload = request.initial_card.model_dump(mode="json", exclude_none=True)
+            payload.pop("workspace_id", None)
+            payload.pop("request_id", None)
+            template.initial_card = payload
+        if request.expected_result is not None:
+            template.expected_result = request.expected_result.model_dump(mode="json")
+        if request.status == TemplateStatus.PUBLISHED:
+            self._require_completed_ai_review(template)
+            await self._validate_generated_template_pair(session, template)
+            template.status = TemplateStatus.PUBLISHED.value
+        await session.flush()
+        return template
 
     async def create_incoming_call_template(
         self, session: AsyncSession, request: IncomingCallTemplateCreate
@@ -270,8 +395,10 @@ class SimulationApplicationService:
             name=request.name,
             description=request.description,
             difficulty=request.difficulty,
+            voice_id=request.voice_id,
             initial_call=request.initial_call.model_dump(mode="json"),
             expected_result=request.expected_result.model_dump(mode="json"),
+            status=TemplateStatus.PUBLISHED.value,
             created_by=request.created_by,
         )
         session.add(template)
@@ -317,7 +444,65 @@ class SimulationApplicationService:
                     "Incoming call template is referenced by an active training scenario"
                 )
         template.is_active = False
+        template.status = TemplateStatus.ARCHIVED.value
         await session.flush()
+
+    async def update_incoming_call_template(
+        self,
+        session: AsyncSession,
+        template_id: uuid.UUID,
+        request: IncomingCallTemplateUpdate,
+    ) -> IncomingCallTemplate:
+        actor = await self._require_user_role(
+            session, request.updated_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
+        )
+        template = await session.scalar(
+            select(IncomingCallTemplate)
+            .where(IncomingCallTemplate.id == template_id)
+            .with_for_update()
+        )
+        if template is None or not template.is_active:
+            raise NotFoundError("Active incoming call template not found")
+        self._require_template_owner(template, actor)
+        if template.status != TemplateStatus.DRAFT.value:
+            raise ConflictError("Only a draft incoming call template can be edited")
+
+        initial_call = request.initial_call or InitialIncomingCall.model_validate(
+            template.initial_call
+        )
+        initial_call.model_dump(mode="json")
+        expected_result = request.expected_result or ExpectedResult.model_validate(
+            template.expected_result
+        )
+        await self._validate_template_content(
+            session,
+            initial_card=None,
+            expected_result=expected_result,
+            location="incoming call template",
+        )
+        self._apply_template_review_decisions(
+            template,
+            request.review_decisions,
+            INCOMING_CALL_TEMPLATE_REVIEW_SECTIONS,
+        )
+        if request.name is not None:
+            template.name = request.name
+        if "description" in request.model_fields_set:
+            template.description = request.description
+        if request.difficulty is not None:
+            template.difficulty = request.difficulty
+        if "voice_id" in request.model_fields_set:
+            template.voice_id = request.voice_id
+        if request.initial_call is not None:
+            template.initial_call = request.initial_call.model_dump(mode="json")
+        if request.expected_result is not None:
+            template.expected_result = request.expected_result.model_dump(mode="json")
+        if request.status == TemplateStatus.PUBLISHED:
+            self._require_completed_ai_review(template)
+            await self._validate_generated_template_pair(session, template)
+            template.status = TemplateStatus.PUBLISHED.value
+        await session.flush()
+        return template
 
     async def upgrade_card_template_scenarios(
         self,
@@ -329,7 +514,11 @@ class SimulationApplicationService:
             session, request.updated_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
         )
         template = await session.get(CardTemplate, template_id)
-        if template is None or not template.is_active:
+        if (
+            template is None
+            or not template.is_active
+            or template.status != TemplateStatus.PUBLISHED.value
+        ):
             raise NotFoundError("Active card template not found")
         return await self._upgrade_template_scenarios(
             session,
@@ -349,7 +538,11 @@ class SimulationApplicationService:
             session, request.updated_by, {UserRole.TEACHER, UserRole.ADMINISTRATOR}
         )
         template = await session.get(IncomingCallTemplate, template_id)
-        if template is None or not template.is_active:
+        if (
+            template is None
+            or not template.is_active
+            or template.status != TemplateStatus.PUBLISHED.value
+        ):
             raise NotFoundError("Active incoming call template not found")
         return await self._upgrade_template_scenarios(
             session,
@@ -946,7 +1139,11 @@ class SimulationApplicationService:
             if item.source_type is ScenarioCardSourceType.TEMPLATE:
                 if item.item_type is ScenarioItemType.INCOMING_CALL:
                     template = await session.get(IncomingCallTemplate, item.template_id)
-                    if template is None or not template.is_active:
+                    if (
+                        template is None
+                        or not template.is_active
+                        or template.status != TemplateStatus.PUBLISHED.value
+                    ):
                         raise ValidationError(
                             f"Inactive or missing incoming call template: {item.template_id}"
                         )
@@ -958,7 +1155,11 @@ class SimulationApplicationService:
                     raw["expected_result"] = dict(template.expected_result)
                 else:
                     template = await session.get(CardTemplate, item.template_id)
-                    if template is None or not template.is_active:
+                    if (
+                        template is None
+                        or not template.is_active
+                        or template.status != TemplateStatus.PUBLISHED.value
+                    ):
                         raise ValidationError(
                             f"Inactive or missing card template: {item.template_id}"
                         )
@@ -2766,6 +2967,7 @@ class SimulationApplicationService:
         )
         session.add(item)
         await session.flush()
+        greeting_voice_id = await resolve_call_voice_id(session, item)
         greeting_text = "Руководитель бригады, слушаю вас."
         greeting_id = uuid.uuid4()
         generation_id = uuid.uuid4()
@@ -2793,6 +2995,7 @@ class SimulationApplicationService:
                 revision=1,
                 idempotency_key=f"outgoing-greeting:{item.id}",
                 source_text=greeting_text,
+                voice_id=greeting_voice_id,
             )
         )
         segment_id = uuid.uuid4()
@@ -3049,13 +3252,25 @@ class SimulationApplicationService:
 
     @classmethod
     def _normalize_address(cls, value: Any) -> Any:
-        normalized = cls._normalize_text(value)
+        if not isinstance(value, str):
+            return value
+        normalized = value.casefold().replace("ё", "е")
+        normalized = re.sub(r"(?<!\w)пр\s*[-–—]\s*т(?=\W|$)", "проспект", normalized)
+        normalized = re.sub(r"(?<!\w)б\s*[-–—]\s*р(?=\W|$)", "бульвар", normalized)
+        normalized = cls._normalize_text(normalized)
         if not isinstance(normalized, str):
             return normalized
         abbreviations = {
             "улица": "ул",
             "дом": "д",
             "корпус": "корп",
+            "строение": "стр",
+            "квартира": "кв",
+            "просп": "проспект",
+            "переулок": "пер",
+            "шоссе": "ш",
+            "бульвар": "бул",
+            "проезд": "пр",
         }
         return " ".join(abbreviations.get(token, token) for token in normalized.split())
 
@@ -3137,6 +3352,18 @@ class SimulationApplicationService:
         expected_card = expected_result.card
         if expected_card is None:
             raise ValidationError(f"{location} requires expected_result.card")
+        forbidden_103_statuses = {
+            ServiceResponseStatus.REJECTED,
+            ServiceResponseStatus.WORK_REFUSED,
+        }
+        if expected_card.service_statuses.get("103") in forbidden_103_statuses or any(
+            change.status in forbidden_103_statuses
+            for change in (expected_result.service_status_history or {}).get("103", [])
+        ):
+            raise ValidationError(
+                f"{location}.expected_result: service 103 cannot use "
+                "REJECTED or WORK_REFUSED; use WORK_COMPLETED with the no-brigade result"
+            )
         try:
             if initial_card is not None:
                 validate_classification(initial_card.classification, location=f"{location}.initial_card")
@@ -3224,13 +3451,21 @@ class SimulationApplicationService:
                 continue
             if item.item_type is ScenarioItemType.INCOMING_CALL:
                 template = await session.get(IncomingCallTemplate, item.template_id)
-                if template is None or not template.is_active:
+                if (
+                    template is None
+                    or not template.is_active
+                    or template.status != TemplateStatus.PUBLISHED.value
+                ):
                     raise ValidationError(
                         f"Inactive or missing incoming call template: {item.template_id}"
                     )
             else:
                 template = await session.get(CardTemplate, item.template_id)
-                if template is None or not template.is_active:
+                if (
+                    template is None
+                    or not template.is_active
+                    or template.status != TemplateStatus.PUBLISHED.value
+                ):
                     raise ValidationError(
                         f"Inactive or missing card template: {item.template_id}"
                     )
@@ -3267,6 +3502,7 @@ class SimulationApplicationService:
         pool = generator.template_pool
         statement = select(CardTemplate).where(
             CardTemplate.is_active.is_(True),
+            CardTemplate.status == TemplateStatus.PUBLISHED.value,
             CardTemplate.difficulty <= scenario_difficulty,
         )
         if pool.template_ids is not None:
@@ -3422,7 +3658,86 @@ class SimulationApplicationService:
         template: CardTemplate | IncomingCallTemplate, actor: UserAccount
     ) -> None:
         if template.created_by != actor.id:
-            raise ForbiddenError("Only the template author can deactivate it")
+            raise ForbiddenError("Only the template author can modify it")
+
+    @staticmethod
+    def _apply_template_review_decisions(
+        template: CardTemplate | IncomingCallTemplate,
+        decisions: dict[str, str],
+        allowed_sections: set[str],
+    ) -> None:
+        if not decisions:
+            return
+        if not template.generated_by_ai:
+            raise ValidationError("Review decisions are only supported for AI templates")
+        unknown = set(decisions) - allowed_sections
+        if unknown:
+            raise ValidationError(
+                "Unknown template review sections: " + ", ".join(sorted(unknown))
+            )
+        state = dict(template.ai_review_state or {})
+        state.update(decisions)
+        template.ai_review_state = state
+
+    @staticmethod
+    def _require_completed_ai_review(
+        template: CardTemplate | IncomingCallTemplate,
+    ) -> None:
+        if not template.generated_by_ai:
+            return
+        state = template.ai_review_state or {}
+        required = (
+            CARD_TEMPLATE_REVIEW_SECTIONS
+            if isinstance(template, CardTemplate)
+            else INCOMING_CALL_TEMPLATE_REVIEW_SECTIONS
+        )
+        incomplete = [
+            section
+            for section in required
+            if state.get(section) not in {"CONFIRMED", "EDITED"}
+        ]
+        if not state or incomplete:
+            raise ConflictError(
+                "Every AI-generated template section must be confirmed or edited before publication"
+            )
+
+    @staticmethod
+    async def _validate_generated_template_pair(
+        session: AsyncSession,
+        template: CardTemplate | IncomingCallTemplate,
+    ) -> None:
+        if not template.generated_by_ai or template.generation_id is None:
+            return
+        incoming = await session.scalar(
+            select(IncomingCallTemplate).where(
+                IncomingCallTemplate.generation_id == template.generation_id
+            )
+        )
+        cards = list(
+            await session.scalars(
+                select(CardTemplate).where(
+                    CardTemplate.generation_id == template.generation_id
+                )
+            )
+        )
+        if incoming is None or not cards:
+            raise ConflictError("Generated template set is incomplete")
+        incoming_card = ExpectedResult.model_validate(incoming.expected_result).card
+        if incoming_card is None:
+            raise ValidationError("Generated 112 template has no expected card")
+        source = incoming_card.model_dump(mode="json")
+        for card in cards:
+            initial = CardCreate.model_validate(card.initial_card).model_dump(mode="json")
+            mismatches = [
+                field
+                for field in SHARED_GENERATED_CARD_FIELDS
+                if initial.get(field) != source.get(field)
+            ]
+            if mismatches:
+                raise ConflictError(
+                    "Generated 112 and DDS templates differ in shared fields: "
+                    + ", ".join(sorted(mismatches))
+                )
 
     @staticmethod
     def _require_scenario_owner(

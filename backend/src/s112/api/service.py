@@ -893,7 +893,7 @@ class CardApplicationService:
                 card_service_id=card_service.id,
                 status_code=ServiceResponseStatus.NOT_NOTIFIED.value,
                 occurred_at=missed_at,
-                comment="Card was not opened before the notification deadline",
+                comment="Не оповещено",
             )
         )
         self._add_outbox(

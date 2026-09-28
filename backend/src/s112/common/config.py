@@ -56,6 +56,20 @@ class Settings(BaseSettings):
     dialogue_llm_api_key: str = ""
     dialogue_llm_timeout_seconds: float = Field(default=120.0, ge=1.0)
     dialogue_llm_history_messages: int = Field(default=12, ge=1, le=100)
+    template_generation_timeout_seconds: float = Field(default=600.0, ge=10.0)
+    template_generation_poll_interval_seconds: float = Field(default=1.0, ge=0.1)
+    template_generation_retry_limit: int = Field(default=3, ge=1, le=20)
+    template_generation_stale_seconds: int = Field(default=900, ge=60)
+    template_generation_male_voice_id: str = Field(
+        default="112_male.mp3",
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*\.(?:wav|mp3)$",
+    )
+    template_generation_female_voice_id: str = Field(
+        default="female.mp3",
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*\.(?:wav|mp3)$",
+    )
     outbox_batch_size: int = Field(default=100, ge=1, le=1000)
     outbox_lock_seconds: int = Field(default=30, ge=5)
     scenario_worker_poll_interval_seconds: float = Field(default=0.5, ge=0.05)

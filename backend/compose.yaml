@@ -15,6 +15,12 @@ x-app-environment: &app-environment
   S112_DIALOGUE_LLM_API_KEY: ${S112_DIALOGUE_LLM_API_KEY:-}
   S112_DIALOGUE_LLM_TIMEOUT_SECONDS: ${S112_DIALOGUE_LLM_TIMEOUT_SECONDS:-120}
   S112_DIALOGUE_LLM_HISTORY_MESSAGES: ${S112_DIALOGUE_LLM_HISTORY_MESSAGES:-12}
+  S112_TEMPLATE_GENERATION_TIMEOUT_SECONDS: ${S112_TEMPLATE_GENERATION_TIMEOUT_SECONDS:-600}
+  S112_TEMPLATE_GENERATION_POLL_INTERVAL_SECONDS: ${S112_TEMPLATE_GENERATION_POLL_INTERVAL_SECONDS:-1}
+  S112_TEMPLATE_GENERATION_RETRY_LIMIT: ${S112_TEMPLATE_GENERATION_RETRY_LIMIT:-3}
+  S112_TEMPLATE_GENERATION_STALE_SECONDS: ${S112_TEMPLATE_GENERATION_STALE_SECONDS:-900}
+  S112_TEMPLATE_GENERATION_MALE_VOICE_ID: ${S112_TEMPLATE_GENERATION_MALE_VOICE_ID:-112_male.mp3}
+  S112_TEMPLATE_GENERATION_FEMALE_VOICE_ID: ${S112_TEMPLATE_GENERATION_FEMALE_VOICE_ID:-female.mp3}
   S112_AUDIO_FAILED_TOPIC: ${S112_AUDIO_FAILED_TOPIC:-audio.processing.failed.v1}
   S112_SPEECH_REQUEST_CONSUMER_GROUP: ${S112_SPEECH_REQUEST_CONSUMER_GROUP:-speech-request-worker-v1}
   S112_SPEECH_RESULT_CONSUMER_GROUP: ${S112_SPEECH_RESULT_CONSUMER_GROUP:-speech-result-worker-v1}
@@ -599,6 +605,19 @@ services:
       migrate:
         condition: service_completed_successfully
       kafka-init:
+        condition: service_completed_successfully
+
+  template-generation-worker:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["python", "-m", "s112.template_generation.main"]
+    depends_on:
+      migrate:
         condition: service_completed_successfully
 
   semantic-evaluation-request-worker:

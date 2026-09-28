@@ -32,6 +32,10 @@ GET /api/v1/teacher-monitoring/sessions?teacher_id={teacherId}&status=RUNNING
     "completed_at": null,
     "score": null,
     "passed": null,
+    "expert_score": null,
+    "expert_passed": null,
+    "final_score": null,
+    "final_passed": null,
     "cards_total": 3,
     "cards_pending": 1,
     "cards_emitted": 2,
@@ -51,6 +55,11 @@ GET /api/v1/teacher-monitoring/sessions?teacher_id={teacherId}&status=RUNNING
   }
 ]
 ```
+
+`score`/`passed` — автоматическая оценка. `expert_score`/`expert_passed` —
+оценка преподавателя; `final_score`/`final_passed` берут её при наличии,
+иначе повторяют автоматическую. Те же итоговые поля есть в кратком списке
+`GET /api/v1/training-sessions`.
 
 Для обычного polling рекомендуется интервал 5–10 секунд. `last_activity_at`
 удобен для подсветки недавно изменившихся строк. Пустые `group_*` означают

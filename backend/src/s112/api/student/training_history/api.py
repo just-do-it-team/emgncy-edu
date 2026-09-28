@@ -174,7 +174,15 @@ async def list_training_sessions(
     training_sessions = list(
         await session.scalars(statement.order_by(TrainingSession.started_at.desc()))
     )
-    return [TrainingSessionSummary.model_validate(item) for item in training_sessions]
+    summaries = []
+    for item in training_sessions:
+        summary = TrainingSessionSummary.model_validate(item)
+        summary.final_score = item.expert_score if item.expert_score is not None else item.score
+        summary.final_passed = (
+            item.expert_passed if item.expert_passed is not None else item.passed
+        )
+        summaries.append(summary)
+    return summaries
 
 
 @router.get(

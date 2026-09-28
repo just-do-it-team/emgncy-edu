@@ -166,7 +166,9 @@ class SpeechRequestWorker:
                         "Segment-No": str(segment.segment_no),
                     }
             try:
-                audio, sample_rate = await self.speech.synthesize(text)
+                audio, sample_rate = await self.speech.synthesize(
+                    text, message.voice_id
+                )
                 stored = await self.storage.put_bytes(key, audio, content_type="audio/wav", metadata=metadata)
             except Exception as exc:
                 async with self.database.write_session_factory() as session:
@@ -308,7 +310,9 @@ class SpeechRequestWorker:
         if message.kind == AudioMessageKind.TTS.value:
             if not message.source_text:
                 raise ValueError("TTS audio message has no source text")
-            audio, sample_rate = await self.speech.synthesize(message.source_text)
+            audio, sample_rate = await self.speech.synthesize(
+                message.source_text, message.voice_id
+            )
             stored = await self.storage.put_bytes(
                 message.object_key,
                 audio,

@@ -12,6 +12,7 @@ from aiokafka import AIOKafkaConsumer, TopicPartition
 from sqlalchemy import func, select
 
 from s112.api.scenario_completion import ScenarioCompletionService
+from s112.audio.voice import resolve_call_voice_id
 from s112.common.config import Settings
 from s112.common.database import Database
 from s112.domain.models import AudioMessage, EventInbox, OutboxEvent, TrainingCall, TrainingSession, TtsSegment
@@ -196,6 +197,7 @@ class DialogueWorker:
                     revision=1,
                     idempotency_key=f"reply:{source.id}",
                     source_text="",
+                    voice_id=await resolve_call_voice_id(session, call),
                     object_key=None,
                 )
                 session.add(response)

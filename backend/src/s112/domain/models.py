@@ -48,6 +48,8 @@ from s112.common.enums import (
     TrainingActionResult,
     TrainingCallStatus,
     TrainingSessionStatus,
+    TemplateGenerationStatus,
+    TemplateStatus,
     UserRole,
     WorkspaceMemberRole,
     WorkspaceMode,
@@ -609,7 +611,12 @@ class CardTemplate(Base):
         UniqueConstraint("template_key", "version", name="uq_card_template_key_version"),
         CheckConstraint("version >= 1", name="version_positive"),
         CheckConstraint("difficulty BETWEEN 1 AND 4", name="difficulty_range"),
+        CheckConstraint(
+            "status IN ('DRAFT', 'PUBLISHED', 'ARCHIVED')",
+            name="status_valid",
+        ),
         Index("ix_card_template_active_name", "is_active", "name"),
+        Index("ix_card_template_status_active", "status", "is_active"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -618,8 +625,17 @@ class CardTemplate(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     difficulty: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    voice_id: Mapped[str | None] = mapped_column(String(128))
     initial_card: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     expected_result: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=TemplateStatus.PUBLISHED.value
+    )
+    generated_by_ai: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    ai_review_state: Mapped[dict[str, str] | None] = mapped_column(JsonType)
+    generation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("card_template_generation.id", ondelete="SET NULL")
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_by: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("user_account.id", ondelete="RESTRICT"), nullable=False
@@ -639,7 +655,12 @@ class IncomingCallTemplate(Base):
         ),
         CheckConstraint("version >= 1", name="version_positive"),
         CheckConstraint("difficulty BETWEEN 1 AND 4", name="difficulty_range"),
+        CheckConstraint(
+            "status IN ('DRAFT', 'PUBLISHED', 'ARCHIVED')",
+            name="status_valid",
+        ),
         Index("ix_incoming_call_template_active_name", "is_active", "name"),
+        Index("ix_incoming_call_template_status_active", "status", "is_active"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -648,8 +669,17 @@ class IncomingCallTemplate(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     difficulty: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    voice_id: Mapped[str | None] = mapped_column(String(128))
     initial_call: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     expected_result: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=TemplateStatus.PUBLISHED.value
+    )
+    generated_by_ai: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    ai_review_state: Mapped[dict[str, str] | None] = mapped_column(JsonType)
+    generation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("card_template_generation.id", ondelete="SET NULL")
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_by: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("user_account.id", ondelete="RESTRICT"), nullable=False
@@ -657,6 +687,43 @@ class IncomingCallTemplate(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class CardTemplateGeneration(Base):
+    """Asynchronous generation of one 112 template and related DDS templates."""
+
+    __tablename__ = "card_template_generation"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')",
+            name="status_valid",
+        ),
+        CheckConstraint("attempts >= 0", name="attempts_nonnegative"),
+        Index("ix_card_template_generation_status_created", "status", "created_at"),
+        Index("ix_card_template_generation_author_created", "created_by", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    dds_service_codes: Mapped[list[str]] = mapped_column(JsonType, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=TemplateGenerationStatus.PENDING.value
+    )
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    incoming_call_template_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("incoming_call_template.id", ondelete="SET NULL")
+    )
+    card_template_ids: Mapped[list[str]] = mapped_column(
+        JsonType, nullable=False, default=list
+    )
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_account.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class TrainingScenario(Base, TimestampMixin):
@@ -1222,6 +1289,7 @@ class AudioMessage(Base):
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
     source_text: Mapped[str | None] = mapped_column(Text)
+    voice_id: Mapped[str | None] = mapped_column(String(128))
     transcript: Mapped[str | None] = mapped_column(Text)
     object_key: Mapped[str | None] = mapped_column(String(1024))
     object_etag: Mapped[str | None] = mapped_column(String(255))
