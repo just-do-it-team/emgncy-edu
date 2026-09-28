@@ -41,6 +41,7 @@ export default defineConfig(({ mode, command }) => {
       proxy: {
         ...proxyEntry("/student-api", env.VITE_CARD_API_PROXY_TARGET),
         ...proxyEntry("/auth-api", env.VITE_AUTH_API_PROXY_TARGET),
+        ...proxyEntry("/admin-api", env.VITE_ADMIN_API_PROXY_TARGET),
         ...proxyEntry(
           "/realtime-gateway",
           env.VITE_REALTIME_GATEWAY_PROXY_TARGET,

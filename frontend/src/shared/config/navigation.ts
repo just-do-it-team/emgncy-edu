@@ -6,6 +6,12 @@ import {
   GraduationCap,
   LayoutDashboard,
   LineChart,
+  Activity,
+  FileText,
+  Server,
+  ShieldCheck,
+  DatabaseBackup,
+  PackageCheck,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -40,7 +46,16 @@ export const navigation: Record<NavRole, NavItem[]> = {
     { key: "progress", label: "Прогресс", icon: LineChart, path: "/student/progress" },
     { key: "materials", label: "Материалы", icon: BookOpen, path: "/student/materials" },
   ],
-  admin: [],
+  admin: [
+    { key: "overview", label: "Обзор", icon: LayoutDashboard, path: "/admin" },
+    { key: "monitoring", label: "Мониторинг", icon: Activity, path: "/admin/monitoring" },
+    { key: "users", label: "Пользователи", icon: Users, path: "/admin/users" },
+    { key: "reports", label: "Отчёты", icon: FileText, path: "/admin/reports" },
+    { key: "services", label: "Сервисы", icon: Server, path: "/admin/services" },
+    { key: "backups", label: "Резервные копии", icon: DatabaseBackup, path: "/admin/backups" },
+    { key: "updates", label: "Обновления", icon: PackageCheck, path: "/admin/updates" },
+    { key: "security", label: "Безопасность", icon: ShieldCheck, path: "/admin/security" },
+  ],
 };
 
 export const extraTitles: { path: string; title: string }[] = [
