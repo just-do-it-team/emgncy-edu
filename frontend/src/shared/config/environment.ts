@@ -11,3 +11,4 @@ export const CARD_API_URL = `${(import.meta.env.VITE_ARM_API_URL || "/student-ap
   /\/$/,
   "",
 )}/api/v1`;
+export const ADMIN_API_URL = `${(import.meta.env.VITE_ADMIN_API_URL || "/admin-api").replace(/\/$/, "")}/api/v1/admin`;

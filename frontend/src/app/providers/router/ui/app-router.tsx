@@ -26,6 +26,7 @@ import { TeacherSessionReviewPage } from "@/pages/teacher-session-review";
 import { TeacherStudentResultsPage } from "@/pages/teacher-student-results";
 import { StudentOverviewPage } from "@/pages/student-overview";
 import { StudentResultsPage } from "@/pages/student-results";
+import { AdminOverviewPage, AdminMonitoringPage, AdminUsersPage, AdminReportsPage, AdminServicesPage, AdminBackupsPage, AdminUpdatesPage, AdminSecurityPage } from "@/pages/admin";
 import { useSessionExpiry, useSessionStore, type UserRole } from "@/entities/session";
 
 const roleNavigation: Record<UserRole, NavItem[]> = navigation;
@@ -125,7 +126,14 @@ const AppRouter: FC = () => {
             <AppShell items={roleNavigation.admin} roleLabel={roleLabels.admin} />,
           )}
         >
-          <Route index element={<SectionPlaceholder title="Администрирование" />} />
+          <Route index element={<AdminOverviewPage />} />
+          <Route path="monitoring" element={<AdminMonitoringPage />} />
+          <Route path="users" element={<AdminUsersPage />} />
+          <Route path="reports" element={<AdminReportsPage />} />
+          <Route path="services" element={<AdminServicesPage />} />
+          <Route path="backups" element={<AdminBackupsPage />} />
+          <Route path="updates" element={<AdminUpdatesPage />} />
+          <Route path="security" element={<AdminSecurityPage />} />
           <Route path="*" element={<Navigate replace to={RouteNames.ADMIN} />} />
         </Route>
 

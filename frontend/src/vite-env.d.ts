@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  readonly VITE_ADMIN_API_URL?: string;
+  readonly VITE_ADMIN_API_PROXY_TARGET?: string;
   readonly VITE_USE_MOCKS?: string;
   readonly VITE_AUTH_API_URL?: string;
   readonly VITE_ARM_API_URL?: string;
