@@ -125,6 +125,7 @@ function IncidentRow({
         <Table.Td>
           <ActionIcon
             data-tour="open-card"
+            data-guidance-card={incident.serverId}
             className={classes.rowIcon}
             aria-label={`Карточка происшествия ${incident.id}`}
             onClick={() => onOpenIncident(incident)}

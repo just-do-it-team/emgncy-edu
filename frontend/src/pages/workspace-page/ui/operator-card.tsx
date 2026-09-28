@@ -366,6 +366,7 @@ export function OperatorCard({
             >
               <div className={classes.applicantRow}>
                 <TextInput
+                  data-guidance="applicant-input"
                   aria-label="Фамилия и имя заявителя"
                   placeholder="Фамилия и имя заявителя"
                   {...form.getInputProps("applicant")}
@@ -430,6 +431,11 @@ export function OperatorCard({
                 {Object.entries(addressLabels).map(([key, label]) => (
                   <TextInput
                     key={key}
+                    data-guidance={
+                      key === "street" || key === "house"
+                        ? `address-${key}`
+                        : undefined
+                    }
                     label={label}
                     className={
                       key === "street" || key === "object"
@@ -441,6 +447,7 @@ export function OperatorCard({
                 ))}
               </div>
               <Textarea
+                data-guidance="address-descriptive"
                 label="Описательный адрес"
                 mt="sm"
                 minRows={2}
@@ -464,6 +471,7 @@ export function OperatorCard({
               data-tour="card-description"
             >
               <Textarea
+                data-guidance="description-input"
                 label="Описание со слов заявителя"
                 placeholder="введите"
                 minRows={5}
@@ -531,23 +539,30 @@ export function OperatorCard({
                 className={classes.panel}
                 data-tour="card-classification"
               >
-                <Select
-                  label="Введите тип происшествия"
-                  placeholder="ЧТО СЛУЧИЛОСЬ?"
-                  searchable
-                  clearable
-                  data={groups}
-                  value={values.group || null}
-                  searchValue={search}
-                  onSearchChange={setSearch}
-                  filter={({ options }) => options}
-                  onChange={changeGroup}
-                  maxDropdownHeight={320}
-                  nothingFoundMessage="Тип не найден. Попробуйте другое слово."
-                  error={form.errors.group}
-                />
+                <div data-guidance="incident-type-block">
+                  <Select
+                    label="Введите тип происшествия"
+                    placeholder="ЧТО СЛУЧИЛОСЬ?"
+                    searchable
+                    clearable
+                    data={groups}
+                    value={values.group || null}
+                    searchValue={search}
+                    onSearchChange={setSearch}
+                    filter={({ options }) => options}
+                    onChange={changeGroup}
+                    maxDropdownHeight={320}
+                    nothingFoundMessage="Тип не найден. Попробуйте другое слово."
+                    error={form.errors.group}
+                  />
+                </div>
                 {!values.group && (
-                  <Group gap="xs" mt="md" className={classes.quickTypes}>
+                  <Group
+                    gap="xs"
+                    mt="md"
+                    className={classes.quickTypes}
+                    data-guidance="quick-types"
+                  >
                     {[
                       "Дорожно-транспортные происшествия с пострадавшими",
                       "Ошибочно набран номер",
@@ -591,6 +606,7 @@ export function OperatorCard({
                 <section
                   className={classes.criteria}
                   aria-label="Критерии происшествия"
+                  data-guidance="incident-features"
                 >
                   <h2>{values.group}</h2>
                   {[0, 1, 2].map((level) => {

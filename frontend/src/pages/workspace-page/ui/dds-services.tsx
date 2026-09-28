@@ -256,6 +256,7 @@ function DdsService({
             </Button>
             {options.length > 0 && (
               <ActionIcon
+                data-guidance={ownService ? "service-status" : undefined}
                 className={classes.editButton}
                 variant="transparent"
                 aria-label={`Изменить статус службы ${name}`}
@@ -341,6 +342,7 @@ function DdsService({
       >
         <div className={classes.editorFields}>
           <Select
+            data-guidance="status-select"
             variant="unstyled"
             aria-label="Статус реагирования"
             placeholder="Статус"
@@ -394,6 +396,7 @@ function DdsService({
             className={classes.editorActions}
           >
             <Button
+              data-guidance="status-save"
               aria-label={busy ? "Сохранение статуса" : "Сохранить статус"}
               title={busy ? "Сохранение статуса" : "Сохранить статус"}
               aria-busy={busy}
