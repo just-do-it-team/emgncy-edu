@@ -8,7 +8,6 @@ import {
 } from "@/entities/incident";
 import {
   apiError,
-  notifyTrainingError,
   trainingApi,
   trainingKeys,
   type ApiCard,
@@ -46,7 +45,6 @@ export type CardSyncState = {
   cardId: string;
   message: string | null;
   busy: boolean;
-  refresh: () => void;
 };
 export function ConnectedCard(props: Props) {
   const { cardId, ctx, onClose, onSyncStateChange } = props;
@@ -56,22 +54,20 @@ export function ConnectedCard(props: Props) {
   const query = useQuery({
     queryKey,
     queryFn: ({ signal }) => trainingApi.card(ctx, cardId, signal),
-    refetchInterval: ctx.mode === "DDS" ? 5000 : false,
+    refetchInterval: (current) =>
+      ctx.mode === "DDS" || current.state.status === "error" ? 5000 : false,
     refetchOnMount: "always",
     refetchOnWindowFocus: false,
     meta: { showGlobalError: false },
   });
-  const { refetch } = query;
-  const retryLoad = useCallback(() => {
-    void refetch();
-  }, [refetch]);
   useEffect(() => {
     if (query.data) return;
     onSyncStateChange({
       cardId,
-      message: query.isError ? "Не удалось загрузить карточку." : null,
+      message: query.isError
+        ? "Не удалось загрузить карточку. Повторяем загрузку автоматически."
+        : null,
       busy: query.isFetching,
-      refresh: retryLoad,
     });
   }, [
     cardId,
@@ -80,7 +76,6 @@ export function ConnectedCard(props: Props) {
     query.error,
     query.isError,
     query.isFetching,
-    retryLoad,
   ]);
   useEffect(() => {
     if (
@@ -94,7 +89,6 @@ export function ConnectedCard(props: Props) {
       cardId,
       message: null,
       busy: query.isFetching,
-      refresh: retryLoad,
     });
   }, [
     cardId,
@@ -103,7 +97,6 @@ export function ConnectedCard(props: Props) {
     onSyncStateChange,
     query.data,
     query.isFetching,
-    retryLoad,
   ]);
   if (!query.data)
     return (
@@ -124,6 +117,7 @@ export function ConnectedCard(props: Props) {
           card={query.data}
           ctx={props.ctx}
           directory={props.directory}
+          summary={props.summary}
           onEdit={props.readOnly ? undefined : () => setEditingProcessed(true)}
           onClose={props.onClose}
         />
@@ -132,20 +126,28 @@ export function ConnectedCard(props: Props) {
       <CardEditor
         {...props}
         initial={query.data}
+        queryFetching={query.isFetching}
         startEditing
         onClose={() => setEditingProcessed(false)}
         onSaved={(card) => {
           queryClient.setQueryData(queryKey, card);
-          setEditingProcessed(false);
+          props.onClose();
         }}
       />
     );
   }
-  return <CardEditor {...props} initial={query.data} />;
+  return (
+    <CardEditor
+      {...props}
+      initial={query.data}
+      queryFetching={query.isFetching}
+    />
+  );
 }
 function CardEditor({
   ctx,
   initial,
+  queryFetching,
   kinds,
   directory,
   readOnly,
@@ -157,6 +159,7 @@ function CardEditor({
   startEditing = false,
 }: Props & {
   initial: ApiCard;
+  queryFetching: boolean;
   onSaved?: (card: ApiCard) => void;
   startEditing?: boolean;
 }) {
@@ -166,11 +169,11 @@ function CardEditor({
   const outdated = initial.version > card.version;
   const disabled = readOnly || busy || needsRefresh || outdated;
   useEffect(() => {
-    if (ctx.mode === "DDS" && initial.version > card.version && !busy) {
+    if (initial.version > card.version && !busy) {
       setCard(initial);
       setNeedsRefresh(false);
     }
-  }, [busy, card.version, ctx.mode, initial]);
+  }, [busy, card.version, initial]);
   async function loadUpdatedCard(previousVersion: number) {
     for (let attempt = 0; attempt < 7; attempt++) {
       const fresh = await trainingApi.card(ctx, card.id);
@@ -178,7 +181,7 @@ function CardEditor({
       await new Promise((resolve) => window.setTimeout(resolve, 400));
     }
     throw new Error(
-      "Карточка сохранена, но обновлённая версия ещё недоступна. Обновите данные с сервера.",
+      "Карточка сохранена, но обновлённая версия ещё недоступна. Повторяем загрузку автоматически.",
     );
   }
   const reload = useCallback(async () => {
@@ -188,38 +191,36 @@ function CardEditor({
       setCard(fresh);
       setNeedsRefresh(false);
       await onChanged();
-    } catch (err) {
+    } catch {
       setNeedsRefresh(true);
-      notifyTrainingError(err);
     } finally {
       setBusy(false);
     }
   }, [card.id, ctx, onChanged]);
   useEffect(() => {
-    if (ctx.mode !== "DDS" || !needsRefresh || busy) return;
+    if (!needsRefresh || busy) return;
     const timer = window.setTimeout(() => void reload(), 5000);
     return () => window.clearTimeout(timer);
-  }, [busy, ctx.mode, needsRefresh, reload]);
+  }, [busy, needsRefresh, reload]);
   const syncMessage =
     ctx.mode === "DDS"
       ? null
       : readOnly
-        ? "Карточка доступна только для просмотра."
+        ? "Редактирование карточки временно недоступно."
         : needsRefresh
-          ? "Перед следующей записью обновите карточку."
+          ? "Не удалось синхронизировать карточку. Повторяем загрузку автоматически."
           : outdated
-            ? "На сервере появилась новая версия карточки. Обновите данные перед записью."
+            ? "На сервере появилась новая версия карточки. Синхронизируем данные."
             : null;
   useEffect(() => {
     onSyncStateChange({
       cardId: card.id,
       message: syncMessage,
-      busy,
-      refresh: () => void reload(),
+      busy: busy || queryFetching,
     });
-  }, [busy, card.id, onSyncStateChange, reload, syncMessage]);
+  }, [busy, card.id, onSyncStateChange, queryFetching, syncMessage]);
   async function save(draft: OperatorCardDraft) {
-    if (disabled) throw new Error("Сначала обновите карточку.");
+    if (disabled) throw new Error("Дождитесь обновления карточки.");
     const record = resolveClassification(
       draft.group,
       draft.features,
@@ -268,6 +269,7 @@ function CardEditor({
       setCard(fresh);
       await onChanged();
       onSaved?.(fresh);
+      if (ctx.mode === "ARM112" && !onSaved) onClose();
     } catch (err) {
       setNeedsRefresh(true);
       throw new Error(
@@ -280,7 +282,7 @@ function CardEditor({
     }
   }
   async function status(service: CardService, next: string, comment: string) {
-    if (disabled) throw new Error("Сначала обновите карточку.");
+    if (disabled) throw new Error("Дождитесь обновления карточки.");
     setBusy(true);
     try {
       await trainingApi.serviceStatus(ctx, card, service.id, next, comment);
@@ -294,7 +296,7 @@ function CardEditor({
     }
   }
   async function addService(serviceId: string) {
-    if (disabled) throw new Error("Сначала обновите карточку.");
+    if (disabled) throw new Error("Дождитесь обновления карточки.");
     setBusy(true);
     try {
       await trainingApi.addService(ctx, card, serviceId);
@@ -308,7 +310,7 @@ function CardEditor({
     }
   }
   async function cardStatus(status: string, reason: string) {
-    if (disabled) throw new Error("Сначала обновите карточку.");
+    if (disabled) throw new Error("Дождитесь обновления карточки.");
     setBusy(true);
     try {
       setCard(await trainingApi.cardStatus(ctx, card, status, reason));
@@ -334,7 +336,11 @@ function CardEditor({
   const info = (
     <Stack p="sm" gap="xs">
       <Text size="xs" c="dimmed">
-        Карточка № {card.card_number} · версия {card.version}
+        Карточка №{" "}
+        {ctx.mode === "ARM112"
+          ? card.card_number.slice(0, 8)
+          : card.card_number}{" "}
+        · версия {card.version}
       </Text>
       <ServerCardStatus
         ctx={ctx}

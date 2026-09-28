@@ -347,7 +347,9 @@ export function OperatorCard({
             </div>
           ))}
           <div className={classes.cardNumber}>
-            <strong>Происшествие {entry.incident.id}</strong>
+            <strong title={entry.incident.id}>
+              Происшествие {entry.incident.id.slice(0, 8)}
+            </strong>
             <span>
               Сохр. {new Date(entry.incident.createdAt).toLocaleString("ru-RU")}
             </span>

@@ -256,7 +256,7 @@ export function IncidentList({
                 key={incident.serverId ?? incident.id}
                 incident={incident}
                 onOpenIncident={onOpenIncident}
-                shortNumber={!operatorMode}
+                shortNumber
               />
             ))}
           </Table.Tbody>

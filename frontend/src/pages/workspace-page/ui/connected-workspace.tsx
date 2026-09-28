@@ -176,12 +176,11 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const onboardingButtonRef = useRef<HTMLButtonElement>(null);
   const backAction = useRef<() => void>(() => {});
-  const [needsManualRefresh, setNeedsManualRefresh] = useState(false);
-  const [manualRefreshing, setManualRefreshing] = useState(false);
+  const [needsRefresh, setNeedsRefresh] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [cardSyncState, setCardSyncState] = useState<CardSyncState | null>(
     null,
   );
-  const baseKey = trainingKeys.workspace(ctx);
   const readiness = useQuery({
     queryKey: trainingKeys.readiness(ctx),
     queryFn: ({ signal }) => trainingApi.readiness(ctx, signal),
@@ -194,7 +193,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     refetchOnWindowFocus: false,
     meta: { showGlobalError: false },
   });
-  const connection = useWorkspaceEvents(ctx, readiness.isSuccess);
+  const connection = useWorkspaceEvents(ctx, !!readiness.data);
   const cards = useInfiniteQuery({
     queryKey: trainingKeys.cardPages(ctx),
     queryFn: ({ pageParam, signal }) =>
@@ -312,7 +311,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
       query.isError && axios.isAxiosError(query.error) && !query.error.response,
   );
   const hasWorkspaceQueryError =
-    readiness.isError || cards.isError || reference.isError;
+    readiness.isError || cards.isError || calls.isError || reference.isError;
   const connectionLost =
     connection === "disconnected" ||
     presence === "interrupted" ||
@@ -324,8 +323,50 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
     presence === "connected" &&
     connection === "connected";
   useEffect(() => {
-    if (connectionLost) setNeedsManualRefresh(true);
-  }, [connectionLost]);
+    if (connectionLost || hasWorkspaceQueryError) setNeedsRefresh(true);
+  }, [connectionLost, hasWorkspaceQueryError]);
+  useEffect(() => {
+    if (!needsRefresh || !presenceActive) return;
+
+    let cancelled = false;
+    let inFlight = false;
+    const refreshAfterReconnect = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      setRefreshing(true);
+      try {
+        const results = await Promise.allSettled([
+          queryClient.invalidateQueries(
+            { queryKey: trainingKeys.workspace(ctx) },
+            { throwOnError: true },
+          ),
+          queryClient.invalidateQueries(
+            { queryKey: trainingKeys.referenceMode(ctx.mode) },
+            { throwOnError: true },
+          ),
+        ]);
+        if (
+          !cancelled &&
+          connection === "connected" &&
+          presence === "connected" &&
+          results.every((result) => result.status === "fulfilled")
+        )
+          setNeedsRefresh(false);
+      } finally {
+        inFlight = false;
+        if (!cancelled) setRefreshing(false);
+      }
+    };
+    void refreshAfterReconnect();
+    const interval = window.setInterval(
+      () => void refreshAfterReconnect(),
+      5000,
+    );
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [connection, ctx, needsRefresh, presence, presenceActive, queryClient]);
   useEffect(() => {
     if (
       connection === "connected" &&
@@ -359,30 +400,6 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
       queryKey: trainingKeys.workspace(ctx),
     });
   }, [ctx, queryClient]);
-  async function refreshManually() {
-    if (manualRefreshing) return;
-    setManualRefreshing(true);
-    try {
-      const results = await Promise.allSettled([
-        queryClient.invalidateQueries(
-          { queryKey: baseKey },
-          { throwOnError: true },
-        ),
-        queryClient.invalidateQueries(
-          { queryKey: trainingKeys.referenceMode(ctx.mode) },
-          { throwOnError: true },
-        ),
-      ]);
-      if (
-        results.every((result) => result.status === "fulfilled") &&
-        connection === "connected" &&
-        (!presenceActive || presence === "connected")
-      )
-        setNeedsManualRefresh(false);
-    } finally {
-      setManualRefreshing(false);
-    }
-  }
   async function open(id: string) {
     if (opening) return;
     setOpening(true);
@@ -582,9 +599,9 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
             color={connectionActive ? "green" : "red"}
             title={
               connection === "disconnected"
-                ? "Связь с событиями прервана. После восстановления соединения обновите данные."
+                ? "Связь с событиями прервана. После восстановления соединения данные обновятся автоматически."
                 : requestConnectionLost
-                  ? "Не удалось загрузить данные. После восстановления соединения обновите их вручную."
+                  ? "Не удалось загрузить данные. Повторяем загрузку автоматически."
                   : presence === "unavailable"
                     ? "Сервер пока не принимает подтверждение присутствия. Занятие остаётся открытым; повторяем запрос."
                     : presence === "interrupted"
@@ -597,46 +614,15 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
           >
             {connectionActive ? "Связь активна" : "Связь не активна"}
           </Badge>
-          {needsManualRefresh && (
-            <Button
-              size="lg"
-              variant="default"
-              fw={700}
-              loading={manualRefreshing}
-              onClick={() => void refreshManually()}
-            >
-              Обновить данные
-            </Button>
-          )}
-          {ctx.mode !== "DDS" && activeCardSyncState && (
-            <Button
+          {(refreshing ||
+            activeCardSyncState?.busy ||
+            (presenceActive && !connectionActive)) && (
+            <Loader
               size="sm"
-              variant="default"
-              loading={activeCardSyncState.busy}
-              onClick={activeCardSyncState.refresh}
-            >
-              Обновить карточку
-            </Button>
-          )}
-          {hasWorkspaceQueryError && !needsManualRefresh && (
-            <Button
-              size="sm"
-              variant="subtle"
-              disabled={
-                readiness.isFetching || cards.isFetching || reference.isFetching
+              aria-label={
+                connectionActive ? "Обновление данных" : "Восстанавливаем связь"
               }
-              onClick={() => {
-                if (readiness.isError) void readiness.refetch();
-                if (reference.isError) void reference.refetch();
-                if (cards.isFetchNextPageError) {
-                  void cards.fetchNextPage({ cancelRefetch: false });
-                } else if (cards.isError) {
-                  void cards.refetch();
-                }
-              }}
-            >
-              Повторить загрузку
-            </Button>
+            />
           )}
           <Button
             ref={onboardingButtonRef}
@@ -687,7 +673,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
           onBusyChange={setCallBusy}
           onDraftChange={setCallDraft}
           onCardOpenChange={setCardOpen}
-          onCardCreated={setSelectedId}
+          onCardCreated={() => setSelectedId(null)}
           openCardRequest={openCardRequest}
         />
       )}

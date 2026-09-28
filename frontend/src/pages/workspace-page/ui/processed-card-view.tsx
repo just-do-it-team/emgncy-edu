@@ -1,7 +1,26 @@
 import { useState } from "react";
-import { Button } from "@mantine/core";
-import { Check, FileText, Phone, X } from "lucide-react";
-import { classifierRecords } from "@/entities/incident";
+import { Button, Tooltip } from "@mantine/core";
+import {
+  Bell,
+  ChevronUp,
+  ChevronsUpDown,
+  CircleHelp,
+  Globe2,
+  Hand,
+  Link2,
+  MapPin,
+  MessageSquare,
+  MessageSquareWarning,
+  Plus,
+  Phone,
+  PhoneCall,
+  Printer,
+  Timer,
+  TriangleAlert,
+  X,
+  Zap,
+} from "lucide-react";
+import { classifierRecords, type Incident } from "@/entities/incident";
 import { useSessionStore } from "@/entities/session";
 import {
   statusLabels,
@@ -28,16 +47,19 @@ export function ProcessedCardView({
   card,
   ctx,
   directory,
+  summary,
   onEdit,
   onClose,
 }: {
   card: ApiCard;
   ctx: LaunchContext;
   directory: EmergencyService[];
+  summary?: Incident;
   onEdit?: () => void;
   onClose: () => void;
 }) {
   const [showAudio, setShowAudio] = useState(false);
+  const [expandedServices, setExpandedServices] = useState(false);
   const profile = useSessionStore((state) => state.profile);
   const record = classifierRecords.find(
     (item) => item.id === card.classification?.record_id,
@@ -54,52 +76,95 @@ export function ProcessedCardView({
     card.operator_id && card.operator_id === profile?.userId
       ? profile.displayName
       : null;
+  const shortNumber = card.card_number.slice(0, 8);
+  const classificationLabel = [
+    ...new Set(
+      [record?.group, card.classification?.final_incident_type].filter(
+        (value): value is string => !!value,
+      ),
+    ),
+  ].join("; ");
 
   return (
     <article
       className={classes.card}
-      aria-label={`Карточка происшествия ${card.card_number}`}
+      aria-label={`Карточка происшествия ${shortNumber}`}
     >
       <header className={classes.topbar}>
         <div className={classes.connection}>
-          <Phone size={25} aria-hidden="true" />
-          <div>
+          <span className={classes.connectionIcon} aria-hidden="true">
+            <Phone size={25} fill="currentColor" strokeWidth={1.5} />
+          </span>
+          <div className={classes.connectionBody}>
             <span>Не подключен</span>
-            <button
-              type="button"
-              onClick={() => setShowAudio((value) => !value)}
-            >
-              Записи звонков
-            </button>
+            <div className={classes.connectionActions}>
+              <button
+                type="button"
+                onClick={() => setShowAudio((value) => !value)}
+                aria-expanded={showAudio}
+              >
+                Записи звонков
+              </button>
+              <button
+                type="button"
+                disabled
+                title="SMS в учебном режиме недоступны"
+              >
+                Список SMS
+              </button>
+            </div>
           </div>
         </div>
         {[
           ["АОН", card.automatic_phone_number],
           ["Предоставленный", card.provided_phone_number],
           ["Телефон на место", card.location_phone_number],
-        ].map(([label, value]) => (
+        ].map(([label, value], index) => (
           <div className={classes.phone} key={label}>
-            <span>{label}</span>
-            <strong>{display(value)}</strong>
+            <div className={classes.phoneRail} aria-hidden="true">
+              <Phone size={19} fill="currentColor" strokeWidth={1.5} />
+              <span className={classes.messageIcon}>
+                <MessageSquare size={22} fill="#30383e" stroke="#30383e" />
+                <span>•••</span>
+              </span>
+            </div>
+            <div className={classes.phoneContent}>
+              <div className={classes.phoneHeading}>
+                <span>{label}</span>
+                <span className={classes.phoneHeadingIcons} aria-hidden="true">
+                  {index === 0 && (
+                    <>
+                      <CircleHelp size={15} />
+                      <MapPin size={15} />
+                    </>
+                  )}
+                  <Globe2 size={16} />
+                </span>
+              </div>
+              <strong title={value ?? undefined}>{display(value)}</strong>
+              {index > 0 && <span className={classes.aonTag}>АОН</span>}
+            </div>
           </div>
         ))}
         <div className={classes.number}>
-          <strong>Происшествие {card.card_number}</strong>
+          <strong title={card.card_number}>Происшествие {shortNumber}</strong>
+          <span className={classes.signalMark} aria-hidden="true" />
           <span>
             Сохр.{" "}
             {Number.isNaN(savedAt.getTime())
               ? "—"
               : savedAtFormatter.format(savedAt)}
           </span>
-          <small>{operatorName ? `Опер. ${operatorName}, ` : ""}АРМ 000</small>
+          <small>
+            Опер. {summary?.operator ?? operatorName ?? "—"}, АРМ{" "}
+            {summary?.workstation ?? "—"}
+          </small>
         </div>
         <div className={classes.viewActions}>
           <span className={classes.activeView}>Просмотр</span>
-          {onEdit && (
-            <Button variant="default" onClick={onEdit}>
-              Дополнение
-            </Button>
-          )}
+          <Button variant="default" onClick={onEdit} disabled={!onEdit}>
+            Дополнение
+          </Button>
         </div>
       </header>
 
@@ -114,42 +179,69 @@ export function ProcessedCardView({
           <section className={classes.applicant} aria-label="Заявитель">
             <strong>{display(card.applicant_full_name)}</strong>
           </section>
+          <section className={classes.subscriber} aria-label="Данные абонента">
+            <span>Данные абонента</span>
+            <p>
+              {Number.isNaN(savedAt.getTime())
+                ? "—"
+                : savedAtFormatter.format(savedAt)}
+            </p>
+            <p>Заявитель: {display(card.applicant_full_name)}</p>
+            {card.reported_address && (
+              <p>Адрес со слов заявителя: {card.reported_address}</p>
+            )}
+          </section>
           <section className={classes.address} aria-label="Адрес происшествия">
             <strong>
               {display(card.incident_address ?? card.reported_address)}
             </strong>
+            <MapPin size={18} aria-hidden="true" />
           </section>
           <section
             className={classes.notes}
             aria-label="Дополнительные сведения"
           >
-            {card.questionnaire?.answers && <p>{card.questionnaire.answers}</p>}
+            <p>{display(card.description)}</p>
+            {card.questionnaire?.questions && (
+              <p>Вопросы: {card.questionnaire.questions}</p>
+            )}
+            {card.questionnaire?.answers && (
+              <p>Ответы: {card.questionnaire.answers}</p>
+            )}
           </section>
         </div>
         <div className={classes.rightColumn}>
-          <div className={classes.summary}>
-            <span>
-              Пострадавшие:{" "}
-              {card.victims_count === null
-                ? flags.casualties
-                  ? "да"
-                  : "нет"
-                : card.victims_count || "нет"}
-            </span>
-            <span>Отказ от скорой: —</span>
-            <span>Заблокированные: {flags.noAccess ? "да" : "нет"}</span>
+          <div className={classes.summaryRow}>
+            <div className={classes.summary}>
+              <span>
+                Пострадавшие:{" "}
+                {card.victims_count === null
+                  ? flags.casualties
+                    ? "да"
+                    : "нет"
+                  : card.victims_count || "нет"}
+              </span>
+              <span>Отказ от скорой: —</span>
+              <span>Заблокированные: {flags.noAccess ? "да" : "нет"}</span>
+            </div>
+            <div className={classes.summaryActions} aria-hidden="true">
+              <span className={classes.flagBadge}>
+                ЧС <Zap size={16} fill="currentColor" />
+              </span>
+              <span className={classes.flagBadge}>
+                ЧП
+                <span className={classes.warningIcon}>
+                  <TriangleAlert size={18} fill="#30383e" stroke="#30383e" />
+                  <b>!</b>
+                </span>
+              </span>
+              <span>
+                <Printer size={16} />
+              </span>
+            </div>
           </div>
-          <section className={classes.incident}>
-            <h2>Происшествие {card.card_number}</h2>
-            <p>{display(card.description)}</p>
-          </section>
           <div className={classes.classification}>
-            Класс:{" "}
-            <strong>
-              {display(
-                record?.group ?? card.classification?.final_incident_type,
-              )}
-            </strong>
+            Класс: <strong>{display(classificationLabel)}</strong>
           </div>
           <div className={classes.classification}>
             [ВИС] Класс: {display(record?.externalName)}
@@ -158,40 +250,89 @@ export function ProcessedCardView({
       </div>
 
       <footer className={classes.footer}>
-        <div className={classes.services}>
+        <div className={classes.serviceArea}>
           <span className={classes.servicesLabel}>Службы:</span>
-          {services.length ? (
-            services.map((service) => (
-              <div className={classes.service} key={service.id}>
-                <strong>
-                  {serviceNames.get(service.service_id) ?? "Служба"}
-                </strong>
-                <small>
-                  {statusLabels[service.current_status] ??
-                    service.current_status}
-                </small>
-              </div>
-            ))
-          ) : (
-            <span className={classes.noServices}>Не добавлены</span>
+          <div className={classes.services} aria-live="polite">
+            {services.length ? (
+              (expandedServices ? services : services.slice(0, 8)).map(
+                (service) => {
+                  const name = serviceNames.get(service.service_id) ?? "Служба";
+                  const addedAt = new Date(service.added_at);
+                  const time = Number.isNaN(addedAt.getTime())
+                    ? ""
+                    : addedAt.toLocaleTimeString("ru-RU", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      });
+                  const status =
+                    statusLabels[service.current_status] ??
+                    service.current_status;
+                  return (
+                    <Tooltip key={service.id} label={name} multiline maw={320}>
+                      <div className={classes.service}>
+                        <span
+                          className={classes.serviceIcons}
+                          aria-hidden="true"
+                        >
+                          <PhoneCall size={16} />
+                          <ChevronUp size={16} />
+                        </span>
+                        <strong>{name}</strong>
+                        <small title={`${time} ${status}`.trim()}>
+                          {time && `${time} · `}
+                          {status}
+                        </small>
+                      </div>
+                    </Tooltip>
+                  );
+                },
+              )
+            ) : (
+              <span className={classes.noServices}>Не добавлены</span>
+            )}
+          </div>
+          {services.length > 8 && (
+            <button
+              type="button"
+              className={classes.serviceToggle}
+              aria-label={
+                expandedServices ? "Свернуть службы" : "Показать все службы"
+              }
+              aria-expanded={expandedServices}
+              onClick={() => setExpandedServices((value) => !value)}
+            >
+              <ChevronsUpDown size={22} />
+            </button>
           )}
         </div>
         <div className={classes.footerActions}>
           <span className={classes.status}>
-            <Check size={18} aria-hidden="true" />
             {card.current_status === "PROCESSED"
               ? "отработана"
               : (statusLabels[card.current_status] ?? card.current_status)}
           </span>
-          {onEdit && (
-            <button
-              type="button"
-              onClick={onEdit}
-              aria-label="Дополнить карточку"
-            >
-              <FileText size={22} />
-            </button>
-          )}
+          <span className={classes.footerIcon} data-map aria-hidden="true">
+            <MapPin size={22} />
+          </span>
+          <span
+            className={`${classes.footerIcon} ${classes.linkIcon}`}
+            aria-hidden="true"
+          >
+            <Link2 size={22} />
+            <Plus size={12} />
+          </span>
+          <span className={classes.footerIcon} aria-hidden="true">
+            <Timer size={22} />
+          </span>
+          <span className={classes.footerIcon} aria-hidden="true">
+            <Hand size={22} />
+          </span>
+          <span className={classes.footerIcon} aria-hidden="true">
+            <Bell size={22} />
+          </span>
+          <span className={classes.footerIcon} aria-hidden="true">
+            <MessageSquareWarning size={22} />
+          </span>
           <button type="button" onClick={onClose} aria-label="Закрыть карточку">
             <X size={24} />
           </button>
