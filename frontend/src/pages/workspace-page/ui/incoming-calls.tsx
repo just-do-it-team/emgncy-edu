@@ -99,7 +99,7 @@ export function IncomingCalls({
   onBusyChange: (busy: boolean) => void;
   onDraftChange: (draft: OperatorCardEntry | null) => void;
   onCardOpenChange: (open: boolean) => void;
-  onCardCreated: (cardId: string) => void;
+  onCardCreated: () => void;
   openCardRequest: number;
 }) {
   const queryClient = useQueryClient();
@@ -149,6 +149,9 @@ export function IncomingCalls({
   const linkedActiveCall = calls.data?.find(
     (call) => call.status === "ACTIVE" && !!call.incident_card_id,
   );
+  const allCallsCompleted =
+    !!calls.data?.length &&
+    calls.data.every((call) => call.status === "COMPLETED");
   const currentCall = calls.data?.find((call) => call.id === creatingCallId);
   const callsError = calls.isError
     ? `Не удалось обновить входящие звонки. ${apiError(calls.error)}`
@@ -291,7 +294,7 @@ export function IncomingCalls({
     setRingNotBefore(Date.now() + 5000);
     setError(null);
     await onChanged();
-    onCardCreated(card.id);
+    onCardCreated();
   }
 
   async function completeLinkedCall() {
@@ -379,17 +382,6 @@ export function IncomingCalls({
               finished={callEnded || currentCall.status === "COMPLETED"}
             />
             <div className={classes.callActions}>
-              {callsError && (
-                <Button
-                  size="compact-xs"
-                  variant="subtle"
-                  className={classes.callRetry}
-                  loading={calls.isFetching}
-                  onClick={() => void calls.refetch()}
-                >
-                  Повторить загрузку
-                </Button>
-              )}
               {callAudio.error && !callEnded && (
                 <Button
                   size="compact-xs"
@@ -416,13 +408,14 @@ export function IncomingCalls({
         )}
       {controlTarget &&
         !currentCall &&
-        (callsError || error || (linkedActiveCall && !creatingCallId)) &&
         createPortal(
           <Group
             gap="sm"
             wrap="nowrap"
             className={classes.callControls}
-            data-call-state="error"
+            data-call-state={
+              callsError || error || linkedActiveCall ? "error" : "ended"
+            }
           >
             <div className={classes.callIdentity}>
               <span className={classes.callIcon} aria-hidden="true">
@@ -433,6 +426,16 @@ export function IncomingCalls({
               </div>
             </div>
             <div className={classes.callControlMessage}>
+              <Text size="sm" fw={600} className={classes.callStatus}>
+                <span className={classes.callStatusDot} aria-hidden="true" />
+                {linkedActiveCall
+                  ? "Разговор с заявителем продолжается"
+                  : ringingCall
+                    ? "Поступает входящий звонок"
+                    : allCallsCompleted
+                      ? "Все входящие звонки завершены"
+                      : "Ожидание входящего звонка"}
+              </Text>
               {callsError && (
                 <Text size="xs" className={classes.callError} role="alert">
                   {callsError}
@@ -451,17 +454,6 @@ export function IncomingCalls({
               )}
             </div>
             <div className={classes.callActions}>
-              {callsError && (
-                <Button
-                  size="compact-xs"
-                  variant="subtle"
-                  className={classes.callRetry}
-                  loading={calls.isFetching}
-                  onClick={() => void calls.refetch()}
-                >
-                  Повторить загрузку
-                </Button>
-              )}
               {linkedActiveCall && !creatingCallId && (
                 <Button
                   size="compact-xs"

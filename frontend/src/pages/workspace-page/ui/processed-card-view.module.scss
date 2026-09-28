@@ -2,7 +2,7 @@
   display: flex;
   flex-direction: column;
   min-height: calc(100dvh - 64px);
-  background: #d3dbe0;
+  background: #bcc4ca;
   color: #30383e;
   font-family: Arial, sans-serif;
   font-size: 14px;
@@ -11,7 +11,7 @@
 .topbar {
   display: grid;
   grid-template-columns:
-    minmax(190px, 1.4fr) repeat(3, minmax(150px, 1fr)) minmax(200px, 1fr)
+    minmax(230px, 1.4fr) repeat(3, minmax(150px, 1fr)) minmax(200px, 1fr)
     130px;
   gap: 8px;
   padding: 8px;
@@ -20,14 +20,14 @@
 .topbar > div {
   min-width: 0;
   min-height: 86px;
-  background: #f8f9fa;
+  background: #e7e9eb;
 }
 
 .connection {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
+  align-items: stretch;
+  gap: 8px;
+  background: transparent !important;
 
   > div {
     display: flex;
@@ -46,33 +46,146 @@
     font-size: 11px;
     padding: 4px 8px;
   }
+
+  button:disabled {
+    cursor: default;
+    opacity: 0.65;
+  }
 }
 
-.phone,
+.connectionIcon,
+.connectionBody {
+  display: flex;
+  background: #e7e9eb;
+}
+
+.connectionIcon {
+  flex: 0 0 56px;
+  align-items: center;
+  justify-content: center;
+}
+
+.connectionBody {
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  padding: 8px;
+}
+
+.connectionActions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.phone {
+  position: relative;
+  min-width: 0;
+  padding: 8px 10px 8px 42px;
+}
+
+.phoneRail {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-around;
+  width: 34px;
+  background: #d4dbdf;
+  color: #65727a;
+}
+
+.messageIcon {
+  position: relative;
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+
+  span {
+    position: absolute;
+    top: 7px;
+    left: 5px;
+    color: white;
+    font-size: 10px;
+    letter-spacing: 1px;
+    line-height: 1;
+  }
+}
+
+.phoneContent,
 .number {
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 5px;
+  height: 100%;
+}
+
+.number {
   padding: 8px 12px;
 }
 
-.phone span,
+.phoneHeading,
+.phoneHeadingIcons {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+}
+
+.phoneHeadingIcons {
+  color: #59636b;
+
+  svg:last-child {
+    box-sizing: content-box;
+    padding: 3px;
+    background: #c5cdd2;
+  }
+}
+
+.phoneHeading span,
 .number span,
 .number small {
   color: #59636b;
 }
 
-.phone strong {
+.phoneContent strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 400;
+  padding-right: 42px;
+}
+
+.aonTag {
+  position: absolute;
+  right: 10px;
+  bottom: 13px;
+  padding: 2px 8px;
+  border: 1px solid #aab4b9;
+  color: #59636b;
+  font-size: 11px;
+}
+
+.number {
+  position: relative;
 }
 
 .number strong {
   font-size: 17px;
+  padding-right: 12px;
+}
+
+.signalMark {
+  position: absolute;
+  top: 12px;
+  right: 10px;
+  width: 0;
+  height: 0;
+  border-right: 10px solid #42a557;
+  border-top: 10px solid transparent;
 }
 
 .viewActions {
@@ -105,9 +218,15 @@
   border: 0;
 }
 
+.viewActions :global(.mantine-Button-root:disabled) {
+  background: #30383e;
+  color: white;
+  opacity: 0.7;
+}
+
 .audio {
   margin: 0 8px 8px;
-  background: #f8f9fa;
+  background: #e7e9eb;
 }
 
 .columns {
@@ -128,17 +247,24 @@
 }
 
 .applicant,
+.subscriber,
 .address,
 .notes,
 .summary,
-.incident,
+.summaryActions,
 .classification {
-  background: #f8f9fa;
+  background: #e7e9eb;
+}
+
+.notes {
+  background: #eceeef;
 }
 
 .applicant,
+.subscriber,
 .address,
 .summary,
+.summaryActions,
 .classification {
   padding: 12px;
 }
@@ -148,44 +274,93 @@
   font-size: 17px;
 }
 
+.subscriber {
+  min-height: 110px;
+  line-height: 1.4;
+
+  p {
+    margin: 2px 0 0;
+  }
+}
+
 .address {
-  min-height: 74px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 60px;
   line-height: 1.5;
+
+  svg {
+    flex: 0 0 auto;
+  }
 }
 
 .notes {
-  flex: 1;
-  min-height: 180px;
+  min-height: 300px;
   padding: 12px;
   white-space: pre-wrap;
 }
 
-.notes p,
-.incident p {
+.notes p {
   margin: 0;
+}
+
+.notes p + p {
+  margin-top: 12px;
+}
+
+.summaryRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(220px, 1fr);
+  gap: 8px;
 }
 
 .summary {
   display: flex;
   flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 8px 16px;
+  align-items: center;
+  gap: 8px 12px;
   min-height: 52px;
 }
 
-.incident h2 {
-  margin: 0;
-  padding: 7px 12px;
-  background: #30383e;
-  color: white;
-  font-size: 15px;
-}
+.summaryActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 
-.incident p {
-  padding: 12px;
-  min-height: 64px;
-  white-space: pre-wrap;
-  font-weight: 600;
+  > span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    height: 30px;
+    border: 1px solid #aab4b9;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .flagBadge {
+    gap: 5px;
+    padding: 0 6px;
+  }
+
+  .warningIcon {
+    position: relative;
+    display: inline-flex;
+    width: 18px;
+    height: 18px;
+
+    b {
+      position: absolute;
+      top: 3px;
+      left: 7px;
+      color: white;
+      font-size: 11px;
+      line-height: 1;
+    }
+  }
 }
 
 .classification {
@@ -196,17 +371,27 @@
   position: sticky;
   bottom: 0;
   display: flex;
-  align-items: stretch;
-  min-height: 66px;
-  background: #435158;
+  align-items: flex-end;
+  min-height: 70px;
+  background: #4b5961;
   color: white;
+}
+
+.serviceArea {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: flex-end;
+  min-width: 0;
+  --service-width: clamp(85px, 6vw, 118px);
 }
 
 .services {
   display: flex;
-  flex: 1;
+  flex-wrap: wrap-reverse;
+  flex: 0 1 auto;
+  width: max-content;
+  max-width: calc(8 * var(--service-width));
   min-width: 0;
-  overflow-x: auto;
 }
 
 .servicesLabel,
@@ -219,31 +404,85 @@
   padding: 10px 14px;
 }
 
+.servicesLabel {
+  min-height: 70px;
+}
+
 .service {
-  min-width: 126px;
-  max-width: 210px;
-  gap: 4px;
+  position: relative;
+  flex: 0 0 var(--service-width);
+  width: var(--service-width);
+  min-width: var(--service-width);
+  max-width: var(--service-width);
+  height: 70px;
+  min-height: 70px;
+  max-height: 70px;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 22px 6px 7px;
+  overflow: hidden;
   border-left: 1px solid #819096;
   background: #64747b;
 }
 
+.serviceIcons {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+
+  svg:first-child {
+    position: absolute;
+    left: 8px;
+  }
+}
+
+.service strong,
+.service small {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
 .service strong {
-  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 16px;
 }
 
 .service small {
   font-size: 11px;
+  line-height: 14px;
+}
+
+.serviceToggle {
+  flex: 0 0 44px;
+  height: 44px;
+  margin: 0 4px 13px;
+  border: 1px solid #bbc4c7;
+  background: transparent;
+  color: white;
+  cursor: pointer;
 }
 
 .footerActions {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   gap: 6px;
   padding: 8px;
+  margin-left: auto;
 }
 
 .status,
-.footerActions button {
+.footerActions button,
+.footerIcon {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -260,14 +499,52 @@
   font-weight: 700;
 }
 
-.footerActions button {
+.footerActions button,
+.footerIcon {
   width: 44px;
+  flex: 0 0 44px;
+}
+
+.footerIcon[data-map] {
+  color: #f47d45;
+}
+
+.linkIcon {
+  position: relative;
+
+  svg:last-child {
+    position: absolute;
+    right: 6px;
+    bottom: 7px;
+  }
+}
+
+.footerActions button {
   cursor: pointer;
+}
+
+.footerActions button:disabled {
+  cursor: default;
+  opacity: 0.7;
 }
 
 @media (max-width: 1450px) {
   .topbar {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1300px) {
+  .footer {
+    flex-wrap: wrap;
+  }
+
+  .serviceArea {
+    flex-basis: 100%;
+  }
+
+  .footerActions {
+    justify-content: flex-end;
   }
 }
 
@@ -280,12 +557,15 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .footer {
-    flex-wrap: wrap;
-  }
-
   .footerActions {
     width: 100%;
-    justify-content: flex-end;
+    overflow-x: auto;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 1150px) {
+  .summaryRow {
+    grid-template-columns: 1fr;
   }
 }

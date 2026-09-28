@@ -171,21 +171,27 @@
 }
 
 .header[data-operator] {
-  grid-template-columns: minmax(260px, 1fr) 650px 145px;
+  grid-template-columns: minmax(260px, 1fr) 620px 145px;
   .accountTop {
     height: 105px;
     padding-top: 16px;
   }
   .date {
+    width: max-content;
     font-size: 15px;
+    white-space: nowrap;
   }
   .clock {
     top: 14px;
   }
+  .connection {
+    top: 16px;
+    left: 270px;
+  }
 }
 
 .header[data-dds] {
-  grid-template-columns: minmax(0, 1fr) 430px;
+  grid-template-columns: minmax(0, 1fr) 500px;
   min-height: 127px;
 
   .searchPanel {
@@ -198,6 +204,11 @@
     padding-top: 15px;
   }
 
+  .date {
+    width: max-content;
+    white-space: nowrap;
+  }
+
   .clock {
     top: 5px;
     font-size: 60px;
@@ -206,10 +217,10 @@
 
 .connection {
   position: absolute;
-  left: 300px;
-  top: 18px;
+  left: 10px;
+  top: 73px;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   gap: 6px;
   color: var(--pov-header-muted);
@@ -261,12 +272,7 @@
 }
 @media (max-width: 1350px) {
   .header[data-operator] {
-    grid-template-columns: minmax(260px, 1fr) 500px 130px;
-    .connection {
-      left: 285px;
-      top: 73px;
-      flex-direction: row;
-    }
+    grid-template-columns: minmax(260px, 1fr) 620px 130px;
   }
 }
 @media (max-width: 1050px) {
@@ -296,6 +302,27 @@
 }
 
 @media (max-width: 650px) {
+  .header[data-operator],
+  .header[data-dds] {
+    .accountTop {
+      display: flex;
+      flex-direction: column;
+      height: auto;
+    }
+    .date {
+      width: 100%;
+      font-size: clamp(12px, 3vw, 18px);
+      white-space: nowrap;
+    }
+    .clock {
+      position: static;
+      align-self: flex-end;
+    }
+    .accountActions {
+      margin-top: 8px;
+    }
+  }
+
   .header[data-operator] {
     grid-template-columns: minmax(0, 1fr);
     .accountPanel {
@@ -308,7 +335,8 @@
       grid-row: 3;
     }
     .connection {
-      display: none;
+      position: static;
+      margin-top: 8px;
     }
     .createCard {
       min-height: 42px;
