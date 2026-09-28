@@ -1,4 +1,6 @@
-export { fetchTeacherSessions } from "./api/monitoring-api";
+export { fetchSessionActions, fetchTeacherSessions } from "./api/monitoring-api";
+export type { AbortSessionRequest } from "./api/monitoring-api";
+export { useAbortSession } from "./api/use-abort-session";
 export { monitoringKeys } from "./api/monitoring.keys";
 export type { SessionStatusFilter } from "./api/monitoring.keys";
 export { useTeacherSessions } from "./api/use-teacher-sessions";

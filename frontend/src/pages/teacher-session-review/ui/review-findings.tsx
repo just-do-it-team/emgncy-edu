@@ -1,4 +1,4 @@
-import { Anchor, Skeleton } from "@mantine/core";
+import { Anchor, Checkbox, Skeleton } from "@mantine/core";
 import {
   buildReviewBreakdown,
   discrepancyLabel,
@@ -76,6 +76,11 @@ function CompareValue({
   );
 }
 
+export interface FindingDismissal {
+  isDismissed: (path: string) => boolean;
+  onChange: (path: string, dismissed: boolean) => void;
+}
+
 interface FindingRowProps {
   finding: ReviewFinding | ReviewNote;
   significance: Significance | null;
@@ -83,6 +88,7 @@ interface FindingRowProps {
   services: Map<string, EmergencyService> | undefined;
   locate: (path: string) => StreamItem | null;
   onLocate: (item: StreamItem) => void;
+  dismissal: FindingDismissal | null;
 }
 
 function FindingRow({
@@ -92,6 +98,7 @@ function FindingRow({
   services,
   locate,
   onLocate,
+  dismissal,
 }: FindingRowProps) {
   const target = locate(finding.path);
   const marker = significance ?? "low";
@@ -141,13 +148,28 @@ function FindingRow({
     </>
   );
   const className = `${classes.finding} ${significance ? findingClass[significance] : ""}`;
-
-  return target ? (
+  const row = target ? (
     <button type="button" className={className} onClick={() => onLocate(target)}>
       {content}
     </button>
   ) : (
     <div className={className}>{content}</div>
+  );
+
+  if (dismissal === null) return row;
+
+  return (
+    <div className={classes.findingGroup}>
+      {row}
+      <div className={classes.findingDismiss}>
+        <Checkbox
+          size="xs"
+          label="Не считаю ошибкой"
+          checked={dismissal.isDismissed(finding.path)}
+          onChange={(event) => dismissal.onChange(finding.path, event.currentTarget.checked)}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -159,6 +181,7 @@ interface ReviewFindingsProps {
   onLocate: (item: StreamItem) => void;
   scopeNote: string | null;
   limitedNote: string | null;
+  dismissal: FindingDismissal | null;
 }
 
 export function ReviewFindings({
@@ -169,6 +192,7 @@ export function ReviewFindings({
   onLocate,
   scopeNote,
   limitedNote,
+  dismissal,
 }: ReviewFindingsProps) {
   if (limitedNote) {
     return (
@@ -226,7 +250,7 @@ export function ReviewFindings({
       : [],
   );
   const unassigned = [...breakdown.outsideRole, ...breakdown.unclassified];
-  const rowProps = { services, locate, onLocate };
+  const rowProps = { services, locate, onLocate, dismissal };
 
   return (
     <>
@@ -277,7 +301,7 @@ export function ReviewFindings({
 
       <SectionBar title="Сведения" hint="не ошибки" />
       {breakdown.notes.length === 0 ? (
-        <div className={classes.note}>Расхождений в адресе происшествия и АОН нет.</div>
+        <div className={classes.note}>Расхождений в адресе происшествия, АОН и описании нет.</div>
       ) : (
         breakdown.notes.map((note, index) => (
           <FindingRow
@@ -290,7 +314,7 @@ export function ReviewFindings({
         ))
       )}
 
-      <SectionBar title="Комментарии" hint="сравнение буквальное" />
+      <SectionBar title="Комментарии" hint="не оцениваются" />
       <div className={classes.note}>{reviewNotices.literalComments}</div>
       {breakdown.literalComments.length === 0 ? (
         <div className={classes.note}>Расхождений в комментариях нет.</div>

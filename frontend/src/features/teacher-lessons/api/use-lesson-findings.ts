@@ -1,6 +1,7 @@
 import { useQueries } from "@tanstack/react-query";
 import { expertReviewContextQuery } from "@/entities/expert-review";
 import { COMPLETED_SESSION_STATUS } from "@/entities/monitoring";
+import type { ExpertAssessment } from "@/shared/api";
 import type { Lesson } from "../model/build-lessons";
 import { summarizeFindings, type AnalyzedAttempt, type LessonFindingsSummary } from "../model/lesson-summary";
 
@@ -9,6 +10,7 @@ export interface LessonFindingsState {
   pending: number;
   failed: number;
   summary: LessonFindingsSummary;
+  assessments: Map<string, ExpertAssessment>;
   retryFailed: () => void;
 }
 
@@ -29,6 +31,11 @@ export function useLessonFindings(lesson: Lesson, teacherId: string): LessonFind
     pending: results.filter((result) => result.isPending).length,
     failed: results.filter((result) => result.isError).length,
     summary: summarizeFindings(analyzed),
+    assessments: new Map(
+      analyzed.flatMap(({ session, context }) =>
+        context.session.expertAssessment === null ? [] : [[session.sessionId, context.session.expertAssessment] as const],
+      ),
+    ),
     retryFailed: () =>
       results.filter((result) => result.isError).forEach((result) => void result.refetch()),
   };

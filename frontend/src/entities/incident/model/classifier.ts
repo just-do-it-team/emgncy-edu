@@ -31,6 +31,7 @@ export interface ClassifierRecord {
   additional: string | null;
   name: string;
   externalName: string | null;
+  primaryService: string | null;
   routes: [number, string][];
 }
 
@@ -44,6 +45,7 @@ export const classifierRecords: ClassifierRecord[] = reference.records
     additional: row[9],
     name: row[10],
     externalName: row[11],
+    primaryService: row[13]?.trim() || null,
     routes: row[14],
   }));
 

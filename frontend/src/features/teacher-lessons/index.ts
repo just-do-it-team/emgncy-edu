@@ -1,8 +1,8 @@
 export { useTeacherLessons } from "./api/use-teacher-lessons";
 export type { TeacherLessonsState } from "./api/use-teacher-lessons";
-export { compareByNearestDue, lessonStatusLabels, lessonStatusOrder } from "./model/build-lessons";
+export { buildLessons, compareByNearestDue, lessonStatusLabels, lessonStatusOrder } from "./model/build-lessons";
 export type { Lesson, LessonAverage, LessonStatus } from "./model/build-lessons";
-export { cardsPhrase, completedAttemptsPhrase, participantsPhrase } from "./model/plurals";
+export { completedAttemptsPhrase, participantsPhrase } from "./model/plurals";
 export { useLessonFindings } from "./api/use-lesson-findings";
 export type { LessonFindingsState } from "./api/use-lesson-findings";
 export { downloadLessonReport } from "./model/lesson-report";
@@ -22,3 +22,6 @@ export type {
   ScoreDistribution,
 } from "./model/lesson-summary";
 export { AssignedCell, WindowCell } from "./ui/schedule-cells";
+export { useGenerateLessonReview } from "./api/use-lesson-ai-review";
+export { algorithmicLessonReview, lessonReviewRequest } from "./model/lesson-ai-review";
+export type { LessonAiReview, StudentNote, TypicalError } from "./model/lesson-ai-review";

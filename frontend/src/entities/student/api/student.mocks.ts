@@ -29,6 +29,20 @@ export const studentsMock: TeacherStudentDto[] = [
     is_blocked: false,
     groups: [{ id: "8e0a2c4e-6b8d-4f1a-9c3e-5a7c9e1b3d52", name: "ДДС-2026-03" }],
   },
+  {
+    id: "8b0d2f4a-6c8e-4a1b-9d3f-5a7c9e1b3d64",
+    username: "m.guseva",
+    display_name: "Гусева Марина Олеговна",
+    is_blocked: false,
+    groups: [{ id: "2b7e9c41-5a3d-4f86-9e1b-7c4a2d8f6e03", name: "УМЦ-112, группа 4" }],
+  },
+  {
+    id: "9c1e3a5b-7d9f-4b2c-8e4a-6b8d0f2a4c75",
+    username: "i.zakharov",
+    display_name: "Захаров Илья Петрович",
+    is_blocked: false,
+    groups: [{ id: "2b7e9c41-5a3d-4f86-9e1b-7c4a2d8f6e03", name: "УМЦ-112, группа 4" }],
+  },
 ];
 
 export const trainingHistoryMock: Record<string, StudentTrainingHistoryItemDto[]> = {

@@ -1,0 +1,49 @@
+.section {
+  border-top: 1px solid var(--mantine-color-povLine-6);
+  padding-top: var(--mantine-spacing-sm);
+}
+
+.knowledge {
+  border-left: 3px solid var(--mantine-color-povBlue-6);
+  padding-left: var(--mantine-spacing-sm);
+}
+
+.hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.addressLine {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.preview {
+  background: var(--pov-card-bg);
+  color: var(--pov-card-text);
+}
+
+.previewBar {
+  background: var(--pov-card-bar);
+  color: var(--pov-journal-text);
+  padding: 6px 12px;
+  font-weight: 500;
+}
+
+.previewBody {
+  padding: 12px;
+}
+
+.previewLabel {
+  color: var(--pov-card-label);
+}
+
+.previewMain {
+  text-decoration: underline double;
+}
+
+.hint:focus-visible {
+  outline: 2px solid var(--mantine-color-povDark-6);
+  outline-offset: 2px;
+}

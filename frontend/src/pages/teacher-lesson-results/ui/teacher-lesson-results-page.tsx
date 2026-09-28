@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Alert, Group, Paper, Skeleton, Stack, Text, Title, Tooltip, useMantineTheme } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import type { UseQueryResult } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useEmergencyServices } from "@/entities/emergency-service";
 import { useTeacherSessions } from "@/entities/monitoring";
 import { useSessionStore } from "@/entities/session";
@@ -15,24 +15,35 @@ import {
   participantsPhrase,
   participantsWithoutAttempts,
   scoreDistribution,
+  useGenerateLessonReview,
   useLessonFindings,
   useTeacherLessons,
   type Lesson,
+  type LessonAiReview,
   type LessonFindingsState,
   type ReportPalette,
   type ScoreDistribution,
 } from "@/features/teacher-lessons";
 import type { EmergencyService, MonitoredSession } from "@/shared/api";
-import { ACK_TIMEOUT_SECONDS, CARD_FILL_NORM_SECONDS } from "@/shared/config";
+import { MONITOR_SOON_MINUTES, REACTION_NORMS_TEXT } from "@/shared/config";
 import { formatDayMonthTime } from "@/shared/lib";
-import { Button, ScoreBlock, tooltipEvents } from "@/shared/ui";
+import { Button, Fact, ScoreBlock, tooltipEvents } from "@/shared/ui";
 import { TeacherAttemptsTable } from "@/widgets/teacher-attempts-table";
-import { Fact } from "./fact";
+import { LessonAiReviewBlock } from "./lesson-ai-review";
 import { LessonFindings } from "./lesson-findings";
 import { LessonParticipants } from "./lesson-participants";
 import { LessonScenario } from "./lesson-scenario";
+import { LessonScheduleActions } from "./lesson-schedule-actions";
 
 const scoreFormatter = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 });
+const MINUTE_MS = 60 * 1000;
+
+function monitorAvailable(lesson: Lesson, now: number): boolean {
+  if (lesson.status === "RUNNING") return true;
+  if (lesson.status !== "PLANNED") return false;
+
+  return lesson.availableFrom === null || Date.parse(lesson.availableFrom) - now <= MONITOR_SOON_MINUTES * MINUTE_MS;
+}
 
 function LessonScore({ lesson, distribution }: { lesson: Lesson; distribution: ScoreDistribution | null }) {
   if (lesson.average === null) {
@@ -86,9 +97,10 @@ interface ReportButtonProps {
   lesson: Lesson;
   findings: LessonFindingsState;
   services: Map<string, EmergencyService> | undefined;
+  aiReview: LessonAiReview | null;
 }
 
-function ReportButton({ lesson, findings, services }: ReportButtonProps) {
+function ReportButton({ lesson, findings, services, aiReview }: ReportButtonProps) {
   const theme = useMantineTheme();
   const [generating, setGenerating] = useState(false);
   const blockReason = exportBlockReason(lesson, findings);
@@ -110,6 +122,8 @@ function ReportButton({ lesson, findings, services }: ReportButtonProps) {
           findings: findings.summary,
           findingsTotal: findings.total,
           services,
+          aiReview,
+          assessments: findings.assessments,
           generatedAt: new Date(),
         },
         palette,
@@ -153,6 +167,7 @@ interface LessonDetailsProps {
 
 function LessonDetails({ lesson, teacherId, sessions }: LessonDetailsProps) {
   const findings = useLessonFindings(lesson, teacherId);
+  const aiGeneration = useGenerateLessonReview();
   const assignmentsById = new Map(lesson.assignments.map((item) => [item.id, item]));
   const services = useEmergencyServices();
   const students = useStudentNames(teacherId);
@@ -176,12 +191,25 @@ function LessonDetails({ lesson, teacherId, sessions }: LessonDetailsProps) {
             </Text>
             <Text size="xs" c="povDark2.6">
               {lesson.availableFrom ? formatDayMonthTime(lesson.availableFrom) : "—"}
-              {lesson.dueAt ? ` — ${formatDayMonthTime(lesson.dueAt)}` : ""} · норматив
-              обработки {CARD_FILL_NORM_SECONDS} с, подтверждения {ACK_TIMEOUT_SECONDS} с
+              {lesson.dueAt ? ` — ${formatDayMonthTime(lesson.dueAt)}` : ""} · нормативы
+              реакции: {REACTION_NORMS_TEXT}
             </Text>
+            {lesson.passingScore !== null && (
+              <Text size="xs" c="povDark2.6">
+                Зачёт — средний балл не ниже {scoreFormatter.format(lesson.passingScore)} из 100
+              </Text>
+            )}
           </Stack>
 
-          <ReportButton lesson={lesson} findings={findings} services={services.data} />
+          <Group gap="xs">
+            {monitorAvailable(lesson, Date.now()) && (
+              <Button size="xs" component={Link} to={`/teacher/monitor/${lesson.id}`}>
+                Монитор
+              </Button>
+            )}
+            <LessonScheduleActions lesson={lesson} />
+            <ReportButton lesson={lesson} findings={findings} services={services.data} aiReview={aiGeneration.data ?? null} />
+          </Group>
         </Group>
       </Paper>
 
@@ -198,6 +226,14 @@ function LessonDetails({ lesson, teacherId, sessions }: LessonDetailsProps) {
         services={services.data}
       />
 
+      <LessonAiReviewBlock
+        lesson={lesson}
+        teacherId={teacherId}
+        findings={findings}
+        services={services.data}
+        generation={aiGeneration}
+      />
+
       <Stack gap="sm">
         <Title order={3} size="h5" fw={600}>
           Попытки занятия
@@ -205,6 +241,7 @@ function LessonDetails({ lesson, teacherId, sessions }: LessonDetailsProps) {
         <TeacherAttemptsTable
           query={sessions}
           sessions={lesson.attempts}
+          assessments={findings.assessments}
           assignments={assignmentsById}
           queryPrefix="attempts"
           showGroup={false}

@@ -1,5 +1,10 @@
-export { fetchAssignments } from "./api/assignment-api";
+export { createGroupAssignment, fetchAssignments } from "./api/assignment-api";
 export { assignmentKeys } from "./api/assignment.keys";
 export type { AssignmentFilters } from "./api/assignment.keys";
-export { assignmentsQuery, useAssignments } from "./api/use-assignments";
+export { useAssignments, useCancelLesson, useRescheduleLesson } from "./api/use-assignments";
 export { launchPolicyLabels, participantStatusLabels } from "./model/labels";
+export { ASSIGNMENT_WINDOW_DAYS, assignmentWindow, assignmentWindowProblem } from "./model/assignment-window";
+export type { AssignmentWindow } from "./model/assignment-window";
+export { ScheduleFields } from "./ui/schedule-fields";
+export { scheduleBody, scheduleChangeBlock, scheduleTarget } from "./model/lesson-schedule";
+export type { ScheduleTarget, ScheduleValue } from "./model/lesson-schedule";

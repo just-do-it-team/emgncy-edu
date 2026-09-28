@@ -160,30 +160,6 @@
   background: var(--mantine-color-povOrange2-6);
 }
 
-.normLine {
-  position: absolute;
-  top: 12px;
-  width: 1px;
-  height: 39px;
-  background: var(--mantine-color-povDark2-6);
-}
-
-.normLabel {
-  position: absolute;
-  top: 0;
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--mantine-color-povDark2-6);
-  white-space: nowrap;
-  transform: translateX(3px);
-}
-
-.labelEnd {
-  transform: translateX(calc(-100% - 3px));
-}
-
 .rulerLabel {
   position: absolute;
   top: 52px;
@@ -494,4 +470,23 @@ button.finding:focus-visible {
   font-size: 12px;
   line-height: 16px;
   color: var(--mantine-color-povDark2-6);
+}
+
+.tooltipLines {
+  white-space: pre-line;
+}
+
+.focusable:focus-visible {
+  outline: 2px solid var(--mantine-color-povDark-6);
+  outline-offset: 2px;
+}
+
+.findingDismiss {
+  padding: 4px 10px 8px 13px;
+  border-bottom: 1px solid var(--mantine-color-povLine-6);
+  background: var(--mantine-color-white);
+}
+
+.findingGroup .finding {
+  border-bottom: 0;
 }

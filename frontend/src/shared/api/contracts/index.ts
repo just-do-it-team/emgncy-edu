@@ -22,7 +22,6 @@ export type {
 } from "./training-actions";
 export {
   toExpertReviewContext,
-  toLimitedReviewContext,
   toReviewAssignment,
   toReviewSession,
 } from "./expert-review";
@@ -42,9 +41,7 @@ export type {
   ExpertReviewCardDto,
   ExpertReviewContext,
   ExpertReviewContextDto,
-  LimitedReviewSources,
-  ScheduledCardDto,
-  SessionTrainingCallDto,
+  ExpertReviewOutgoingCallDto,
   ExpertReviewUtteranceDto,
   ParticipantRole,
   ReviewAssignment,
@@ -74,12 +71,22 @@ export type {
   TeacherMonitoringParticipantDto,
   TeacherMonitoringSessionDto,
 } from "./teacher-monitoring";
-export { toScenarioDetail, toScenarioListItem } from "./training-scenarios";
+export {
+  DEFAULT_PASSING_SCORE,
+  definitionTemplateIds,
+  toScenarioCopy,
+  toScenarioDetail,
+  toScenarioListItem,
+} from "./training-scenarios";
 export type {
   OperatorClassificationDto,
+  ParticipantPosition,
   ProceduralGeneration,
+  ScenarioCardDefinitionDto,
   ScenarioClassification,
   ScenarioCompletionPolicy,
+  ScenarioComposition,
+  ScenarioDefinitionDto,
   ScenarioDetail,
   ScenarioItem,
   ScenarioItemDetailDto,
@@ -87,17 +94,45 @@ export type {
   ScenarioListItem,
   ScenarioMode,
   ScenarioService,
+  ScenarioSourceType,
   ScenarioServiceDetailDto,
   ScenarioStatus,
   ScenarioTrigger,
+  ScenarioTriggerDto,
   ScenarioWorkspaceMode,
+  TrainingScenarioCreateDto,
+  TrainingScenarioUpdateDto,
   TrainingScenarioDetailDto,
   TrainingScenarioDto,
 } from "./training-scenarios";
+export type {
+  LessonReviewDto,
+  LessonReviewRequestDto,
+  LessonReviewStudentNoteDto,
+  LessonReviewTypicalErrorDto,
+} from "./lesson-review";
+export type {
+  GeneratedScenarioDto,
+  ScenarioGenerationDto,
+  ScenarioGenerationRequestDto,
+} from "./scenario-generation";
 export { toTeacherAssignment } from "./assignments";
 export type {
+  AssignmentBatchDto,
   AssignmentParticipantStatus,
+  GroupAssignmentCreateDto,
   LaunchPolicy,
   TeacherAssignment,
   TeacherAssignmentParticipant,
 } from "./assignments";
+export { cardVariantOf, toCardTemplate, toIncomingCallTemplate } from "./scenario-templates";
+export type {
+  CardTemplateCreateDto,
+  CardTemplateDto,
+  IncomingCallTemplateCreateDto,
+  IncomingCallTemplateDto,
+  ScenarioTemplate,
+  ScenarioTemplateKind,
+  TemplateCreateRequest,
+  TemplateVariant,
+} from "./scenario-templates";

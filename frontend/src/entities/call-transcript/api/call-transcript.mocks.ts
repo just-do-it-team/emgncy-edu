@@ -89,7 +89,7 @@ export const callTranscriptMock: CallTranscriptDto = {
     {
       id: "29fbef05-adcf-4ce0-9e9a-1b3c5d7f9a08",
       speaker: "OPERATOR",
-      input_mode: "TEXT",
+      input_mode: "VOICE",
       sequence_no: 9,
       created_at: "2026-09-22T10:14:54.800+03:00",
       duration_ms: 3200,

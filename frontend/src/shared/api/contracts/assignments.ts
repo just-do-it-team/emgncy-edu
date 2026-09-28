@@ -1,3 +1,4 @@
+import { decimal } from "./decimal";
 import type { ParticipantRole, ScenarioAssignmentDto } from "./expert-review";
 
 export type LaunchPolicy = "STUDENT_SELF_START" | "TEACHER_START" | "ALL_PARTICIPANTS_READY" | "SCHEDULED_START";
@@ -16,6 +17,9 @@ export interface TeacherAssignmentParticipant {
 export interface TeacherAssignment {
   id: string;
   batchId: string | null;
+  groupId: string | null;
+  groupName: string | null;
+  passingScore: number | null;
   scenarioId: string;
   scenarioName: string;
   scenarioRevision: number;
@@ -33,6 +37,9 @@ export function toTeacherAssignment(dto: ScenarioAssignmentDto): TeacherAssignme
   return {
     id: dto.id,
     batchId: dto.assignment_batch_id,
+    groupId: dto.group_id,
+    groupName: dto.group_name,
+    passingScore: decimal(dto.passing_score),
     scenarioId: dto.scenario_id,
     scenarioName: dto.scenario_name,
     scenarioRevision: dto.scenario_revision,
@@ -52,4 +59,30 @@ export function toTeacherAssignment(dto: ScenarioAssignmentDto): TeacherAssignme
       completedAt: participant.completed_at,
     })),
   };
+}
+
+export interface GroupAssignmentCreateDto {
+  scenario_id: string;
+  assigned_by: string;
+  participant_ids: string[];
+  participant_positions: Record<string, string | null>;
+  incoming_call_operators: Record<string, string>;
+  launch_policy: LaunchPolicy;
+  max_attempts: number;
+  available_from: string | null;
+  due_at: string | null;
+}
+
+export interface AssignmentBatchDto {
+  id: string;
+  group_id: string;
+  scenario_id: string;
+  assigned_by: string;
+  launch_policy: LaunchPolicy;
+  max_attempts: number;
+  available_from: string | null;
+  due_at: string | null;
+  created_at: string;
+  participant_ids: string[];
+  assignments: ScenarioAssignmentDto[];
 }

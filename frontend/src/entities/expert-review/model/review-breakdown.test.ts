@@ -191,15 +191,22 @@ describe("buildReviewBreakdown: значимость", () => {
     assert.equal(review.findings[0]?.significance, "medium");
   });
 
-  it("низкая — описание отличается только регистром, пробелами и пунктуацией", () => {
+  it("описание из старой попытки — сведение с объяснением, что сервер его больше не оценивает", () => {
+    const { criteria, notes } = buildReviewBreakdown(
+      [discrepancy("card.description", "Задымление в квартире на 7 этаже.", "Дым в квартире.")],
+      "OPERATOR_112",
+    );
+    const review = criterion(criteria, "C3");
+
+    assert.ok(review.applicable);
+    assert.equal(review.findings.length, 0);
+    assert.equal(notes[0]?.path, "card.description");
+    assert.match(notes[0]?.explanation ?? "", /не оценивает описание/);
+  });
+
+  it("низкая — ФИО отличается только регистром, пробелами и пунктуацией", () => {
     const { criteria } = buildReviewBreakdown(
-      [
-        discrepancy(
-          "card.description",
-          "Задымление в квартире на 7 этаже, дым из-под двери.",
-          "задымление в квартире  на 7 этаже дым из-под двери",
-        ),
-      ],
+      [discrepancy("card.applicant_full_name", "Ким Олег Юрьевич", "ким  олег юрьевич.")],
       "OPERATOR_112",
     );
     const review = criterion(criteria, "C3");

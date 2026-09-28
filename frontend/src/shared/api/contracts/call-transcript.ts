@@ -1,6 +1,6 @@
 export type CallSpeaker = "OPERATOR" | "CALLER" | "RESPONSE_LEAD";
 
-export type CallInputMode = "VOICE" | "TEXT" | "GENERATED";
+export type CallInputMode = "VOICE" | "GENERATED";
 
 export interface CallUtteranceDto {
   id: string;

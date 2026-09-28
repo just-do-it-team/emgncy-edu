@@ -1,13 +1,18 @@
-const offByDefault = (value: string | undefined) => value === "true";
+const enabled = (value: string | undefined) => value === "true";
+
+const demo = enabled(import.meta.env.VITE_DEMO);
+
+const mockedInDemo = (value: string | undefined) => demo || enabled(value);
 
 export const mocks = {
-  assignments: offByDefault(import.meta.env.VITE_MOCK_ASSIGNMENTS),
-  callTranscript: offByDefault(import.meta.env.VITE_MOCK_CALL_TRANSCRIPT),
-  cardTimeline: offByDefault(import.meta.env.VITE_MOCK_CARD_TIMELINE),
-  expertReview: offByDefault(import.meta.env.VITE_MOCK_EXPERT_REVIEW),
-  groups: offByDefault(import.meta.env.VITE_MOCK_GROUPS),
-  monitoring: offByDefault(import.meta.env.VITE_MOCK_MONITORING),
-  scenarios: offByDefault(import.meta.env.VITE_MOCK_SCENARIOS),
-  services: offByDefault(import.meta.env.VITE_MOCK_SERVICES),
-  students: offByDefault(import.meta.env.VITE_MOCK_STUDENTS),
+  ai: mockedInDemo(import.meta.env.VITE_MOCK_AI),
+  assignments: mockedInDemo(import.meta.env.VITE_MOCK_ASSIGNMENTS),
+  callTranscript: mockedInDemo(import.meta.env.VITE_MOCK_CALL_TRANSCRIPT),
+  cardTimeline: mockedInDemo(import.meta.env.VITE_MOCK_CARD_TIMELINE),
+  expertReview: mockedInDemo(import.meta.env.VITE_MOCK_EXPERT_REVIEW),
+  groups: mockedInDemo(import.meta.env.VITE_MOCK_GROUPS),
+  monitoring: mockedInDemo(import.meta.env.VITE_MOCK_MONITORING),
+  scenarios: mockedInDemo(import.meta.env.VITE_MOCK_SCENARIOS),
+  services: mockedInDemo(import.meta.env.VITE_MOCK_SERVICES),
+  students: mockedInDemo(import.meta.env.VITE_MOCK_STUDENTS),
 } as const;
