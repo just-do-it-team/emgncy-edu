@@ -11,6 +11,7 @@ from s112.api.common.dependencies import (
     record_rejected_card_action,
     record_rejected_service_action,
 )
+from s112.api.identity import with_optional_acting_user
 from s112.api.dependencies import get_read_session, get_write_session
 from s112.api.schemas import (
     CardCreate,
@@ -44,13 +45,6 @@ from s112.domain.models import (
 
 
 router = APIRouter(prefix="/api/v1", tags=["common/cards"])
-
-
-def _assert_actor_identity(http_request: Request, actor_id: uuid.UUID | None) -> None:
-    if http_request.app.state.auth_settings.enabled:
-        principal = getattr(http_request.state, "principal", None)
-        if principal is None or principal.user_id != actor_id:
-            raise HTTPException(status_code=403, detail="Actor does not match token")
 
 
 async def _assert_card_read_access(
@@ -94,7 +88,7 @@ async def create_card(
     session: AsyncSession = Depends(get_write_session),
     service: CardApplicationService = Depends(application_service),
 ) -> IncidentCard:
-    _assert_actor_identity(http_request, request.operator_id)
+    request = with_optional_acting_user(http_request, request, "operator_id")
     try:
         async with session.begin():
             card = await service.create_card(session, request)
@@ -247,7 +241,7 @@ async def update_card(
     session: AsyncSession = Depends(get_write_session),
     service: CardApplicationService = Depends(application_service),
 ) -> IncidentCard:
-    _assert_actor_identity(http_request, request.actor_id)
+    request = with_optional_acting_user(http_request, request, "actor_id")
     try:
         async with session.begin():
             card = await service.update_card(session, card_id, request)
@@ -274,7 +268,7 @@ async def update_card_features(
     session: AsyncSession = Depends(get_write_session),
     service: CardApplicationService = Depends(application_service),
 ) -> CardFeature:
-    _assert_actor_identity(http_request, request.actor_id)
+    request = with_optional_acting_user(http_request, request, "actor_id")
     try:
         async with session.begin():
             return await service.update_features(session, card_id, request)
@@ -299,7 +293,7 @@ async def set_card_status(
     session: AsyncSession = Depends(get_write_session),
     service: CardApplicationService = Depends(application_service),
 ) -> IncidentCard:
-    _assert_actor_identity(http_request, request.actor_id)
+    request = with_optional_acting_user(http_request, request, "actor_id")
     try:
         async with session.begin():
             card = await service.set_card_status(session, card_id, request)
@@ -330,7 +324,7 @@ async def add_card_service(
     session: AsyncSession = Depends(get_write_session),
     service: CardApplicationService = Depends(application_service),
 ) -> CardService:
-    _assert_actor_identity(http_request, request.actor_id)
+    request = with_optional_acting_user(http_request, request, "actor_id")
     try:
         async with session.begin():
             return await service.add_service(session, card_id, request)
@@ -359,7 +353,7 @@ async def add_service_status(
     session: AsyncSession = Depends(get_write_session),
     service: CardApplicationService = Depends(application_service),
 ) -> ServiceStatusResponse:
-    _assert_actor_identity(http_request, request.author_id)
+    request = with_optional_acting_user(http_request, request, "author_id")
     try:
         async with session.begin():
             result = await service.add_service_status(session, card_service_id, request)

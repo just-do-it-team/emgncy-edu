@@ -1,6 +1,8 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from s112.api.identity import header_user_id, with_acting_user
+
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from s112.api.common.dependencies import raise_http_error, simulation_service
@@ -11,24 +13,24 @@ from s112.api.simulation_service import SimulationApplicationService
 from s112.domain.models import TrainingCall
 
 
-router = APIRouter(prefix="/api/v1", tags=["student/outgoing_calls"])
+router = APIRouter(prefix='/api/v1', tags=['student/outgoing_calls'])
 
 
 def _assert_identity(request: Request, user_id: uuid.UUID) -> None:
     if request.app.state.auth_settings.enabled:
-        principal = getattr(request.state, "principal", None)
+        principal = getattr(request.state, 'principal', None)
         if principal is None or principal.user_id != user_id:
-            raise HTTPException(status_code=403, detail="User does not match token")
+            raise HTTPException(status_code=403, detail='User does not match token')
 
 
 @router.get(
-    "/cards/{card_id}/outgoing-call",
+    '/cards/{card_id}/outgoing-call',
     response_model=OutgoingCallResponse | None,
 )
 async def get_outgoing_call(
     card_id: uuid.UUID,
     request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_read_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> TrainingCall | None:
@@ -40,17 +42,17 @@ async def get_outgoing_call(
 
 
 @router.post(
-    "/cards/{card_id}/outgoing-call",
+    '/cards/{card_id}/outgoing-call',
     response_model=OutgoingCallResponse,
 )
 async def start_outgoing_call(
     card_id: uuid.UUID,
-    body: TrainingCallActionRequest,
     request: Request,
+    body: TrainingCallActionRequest | None = Body(default=None),
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> TrainingCall:
-    _assert_identity(request, body.user_id)
+    body = with_acting_user(request, body or TrainingCallActionRequest(), "user_id")
     try:
         async with session.begin():
             return await service.start_outgoing_call(session, card_id, body.user_id)
@@ -59,17 +61,17 @@ async def start_outgoing_call(
 
 
 @router.post(
-    "/outgoing-calls/{call_id}/complete",
+    '/outgoing-calls/{call_id}/complete',
     response_model=OutgoingCallResponse,
 )
 async def complete_outgoing_call(
     call_id: uuid.UUID,
-    body: TrainingCallActionRequest,
     request: Request,
+    body: TrainingCallActionRequest | None = Body(default=None),
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> TrainingCall:
-    _assert_identity(request, body.user_id)
+    body = with_acting_user(request, body or TrainingCallActionRequest(), "user_id")
     try:
         async with session.begin():
             return await service.complete_outgoing_call(session, call_id, body.user_id)

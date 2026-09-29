@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import uuid
+
+from s112.api.identity import header_user_id
 from datetime import datetime, timezone
 
 from fastapi import (
@@ -98,7 +100,7 @@ async def upload_audio_message(
     direction: AudioMessageDirection = Form(
         default=AudioMessageDirection.INBOUND
     ),
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     idempotency_key: str = Header(
         alias="Idempotency-Key", min_length=1, max_length=128
     ),
@@ -350,7 +352,7 @@ async def upload_incoming_call_audio_message(
     request: Request,
     audio: UploadFile = File(...),
     client_sent_at: datetime | None = Form(default=None),
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     idempotency_key: str = Header(alias="Idempotency-Key", min_length=1, max_length=128),
     session: AsyncSession = Depends(get_write_session),
 ) -> AudioMessageResponse:
@@ -371,7 +373,7 @@ async def upload_outgoing_call_audio_message(
     request: Request,
     audio: UploadFile = File(...),
     client_sent_at: datetime | None = Form(default=None),
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     idempotency_key: str = Header(alias="Idempotency-Key", min_length=1, max_length=128),
     session: AsyncSession = Depends(get_write_session),
 ) -> AudioMessageResponse:
@@ -389,7 +391,7 @@ async def list_audio_messages(
     workspace_id: uuid.UUID,
     card_id: uuid.UUID,
     request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_write_session),
 ) -> list[AudioMessageResponse]:
     _assert_header_identity(request, user_id)
@@ -415,7 +417,7 @@ async def list_incoming_call_audio_messages(
     workspace_id: uuid.UUID,
     call_id: uuid.UUID,
     request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_write_session),
 ) -> list[AudioMessageResponse]:
     _assert_header_identity(request, user_id)
@@ -441,7 +443,7 @@ async def list_outgoing_call_audio_messages(
     workspace_id: uuid.UUID,
     call_id: uuid.UUID,
     request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_write_session),
 ) -> list[AudioMessageResponse]:
     _assert_header_identity(request, user_id)
@@ -467,7 +469,7 @@ async def list_outgoing_call_audio_messages(
 async def get_audio_message(
     message_id: uuid.UUID,
     request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_write_session),
 ) -> AudioMessageResponse:
     _assert_header_identity(request, user_id)
@@ -486,7 +488,7 @@ async def get_audio_message(
 async def get_audio_message_content(
     message_id: uuid.UUID,
     request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_write_session),
 ) -> Response:
     _assert_header_identity(request, user_id)
@@ -517,7 +519,7 @@ async def get_audio_message_content(
 async def list_tts_segments(
     message_id: uuid.UUID,
     request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_write_session),
 ) -> list[TtsSegmentResponse]:
     _assert_header_identity(request, user_id)
@@ -536,7 +538,7 @@ async def list_tts_segments(
 async def get_tts_segment_content(
     segment_id: uuid.UUID,
     request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_write_session),
 ) -> Response:
     _assert_header_identity(request, user_id)

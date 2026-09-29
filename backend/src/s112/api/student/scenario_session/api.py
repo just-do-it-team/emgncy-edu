@@ -2,9 +2,11 @@ import base64
 import binascii
 import json
 import uuid
+
+from s112.api.identity import header_user_id, with_acting_user
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,38 +43,38 @@ from s112.domain.models import (
 )
 
 
-router = APIRouter(prefix="/api/v1", tags=["student/scenario_session"])
+router = APIRouter(prefix='/api/v1', tags=['student/scenario_session'])
 
 
 def _assert_request_identity(request: Request, user_id: uuid.UUID) -> None:
     if request.app.state.auth_settings.enabled:
-        principal = getattr(request.state, "principal", None)
+        principal = getattr(request.state, 'principal', None)
         if principal is None or principal.user_id != user_id:
-            raise HTTPException(status_code=403, detail="User does not match token")
+            raise HTTPException(status_code=403, detail='User does not match token')
 
 
 def _encode_cards_cursor(card: CardListProjection) -> str:
     payload = json.dumps(
         {
-            "registered_at": card.registered_at.isoformat(),
-            "card_id": str(card.card_id),
+            'registered_at': card.registered_at.isoformat(),
+            'card_id': str(card.card_id),
         },
         separators=(",", ":"),
-    ).encode("utf-8")
-    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+    ).encode('utf-8')
+    return base64.urlsafe_b64encode(payload).decode('ascii').rstrip('=')
 
 
 def _decode_cards_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
     try:
-        padding = "=" * (-len(cursor) % 4)
+        padding = '=' * (-len(cursor) % 4)
         raw = base64.b64decode(
-            (cursor + padding).encode("ascii"), altchars=b"-_", validate=True
+            (cursor + padding).encode('ascii'), altchars=b"-_", validate=True
         )
-        payload = json.loads(raw.decode("utf-8"))
+        payload = json.loads(raw.decode('utf-8'))
         if not isinstance(payload, dict):
             raise ValueError
-        registered_at = datetime.fromisoformat(payload["registered_at"])
-        card_id = uuid.UUID(payload["card_id"])
+        registered_at = datetime.fromisoformat(payload['registered_at'])
+        card_id = uuid.UUID(payload['card_id'])
     except (
         binascii.Error,
         KeyError,
@@ -80,15 +82,15 @@ def _decode_cards_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
         ValueError,
         UnicodeError,
     ):
-        raise HTTPException(status_code=422, detail="Invalid cards cursor") from None
+        raise HTTPException(status_code=422, detail='Invalid cards cursor') from None
     return registered_at, card_id
 
 
-@router.post("/training-sessions/{session_id}/presence", status_code=204)
+@router.post('/training-sessions/{session_id}/presence', status_code=204)
 async def record_session_presence(
     session_id: uuid.UUID,
     request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_write_session),
 ) -> Response:
     _assert_request_identity(request, user_id)
@@ -99,35 +101,35 @@ async def record_session_presence(
             .with_for_update()
         )
         if training_session is None:
-            raise HTTPException(status_code=404, detail="Training session not found")
+            raise HTTPException(status_code=404, detail='Training session not found')
         workspace = await session.scalar(
             select(SimulationWorkspace).where(
                 SimulationWorkspace.training_session_id == session_id
             )
         )
         if workspace is None:
-            raise HTTPException(status_code=404, detail="Training session workspace not found")
+            raise HTTPException(status_code=404, detail='Training session workspace not found')
         member = await session.get(WorkspaceMember, (workspace.id, user_id))
         if (
             member is None
             or member.left_at is not None
             or member.member_role != WorkspaceMemberRole.PARTICIPANT.value
         ):
-            raise HTTPException(status_code=403, detail="Session participant access required")
+            raise HTTPException(status_code=403, detail='Session participant access required')
         if training_session.status != TrainingSessionStatus.RUNNING.value:
-            raise HTTPException(status_code=409, detail="Training session is not running")
+            raise HTTPException(status_code=409, detail='Training session is not running')
         member.last_presence_at = datetime.now(timezone.utc)
     return Response(status_code=204)
 
 
 @router.get(
-    "/training-sessions/{session_id}/completion-readiness",
+    '/training-sessions/{session_id}/completion-readiness',
     response_model=SessionCompletionReadinessResponse,
 )
 async def get_completion_readiness(
     session_id: uuid.UUID,
     request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> dict:
@@ -139,17 +141,17 @@ async def get_completion_readiness(
 
 
 @router.post(
-    "/training-sessions/{session_id}/complete",
+    '/training-sessions/{session_id}/complete',
     response_model=TrainingSessionResponse,
 )
 async def complete_training_session(
     session_id: uuid.UUID,
-    request: SessionCompleteRequest,
     http_request: Request,
+    request: SessionCompleteRequest | None = Body(default=None),
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> TrainingSession:
-    _assert_request_identity(http_request, request.user_id)
+    request = with_acting_user(http_request, request or SessionCompleteRequest(), "user_id")
     try:
         async with session.begin():
             return await service.complete_session(session, session_id, request.user_id)
@@ -158,13 +160,13 @@ async def complete_training_session(
 
 
 @router.get(
-    "/workspaces/{workspace_id}/cards",
+    '/workspaces/{workspace_id}/cards',
     response_model=CardListPage,
 )
 async def list_workspace_cards(
     workspace_id: uuid.UUID,
     request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     limit: int = Query(default=100, ge=1, le=500),
     cursor: str | None = Query(default=None, max_length=1024),
     session: AsyncSession = Depends(get_read_session),
@@ -172,7 +174,7 @@ async def list_workspace_cards(
     _assert_request_identity(request, user_id)
     member = await session.get(WorkspaceMember, (workspace_id, user_id))
     if member is None or member.left_at is not None:
-        raise HTTPException(status_code=403, detail="Workspace access denied")
+        raise HTTPException(status_code=403, detail='Workspace access denied')
     statement = select(CardListProjection).where(
         CardListProjection.workspace_id == workspace_id
     )
@@ -217,20 +219,20 @@ async def list_workspace_cards(
 
 
 @router.get(
-    "/workspaces/{workspace_id}/cards/{card_id}",
+    '/workspaces/{workspace_id}/cards/{card_id}',
     response_model=CardResponse,
 )
 async def get_workspace_card(
     workspace_id: uuid.UUID,
     card_id: uuid.UUID,
     request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_read_session),
 ) -> IncidentCard:
     _assert_request_identity(request, user_id)
     member = await session.get(WorkspaceMember, (workspace_id, user_id))
     if member is None or member.left_at is not None:
-        raise HTTPException(status_code=403, detail="Workspace access denied")
+        raise HTTPException(status_code=403, detail='Workspace access denied')
     filters = [
         IncidentCard.id == card_id,
         IncidentCard.workspace_id == workspace_id,
@@ -259,19 +261,19 @@ async def get_workspace_card(
         .where(*filters)
     )
     if card is None:
-        raise HTTPException(status_code=404, detail="Card not found")
+        raise HTTPException(status_code=404, detail='Card not found')
     return card
 
 
 @router.post(
-    "/workspaces/{workspace_id}/cards/{card_id}/open",
+    '/workspaces/{workspace_id}/cards/{card_id}/open',
     response_model=CardServiceResponse,
 )
 async def open_workspace_card(
     workspace_id: uuid.UUID,
     card_id: uuid.UUID,
     request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_write_session),
     service: CardApplicationService = Depends(application_service),
 ) -> CardService:
@@ -286,7 +288,7 @@ async def open_workspace_card(
 
 
 @router.post(
-    "/workspaces/{workspace_id}/cards/{card_id}/decision",
+    '/workspaces/{workspace_id}/cards/{card_id}/decision',
     response_model=CardServiceResponse,
 )
 async def decide_workspace_card(
@@ -294,7 +296,7 @@ async def decide_workspace_card(
     card_id: uuid.UUID,
     body: CardDecisionRequest,
     request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_write_session),
     service: CardApplicationService = Depends(application_service),
 ) -> CardService:

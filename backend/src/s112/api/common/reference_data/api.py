@@ -9,6 +9,7 @@ from s112.api.schemas import (
     EventKindResponse,
     EventTypeResponse,
 )
+from s112.auth.dependencies import require_admin_if_enabled
 from s112.domain.models import (
     EmergencyService,
     EventKind,
@@ -54,6 +55,7 @@ async def list_event_kinds(
 )
 async def create_service(
     request: EmergencyServiceCreate,
+    _principal=Depends(require_admin_if_enabled),
     session: AsyncSession = Depends(get_write_session),
 ) -> EmergencyService:
     async with session.begin():

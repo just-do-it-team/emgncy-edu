@@ -1,11 +1,14 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
+from s112.api.identity import header_user_id
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 
 from s112.api.dependencies import get_read_session
+from s112.api.common.training.access import can_read_training_session
 from s112.api.common.training.responses import student_training_history_item
 from s112.api.simulation_schemas import (
     StudentTrainingHistoryItem,
@@ -29,7 +32,7 @@ router = APIRouter(prefix="/api/v1", tags=["student/training_history"])
 
 @router.get("/student/training-history", response_model=StudentTrainingHistoryPage)
 async def get_own_training_history(
-    student_id: uuid.UUID = Header(alias="X-User-Id"),
+    student_id: uuid.UUID = Depends(header_user_id),
     session_status: str | None = Query(default=None, alias="status"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -105,7 +108,7 @@ async def get_own_training_history(
 async def get_own_training_result(
     session_id: uuid.UUID,
     response: Response,
-    student_id: uuid.UUID = Header(alias="X-User-Id"),
+    student_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_read_session),
 ) -> StudentTrainingHistoryItem:
     student = await session.get(UserAccount, student_id)
@@ -141,6 +144,7 @@ async def get_own_training_result(
 
 @router.get("/training-sessions", response_model=list[TrainingSessionSummary])
 async def list_training_sessions(
+    request: Request,
     assignment_id: uuid.UUID | None = None,
     participant_user_id: uuid.UUID | None = None,
     session_status: str | None = Query(default=None, alias="status"),
@@ -164,6 +168,17 @@ async def list_training_sessions(
     )
     if assignment_id is not None:
         statement = statement.where(TrainingSession.assignment_id == assignment_id)
+    if request.app.state.auth_settings.enabled:
+        principal = request.state.principal
+        if principal.role is UserRole.STUDENT:
+            participant_user_id = principal.user_id
+        elif principal.role is UserRole.TEACHER:
+            statement = statement.join(
+                ScenarioAssignment,
+                ScenarioAssignment.id == TrainingSession.assignment_id,
+            ).where(ScenarioAssignment.assigned_by == principal.user_id)
+        elif principal.role is not UserRole.ADMINISTRATOR:
+            raise HTTPException(status_code=403, detail="Session access denied")
     if participant_user_id is not None:
         statement = statement.join(
             AssignmentParticipant,
@@ -190,9 +205,14 @@ async def list_training_sessions(
 )
 async def get_training_session(
     session_id: uuid.UUID,
+    request: Request,
     session: AsyncSession = Depends(get_read_session),
 ) -> TrainingSession:
     training_session = await session.get(TrainingSession, session_id)
     if training_session is None:
+        raise HTTPException(status_code=404, detail="Training session not found")
+    if request.app.state.auth_settings.enabled and not await can_read_training_session(
+        session, session_id, request.state.principal
+    ):
         raise HTTPException(status_code=404, detail="Training session not found")
     return training_session

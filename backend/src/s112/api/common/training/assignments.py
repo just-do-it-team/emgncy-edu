@@ -1,5 +1,7 @@
 import uuid
 
+from s112.api.identity import header_user_id
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,7 +28,7 @@ async def list_scenario_assignments(
     group_id: uuid.UUID | None = None,
     assigned_by: uuid.UUID | None = None,
     assignment_status: str | None = Query(default=None, alias="status"),
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_read_session),
 ) -> list[ScenarioAssignmentResponse]:
     if request.app.state.auth_settings.enabled:

@@ -1,4 +1,6 @@
 import uuid
+
+from s112.api.identity import header_user_id, with_acting_user
 from collections.abc import Sequence
 from typing import TypeVar
 
@@ -92,7 +94,7 @@ async def create_card_template(
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> CardTemplateResponse:
-    _assert_actor_identity(http_request, request.created_by)
+    request = with_acting_user(http_request, request, "created_by")
     try:
         async with session.begin():
             template = await service.create_template(session, request)
@@ -106,7 +108,7 @@ async def list_card_templates(
     http_request: Request,
     active_only: bool = True,
     template_status: TemplateStatus | None = Query(default=None, alias="status"),
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_read_session),
 ) -> list[CardTemplateResponse]:
     _assert_actor_identity(http_request, user_id)
@@ -135,7 +137,7 @@ async def list_card_templates(
 async def get_card_template(
     template_id: uuid.UUID,
     http_request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_read_session),
 ) -> CardTemplateResponse:
     _assert_actor_identity(http_request, user_id)
@@ -160,7 +162,7 @@ async def update_card_template(
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> CardTemplateResponse:
-    _assert_actor_identity(http_request, request.updated_by)
+    request = with_acting_user(http_request, request, "updated_by")
     try:
         async with session.begin():
             template = await service.update_template(session, template_id, request)
@@ -180,7 +182,7 @@ async def create_card_template_generation(
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> CardTemplateGeneration:
-    _assert_actor_identity(http_request, request.created_by)
+    request = with_acting_user(http_request, request, "created_by")
     try:
         async with session.begin():
             return await service.create_card_template_generation(session, request)
@@ -195,7 +197,7 @@ async def create_card_template_generation(
 async def get_card_template_generation(
     generation_id: uuid.UUID,
     http_request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_write_session),
 ) -> CardTemplateGeneration:
     _assert_actor_identity(http_request, user_id)
@@ -219,7 +221,7 @@ async def delete_card_template(
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> None:
-    _assert_actor_identity(http_request, request.deleted_by)
+    request = with_acting_user(http_request, request, "deleted_by")
     try:
         async with session.begin():
             await service.delete_template(session, template_id, request)
@@ -238,7 +240,7 @@ async def upgrade_card_template_scenarios(
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> list[TrainingScenarioResponse]:
-    _assert_actor_identity(http_request, request.updated_by)
+    request = with_acting_user(http_request, request, "updated_by")
     try:
         async with session.begin():
             scenarios = await service.upgrade_card_template_scenarios(
@@ -260,7 +262,7 @@ async def create_incoming_call_template(
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> IncomingCallTemplateResponse:
-    _assert_actor_identity(http_request, request.created_by)
+    request = with_acting_user(http_request, request, "created_by")
     try:
         async with session.begin():
             template = await service.create_incoming_call_template(session, request)
@@ -277,7 +279,7 @@ async def list_incoming_call_templates(
     http_request: Request,
     active_only: bool = True,
     template_status: TemplateStatus | None = Query(default=None, alias="status"),
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_read_session),
 ) -> list[IncomingCallTemplateResponse]:
     _assert_actor_identity(http_request, user_id)
@@ -313,7 +315,7 @@ async def list_incoming_call_templates(
 async def get_incoming_call_template(
     template_id: uuid.UUID,
     http_request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_read_session),
 ) -> IncomingCallTemplateResponse:
     _assert_actor_identity(http_request, user_id)
@@ -341,7 +343,7 @@ async def update_incoming_call_template(
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> IncomingCallTemplateResponse:
-    _assert_actor_identity(http_request, request.updated_by)
+    request = with_acting_user(http_request, request, "updated_by")
     try:
         async with session.begin():
             template = await service.update_incoming_call_template(
@@ -363,7 +365,7 @@ async def delete_incoming_call_template(
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> None:
-    _assert_actor_identity(http_request, request.deleted_by)
+    request = with_acting_user(http_request, request, "deleted_by")
     try:
         async with session.begin():
             await service.delete_incoming_call_template(session, template_id, request)
@@ -382,7 +384,7 @@ async def upgrade_incoming_call_template_scenarios(
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> list[TrainingScenarioResponse]:
-    _assert_actor_identity(http_request, request.updated_by)
+    request = with_acting_user(http_request, request, "updated_by")
     try:
         async with session.begin():
             scenarios = await service.upgrade_incoming_call_template_scenarios(
@@ -404,7 +406,7 @@ async def create_training_scenario(
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> TrainingScenarioResponse:
-    _assert_actor_identity(http_request, request.created_by)
+    request = with_acting_user(http_request, request, "created_by")
     try:
         async with session.begin():
             scenario = await service.create_scenario(session, request)
@@ -416,7 +418,7 @@ async def create_training_scenario(
 @router.get("/training-scenarios", response_model=list[TrainingScenarioResponse])
 async def list_training_scenarios(
     http_request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     scenario_status: str | None = Query(default=None, alias="status"),
     difficulty: int | None = Query(default=None, ge=1, le=4),
     include_archived: bool = False,
@@ -441,7 +443,7 @@ async def list_training_scenarios(
 async def get_training_scenario(
     scenario_id: uuid.UUID,
     http_request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_read_session),
 ) -> TrainingScenarioDetailResponse:
     _assert_actor_identity(http_request, user_id)
@@ -463,7 +465,7 @@ async def update_training_scenario(
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> TrainingScenarioResponse:
-    _assert_actor_identity(http_request, request.updated_by)
+    request = with_acting_user(http_request, request, "updated_by")
     try:
         async with session.begin():
             scenario = await service.update_scenario(session, scenario_id, request)
@@ -483,7 +485,7 @@ async def delete_training_scenario(
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> None:
-    _assert_actor_identity(http_request, request.deleted_by)
+    request = with_acting_user(http_request, request, "deleted_by")
     try:
         async with session.begin():
             await service.delete_scenario(session, scenario_id, request)

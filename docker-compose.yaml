@@ -1,3 +1,5 @@
+name: backend
+
 x-app-environment: &app-environment
   S112_DATABASE_URL: ${S112_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-primary:5432/${POSTGRES_DB:-s112}}
   S112_READ_DATABASE_URL: ${S112_READ_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-s112}:${POSTGRES_PASSWORD:-s112}@postgres-replica:5432/${POSTGRES_DB:-s112}}
@@ -857,6 +859,7 @@ services:
         VITE_STUDENT_API_ENABLED: ${VITE_STUDENT_API_ENABLED:-true}
         VITE_ARM_API_URL: ${VITE_ARM_API_URL:-/student-api}
         VITE_AUTH_API_URL: ${VITE_AUTH_API_URL:-/auth-api}
+        VITE_ADMIN_API_URL: ${VITE_ADMIN_API_URL:-/admin-api}
         VITE_REALTIME_GATEWAY_URL: ${VITE_REALTIME_GATEWAY_URL:-/realtime-gateway}
         VITE_MOCK_AI: ${VITE_MOCK_AI:-false}
         VITE_MOCK_ASSIGNMENTS: ${VITE_MOCK_ASSIGNMENTS:-false}

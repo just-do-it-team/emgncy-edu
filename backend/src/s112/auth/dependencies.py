@@ -114,6 +114,14 @@ async def require_auth_if_enabled(
     return await _load_principal(request, credentials)
 
 
+async def require_admin_if_enabled(
+    principal: Principal | None = Depends(require_auth_if_enabled),
+) -> Principal | None:
+    if principal is not None and principal.role is not UserRole.ADMINISTRATOR:
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    return principal
+
+
 RoleDependency = Callable[..., Coroutine[Any, Any, Principal]]
 
 
