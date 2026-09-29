@@ -19,7 +19,7 @@ const abortReasonLabels: Record<string, string> = {
 export type AbortActor = "participant" | "teacher" | "unknown";
 
 export function abortReasonText(reason: string | null, actor: AbortActor): string {
-  if (reason !== null) return abortReasonLabels[reason] ?? `причина от сервера без расшифровки: ${reason}`;
+  if (reason !== null) return abortReasonLabels[reason] ?? "причина прерывания не расшифрована";
   if (actor === "participant") return "обучаемый прервал попытку";
   if (actor === "teacher") return "прервана преподавателем";
 

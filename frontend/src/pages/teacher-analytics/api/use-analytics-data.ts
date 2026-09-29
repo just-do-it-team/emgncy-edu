@@ -6,7 +6,7 @@ import { useGroups } from "@/entities/group";
 import { COMPLETED_SESSION_STATUS, useTeacherSessions } from "@/entities/monitoring";
 import { useScenarios } from "@/entities/scenario";
 import { useStudentNames } from "@/entities/student";
-import type { ExpertReviewContext } from "@/shared/api";
+import type { ExpertReviewContext, MonitoredSession } from "@/shared/api";
 import { attemptFacts } from "../model/attempt-facts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -61,27 +61,43 @@ export function useAnalyticsData(teacherId: string, group: string | null, period
   const groups = useGroups(teacherId);
   const names = useStudentNames(teacherId);
   const assignmentsById = new Map((assignments.data ?? []).map((assignment) => [assignment.id, assignment]));
-  const since = period === ALL_PERIOD ? null : Date.now() - Number(period) * DAY_MS;
-  const completed = (sessions.data ?? []).filter((session) => {
+  const periodMs = period === ALL_PERIOD ? null : Number(period) * DAY_MS;
+  const now = Date.now();
+  const inGroup = (session: MonitoredSession) => {
     const groupId = assignmentsById.get(session.assignmentId)?.groupId ?? null;
 
-    return (
-      session.status === COMPLETED_SESSION_STATUS &&
-      session.completedAt !== null &&
-      (since === null || Date.parse(session.completedAt) >= since) &&
-      (group === null || (group === NO_GROUP ? groupId === null : groupId === group))
-    );
-  });
+    return group === null || (group === NO_GROUP ? groupId === null : groupId === group);
+  };
+  const completedBetween = (from: number | null, to: number) =>
+    (sessions.data ?? []).filter((session) => {
+      if (session.status !== COMPLETED_SESSION_STATUS || session.completedAt === null || !inGroup(session)) return false;
+
+      const at = Date.parse(session.completedAt);
+
+      return (from === null || at >= from) && at < to;
+    });
+  const completed = completedBetween(periodMs === null ? null : now - periodMs, Number.POSITIVE_INFINITY);
+  // Прошлый период той же длины нужен только плиткам «к прошлому периоду»; для «всего времени» его нет.
+  const previous = periodMs === null ? [] : completedBetween(now - 2 * periodMs, now - periodMs);
+  const all = [...completed, ...previous];
   const contexts = useQueries({
-    queries: completed.map((session) => expertReviewContextQuery(session.sessionId, teacherId)),
+    queries: all.map((session) => expertReviewContextQuery(session.sessionId, teacherId)),
   });
   const loaded = new Map<string, ExpertReviewContext>(
     contexts.flatMap((result, index) => {
-      const session = completed[index];
+      const session = all[index];
 
       return result.data && session ? [[session.sessionId, result.data] as const] : [];
     }),
   );
+  const factsOf = (list: MonitoredSession[]) =>
+    attemptFacts({
+      sessions: list,
+      assignments: assignmentsById,
+      scenarios: new Map((scenarios.data ?? []).map((scenario) => [scenario.id, scenario])),
+      contexts: loaded,
+      names: names.data ?? new Map(),
+    });
 
   return {
     pending: sessions.isPending || assignments.isPending || scenarios.isPending,
@@ -91,16 +107,11 @@ export function useAnalyticsData(teacherId: string, group: string | null, period
       void assignments.refetch();
     },
     groups: groups.data ?? [],
-    contextsTotal: completed.length,
+    contextsTotal: all.length,
     contextsPending: contexts.filter((result) => result.isPending).length,
     contextsFailed: contexts.filter((result) => result.isError).length,
     retryContexts: () => contexts.filter((result) => result.isError).forEach((result) => void result.refetch()),
-    facts: attemptFacts({
-      sessions: completed,
-      assignments: assignmentsById,
-      scenarios: new Map((scenarios.data ?? []).map((scenario) => [scenario.id, scenario])),
-      contexts: loaded,
-      names: names.data ?? new Map(),
-    }),
+    facts: factsOf(completed),
+    previousFacts: periodMs === null ? null : factsOf(previous),
   };
 }

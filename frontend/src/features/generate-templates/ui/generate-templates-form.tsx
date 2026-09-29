@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Group, MultiSelect, Paper, Select, Stack, Text, Title } from "@mantine/core";
+import { Alert, Group, MultiSelect, Paper, Select, Stack, Stepper, Text, Title } from "@mantine/core";
+import { Link } from "react-router-dom";
 import { useForm } from "@mantine/form";
 import { useEmergencyServices } from "@/entities/emergency-service";
-import { failureOf, isGenerationFinished, useStartTemplateGeneration, useTemplateGeneration } from "@/entities/scenario";
+import {
+  failureOf,
+  isGenerationFinished,
+  rememberedGenerations,
+  rememberGeneration,
+  useStartTemplateGeneration,
+  useTemplateGeneration,
+} from "@/entities/scenario";
 import {
   errorDetail,
   errorStatus,
@@ -11,10 +19,20 @@ import {
   type TemplateGenerationStatus,
 } from "@/shared/api";
 import { Button } from "@/shared/ui";
+import { serviceWithCode } from "@/shared/config";
 
 const DISPATCHER_CODES: DispatcherServiceCode[] = ["101", "102", "103", "104"];
 const TICK_MS = 1000;
 const SECOND_MS = 1000;
+const TEMPLATES_PATH = "/teacher/scenarios/templates";
+
+const generationSteps: TemplateGenerationStatus[] = ["PENDING", "PROCESSING", "COMPLETED"];
+
+function elapsedText(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / SECOND_MS));
+
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
 
 const statusTexts: Record<TemplateGenerationStatus, string> = {
   PENDING: "Задача поставлена в очередь",
@@ -34,36 +52,36 @@ interface GenerationParams {
 
 interface GenerateTemplatesFormProps {
   userId: string;
+  initialService: string | null;
   onCompleted: (generation: TemplateGenerationDto) => void;
 }
 
-export function GenerateTemplatesForm({ userId, onCompleted }: GenerateTemplatesFormProps) {
+export function GenerateTemplatesForm({ userId, initialService, onCompleted }: GenerateTemplatesFormProps) {
   const services = useEmergencyServices();
   const start = useStartTemplateGeneration();
-  const [generationId, setGenerationId] = useState<string | null>(null);
-  const [watching, setWatching] = useState(true);
+  const [generationId, setGenerationId] = useState<string | null>(() => rememberedGenerations(userId).at(-1) ?? null);
   const [advanced, setAdvanced] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const reportedId = useRef<string | null>(null);
-  const generation = useTemplateGeneration(generationId, watching);
+  const generation = useTemplateGeneration(generationId);
   const form = useForm<GenerationParams>({
-    initialValues: { main: null, others: [] },
+    initialValues: { main: isDispatcherCode(initialService) ? initialService : null, others: [] },
     validate: { main: (value) => (isDispatcherCode(value) ? null : "Выберите основную службу") },
   });
   const nameOf = (code: string) =>
-    [...(services.data?.values() ?? [])].find((service) => service.code === code)?.name ?? `служба ${code}`;
-  const options = DISPATCHER_CODES.map((code) => ({ value: code, label: `${code} ${nameOf(code)}` }));
+    serviceWithCode(code, [...(services.data?.values() ?? [])].find((service) => service.code === code)?.name ?? null);
+  const options = DISPATCHER_CODES.map((code) => ({ value: code, label: nameOf(code) }));
   const current = generation.data;
   const finished = isGenerationFinished(current);
   const running = generationId !== null && !finished;
 
   useEffect(() => {
-    if (!running || !watching) return;
+    if (!running) return;
 
     const timer = window.setInterval(() => setNow(Date.now()), TICK_MS);
 
     return () => window.clearInterval(timer);
-  }, [running, watching]);
+  }, [running]);
 
   useEffect(() => {
     if (current?.status !== "COMPLETED" || reportedId.current === current.id) return;
@@ -81,7 +99,7 @@ export function GenerateTemplatesForm({ userId, onCompleted }: GenerateTemplates
       { dds_service_codes: codes, created_by: userId },
       {
         onSuccess: (created) => {
-          setWatching(true);
+          rememberGeneration(userId, created.id);
           setNow(Date.now());
           setGenerationId(created.id);
         },
@@ -91,30 +109,31 @@ export function GenerateTemplatesForm({ userId, onCompleted }: GenerateTemplates
 
   const reset = () => {
     setGenerationId(null);
-    setWatching(true);
     start.reset();
   };
 
   if (generationId !== null) {
     const startedAt = current ? Date.parse(current.created_at) : now;
+    const step = current === undefined ? 0 : generationSteps.indexOf(current.status);
 
     return (
       <Paper withBorder p="md">
         <Stack gap="sm" align="flex-start" role="status" aria-live="polite">
           <Title order={3} size="h5" fw={600}>
             {current ? statusTexts[current.status] : "Задача отправлена"}
-            {running && watching ? ` — ${Math.max(0, Math.floor((now - startedAt) / SECOND_MS))} с` : ""}
+            {running ? ` — идёт ${elapsedText(now - startedAt)}` : ""}
           </Title>
-          {running && watching && (
-            <Text size="sm">
-              Генерация идёт на сервере и обычно занимает от одной до нескольких минут. Статус обновляется каждые 2 секунды;
-              на скрытой вкладке опрос приостанавливается.
-            </Text>
+          {current?.status !== "FAILED" && (
+            <Stepper active={step < 0 ? 0 : step} size="xs" color="povDark2.6" allowNextStepsSelect={false}>
+              <Stepper.Step label="В очереди" />
+              <Stepper.Step label="Модель составляет" />
+              <Stepper.Step label="Черновики готовы" />
+            </Stepper>
           )}
-          {running && !watching && (
+          {running && (
             <Text size="sm">
-              Ожидание остановлено. Генерация продолжается на сервере — готовые черновики появятся в разделе «Шаблоны» со
-              статусом «Черновик ИИ».
+              Модель составляет звонок 112 и карточки ДДС. Обычно 1–5 минут. Можно уйти со страницы — черновики
+              появятся в «Шаблонах» со статусом «Черновик ИИ».
             </Text>
           )}
           {generation.isError && (
@@ -128,21 +147,12 @@ export function GenerateTemplatesForm({ userId, onCompleted }: GenerateTemplates
             </Alert>
           )}
           <Group gap="xs">
-            {running && watching && (
-              <Button size="sm" variant="outline" color="povDark2.6" onClick={() => setWatching(false)}>
-                Прекратить ожидание
-              </Button>
-            )}
-            {running && !watching && (
-              <Button size="sm" variant="outline" color="povDark2.6" onClick={() => setWatching(true)}>
-                Продолжить ожидание
-              </Button>
-            )}
-            {(current?.status === "FAILED" || (running && !watching)) && (
-              <Button size="sm" onClick={reset}>
-                Новая генерация
-              </Button>
-            )}
+            <Button size="sm" variant="outline" color="povDark2.6" component={Link} to={TEMPLATES_PATH}>
+              Перейти к шаблонам
+            </Button>
+            <Button size="sm" onClick={reset}>
+              Новая генерация
+            </Button>
           </Group>
         </Stack>
       </Paper>

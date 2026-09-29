@@ -15,9 +15,6 @@ export const LOWER_PASS_SHARE = 0.5;
 export const MIN_DIFFICULTY = 1;
 export const MAX_DIFFICULTY = 4;
 
-export const LEADERS_COUNT = 3;
-export const LEADERS_MIN_ATTEMPTS = 2;
-export const TOP_ERRORS_COUNT = 2;
 
 export const SMOOTHING_LEVEL = 0.5;
 export const SMOOTHING_TREND = 0.3;

@@ -3,7 +3,17 @@ import { Alert, Button, Group, List, Loader, Paper, Stack, Table, Text, Title } 
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Navigate } from "react-router-dom";
 import { useEmergencyServices } from "@/entities/emergency-service";
-import { buildReviewBreakdown, discrepancyLabel, discrepancyValue } from "@/entities/expert-review";
+import {
+  buildReviewBreakdown,
+  discrepancyLabel,
+  discrepancyValue,
+  findingGroups,
+  OUTBOUND_CALL_PATH,
+  outboundVerdictLines,
+  type ClassifierNames,
+  type FindingGroup,
+} from "@/entities/expert-review";
+import { classifierRecordById, routingFlagLabel } from "@/entities/incident";
 import {
   fetchSessionActions,
   monitoringKeys,
@@ -31,6 +41,23 @@ function discrepanciesOf(item: HistoryItem): Discrepancy[] {
   return [...(item.automatic_result.cards ?? []), ...(item.automatic_result.incoming_calls ?? [])].flatMap(
     (element) => element.discrepancies,
   );
+}
+
+const classifierNames: ClassifierNames = { recordOf: classifierRecordById, flagLabel: routingFlagLabel };
+
+function findingGroupsOf(item: HistoryItem): FindingGroup[] {
+  const sources = (elements: { discrepancies: Discrepancy[] }[], prefix: string) =>
+    elements.map((element, index) => ({
+      key: `${prefix}:${index}`,
+      expectedResult: {},
+      currentState: null,
+      discrepancies: element.discrepancies,
+    }));
+
+  return [
+    ...findingGroups(sources(item.automatic_result.incoming_calls ?? [], "call"), classifierNames, "Звонок"),
+    ...findingGroups(sources(item.automatic_result.cards ?? [], "card"), classifierNames),
+  ].filter((group) => group.discrepancies.length > 0);
 }
 
 function durationText(item: HistoryItem): string {
@@ -274,12 +301,33 @@ function Results({ userId }: { userId: string }) {
                               Расхождения с эталоном, которые нашёл сервер. Подробный разбор с записью звонка доступен
                               преподавателю.
                             </Text>
-                            {discrepancies.map((discrepancy, index) => (
-                              <Text key={`${discrepancy.path}:${index}`} size="sm">
-                                {discrepancyLabel(discrepancy.path, services.data)}: ожидалось{" "}
-                                «{discrepancyValue(discrepancy.path, discrepancy.expected)}», указано «
-                                {discrepancyValue(discrepancy.path, discrepancy.actual)}»
-                              </Text>
+                            {findingGroupsOf(item).map((group) => (
+                              <Stack key={group.key} gap={2}>
+                                <Text size="sm" fw={600}>
+                                  {group.title}
+                                </Text>
+                                {group.discrepancies
+                                  .filter((discrepancy) => discrepancy.path !== OUTBOUND_CALL_PATH)
+                                  .map((discrepancy, index) => (
+                                    <Text key={`${discrepancy.path}:${index}`} size="sm">
+                                      {discrepancyLabel(discrepancy.path, services.data)}: ожидалось «
+                                      {discrepancyValue(discrepancy.path, discrepancy.expected)}», указано «
+                                      {discrepancyValue(discrepancy.path, discrepancy.actual)}»
+                                    </Text>
+                                  ))}
+                                {group.verdict !== null && (
+                                  <>
+                                    <Text size="sm" fw={500}>
+                                      Доклад руководителю бригады — проверка моделью
+                                    </Text>
+                                    {outboundVerdictLines(group.verdict).map((line) => (
+                                      <Text key={line} size="sm">
+                                        {line}
+                                      </Text>
+                                    ))}
+                                  </>
+                                )}
+                              </Stack>
                             ))}
                           </Stack>
                         </Table.Td>

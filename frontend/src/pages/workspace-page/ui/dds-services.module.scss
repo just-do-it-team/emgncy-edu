@@ -167,7 +167,18 @@
     padding-right: 30px;
   }
 
+  :global(.mantine-Textarea-root .mantine-Input-wrapper) {
+    height: auto;
+    min-height: 32px;
+  }
+
+  // Высота textarea задаётся автоподбором по содержимому, поэтому однострочное поле выравнивается
+  // с соседними полями отступами и высотой строки, а не фиксированной высотой.
   :global(.mantine-Textarea-input) {
+    height: auto;
+    padding-top: 7px;
+    padding-bottom: 6px;
+    line-height: 18px;
     resize: none;
   }
 }

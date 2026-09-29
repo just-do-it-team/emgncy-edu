@@ -16,6 +16,7 @@ import {
   templateVariantOrder,
   type TemplateState,
   useScenarios,
+  usePendingGenerations,
   useTemplates,
   type TemplateEntry,
 } from "@/entities/scenario";
@@ -358,6 +359,7 @@ function templateRows(
 
 function Templates({ teacherId }: { teacherId: string }) {
   const templates = useTemplates();
+  const pending = usePendingGenerations(teacherId);
   const scenarios = useScenarios();
   const serviceNames = useServiceNames();
   const rows = templateRows(groupTemplates(templates.data ?? []), scenarios.data, teacherId);
@@ -375,6 +377,17 @@ function Templates({ teacherId }: { teacherId: string }) {
           </Group>
         }
       />
+
+      {pending.length > 0 && (
+        <Alert variant="outline" color="povDark2.6" title={`Идёт генерация: ${pending.length}`}>
+          <Group gap="xs" justify="space-between">
+            <Text size="sm">Черновики появятся в списке со статусом «Черновик ИИ», обычно через 1–5 минут.</Text>
+            <Anchor component={Link} to="/teacher/scenarios/templates/generate" size="sm" c="povDark2.6" underline="always">
+              Открыть генерацию
+            </Anchor>
+          </Group>
+        </Alert>
+      )}
 
       {templates.isPending && (
         <Paper withBorder p="md">

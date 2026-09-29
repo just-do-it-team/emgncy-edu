@@ -12,6 +12,7 @@ import {
   type OperatorClassification,
 } from "@/entities/training";
 import { emptyOperatorDraft, type OperatorCardDraft } from "./operator-cards";
+import { cardAddresses } from "./card-addresses";
 
 function string(value: unknown) {
   return typeof value === "string" ? value : "";
@@ -81,27 +82,16 @@ export function patchFromDraft(
   card: ApiCard,
   draft: OperatorCardDraft,
 ): CardPatch {
-  const addressParts = [
-    draft.address.country,
-    draft.address.subject,
-    draft.address.settlement,
-    draft.address.object,
-    draft.address.district,
-    draft.address.street,
-    draft.address.house && `д. ${draft.address.house}`,
-    draft.address.building && `корп. ${draft.address.building}`,
-    draft.address.structure && `стр. ${draft.address.structure}`,
-    draft.address.apartment && `кв. ${draft.address.apartment}`,
-  ].filter(Boolean);
+  const addresses = cardAddresses(draft);
+
   return {
     description: draft.description,
     applicant_full_name: draft.applicant.trim() || null,
     automatic_phone_number: draft.aon.trim() || null,
     provided_phone_number: draft.providedPhone.trim() || null,
     location_phone_number: draft.locationPhone.trim() || null,
-    incident_address: [...addressParts, draft.address.descriptive]
-      .filter(Boolean)
-      .join(", "),
+    reported_address: addresses.reported_address ?? card.reported_address,
+    incident_address: addresses.incident_address,
     questionnaire:
       card.questionnaire === null &&
       draft.questions === "" &&

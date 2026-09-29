@@ -245,6 +245,7 @@ export interface CardListPage {
 export interface CardPatch {
   description: string;
   questionnaire: CardQuestionnaire | null;
+  reported_address: string | null;
   incident_address: string;
   applicant_full_name: string | null;
   automatic_phone_number: string | null;

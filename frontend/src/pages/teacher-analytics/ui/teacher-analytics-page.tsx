@@ -1,28 +1,98 @@
-import { Alert, Group, Paper, Select, Skeleton, Stack, Text, Title } from "@mantine/core";
+import { useState } from "react";
+import { Alert, Group, Paper, Select, Skeleton, Stack, Text, Title, useMantineTheme } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
+import { useEmergencyServices } from "@/entities/emergency-service";
 import { useSessionStore } from "@/entities/session";
+import { serviceWithCode } from "@/shared/config";
+import { downloadPdf, reportDocument, reportFileName, useSpelling, type ReportPalette } from "@/shared/lib";
 import { Button } from "@/shared/ui";
 import { NO_GROUP, periodOptions, useAnalyticsData, useAnalyticsFilters } from "../api/use-analytics-data";
-import { studentStats } from "../model/student-stats";
+import { analyticsDocument, performanceContent } from "../model/analytics-report";
+import { addressSummary, missedServices, periodKpis, spellingSummary, stageSummary } from "../model/group-insights";
+import { studentStats, type StudentStats } from "../model/student-stats";
+import { AddressErrors } from "./address-errors";
 import { ErrorHeatmap } from "./error-heatmap";
 import { ForecastBlock } from "./forecast-block";
-import { Leaders } from "./leaders";
+import { GroupSides } from "./group-sides";
+import { KpiTiles } from "./kpi-tiles";
+import { MissedServices } from "./missed-services";
 import { NormBars } from "./norm-bars";
 import { PerformanceTable } from "./performance-table";
+import { SpellingBlock } from "./spelling-block";
+import { StatusTimes } from "./status-times";
+import classes from "./analytics.module.scss";
+
+type PdfKind = "analytics" | "performance";
 
 function Analytics({ teacherId }: { teacherId: string }) {
   const filters = useAnalyticsFilters();
   const data = useAnalyticsData(teacherId, filters.group, filters.period);
   const stats = studentStats(data.facts);
+  const theme = useMantineTheme();
+  const services = useEmergencyServices();
+  const [pdfPending, setPdfPending] = useState<PdfKind | null>(null);
+  const spelling = useSpelling([...data.facts, ...(data.previousFacts ?? [])].flatMap((attempt) => attempt.typedWords));
+  const misspelled = spelling.data ?? null;
   const groupOptions = [
     ...data.groups.map((group) => ({ value: group.id, label: group.name })),
     { value: NO_GROUP, label: "Без группы" },
   ];
+  const serviceName = (code: string) =>
+    serviceWithCode(code, [...(services.data?.values() ?? [])].find((service) => service.code === code)?.name ?? null);
+  const kpis = periodKpis(data.facts, misspelled);
+  const address = addressSummary(data.facts);
+  const spellingStats = misspelled === null ? null : spellingSummary(data.facts, misspelled);
+  const missed = missedServices(data.facts);
+  const stages = stageSummary(data.facts);
+  const scope = [
+    `Группа: ${groupOptions.find((option) => option.value === filters.group)?.label ?? "все группы"}`,
+    `период: ${periodOptions.find((option) => option.value === filters.period)?.label ?? filters.period}`,
+  ].join("; ");
+
+  const download = async (kind: PdfKind, rows: StudentStats[]) => {
+    const palette: ReportPalette = {
+      text: theme.black,
+      muted: theme.colors.povDark2[6],
+      line: theme.colors.povLine[6],
+      deviation: theme.colors.povRed[9],
+    };
+    const generatedAt = new Date();
+    const document =
+      kind === "performance"
+        ? reportDocument("Успеваемость обучаемых", performanceContent(scope, rows, palette), palette, generatedAt)
+        : analyticsDocument(
+            { scope, kpis, facts: data.facts, stats: rows, address, spelling: spellingStats, missed, stages, serviceName, generatedAt },
+            palette,
+          );
+
+    setPdfPending(kind);
+    try {
+      await downloadPdf(document, reportFileName(kind === "performance" ? "Успеваемость" : "Аналитика", generatedAt, "pdf"));
+    } catch {
+      notifications.show({ title: "PDF не сформирован", message: "Не удалось собрать PDF. Повторите попытку.", color: "red" });
+    } finally {
+      setPdfPending(null);
+    }
+  };
 
   return (
     <Stack gap="md">
-      <Title order={2} size="h4" fw={600}>
-        Аналитика
-      </Title>
+      <Group justify="space-between" wrap="wrap" gap="sm">
+        <Title order={2} size="h4" fw={600}>
+          Аналитика
+        </Title>
+        <Button
+          size="xs"
+          variant="outline"
+          color="povDark2.6"
+          loading={pdfPending === "analytics"}
+          disabled={data.pending || stats.length === 0}
+          title="Отчёт по группе за период: показатели, успеваемость, ошибки, прогноз"
+          onClick={() => void download("analytics", stats)}
+        >
+          Скачать PDF
+        </Button>
+      </Group>
 
       <Group gap="sm" wrap="wrap" align="flex-end">
         <Select
@@ -90,11 +160,22 @@ function Analytics({ teacherId }: { teacherId: string }) {
         </Paper>
       ) : (
         <>
-          <ErrorHeatmap stats={stats} facts={data.facts} />
-          <PerformanceTable stats={stats} />
-          <NormBars stats={stats} />
-          <Leaders stats={stats} />
-          <ForecastBlock stats={stats} />
+          <KpiTiles current={kpis} previous={data.previousFacts === null ? null : periodKpis(data.previousFacts, misspelled)} />
+          <div className={classes.cards}>
+            <ErrorHeatmap stats={stats} facts={data.facts} />
+            <PerformanceTable
+              stats={stats}
+              pdfPending={pdfPending === "performance"}
+              onDownloadPdf={(rows) => void download("performance", rows)}
+            />
+            <GroupSides facts={data.facts} />
+            <NormBars stats={stats} />
+            <AddressErrors summary={address} />
+            <SpellingBlock summary={spellingStats} failed={spelling.isError} />
+            <MissedServices facts={data.facts} serviceName={serviceName} />
+            <StatusTimes summary={stages} />
+            <ForecastBlock stats={stats} />
+          </div>
         </>
       )}
     </Stack>

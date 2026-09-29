@@ -1,6 +1,6 @@
 import {
   api,
-  errorStatus,
+  mayHaveBeenApplied,
   RequestError,
   toGroup,
   type Group,
@@ -16,7 +16,6 @@ import { groupMocks } from "./group.mocks";
 
 const NOT_FOUND = 404;
 const CONFLICT = 409;
-const SERVER_ERROR = 500;
 
 export async function fetchGroups(teacherId: string, signal?: AbortSignal): Promise<Group[]> {
   if (mocks.groups) return groupMocks.map(toGroup);
@@ -95,7 +94,8 @@ function isApplied(group: GroupDto, body: GroupPatch): boolean {
 
 /**
  * PATCH группы. Сервер применяет правку, но может ответить 500: ответ собирается уже после
- * коммита и падает на чтении обновлённой отметки времени. Поэтому при 5xx группа перечитывается,
+ * коммита и падает на чтении обновлённой отметки времени. Поэтому при 5xx или потерянном ответе группа
+ * перечитывается,
  * и правка считается применённой, если поля на сервере совпадают с отправленными.
  */
 async function patchGroup(groupId: string, body: GroupPatch): Promise<void> {
@@ -104,7 +104,7 @@ async function patchGroup(groupId: string, body: GroupPatch): Promise<void> {
   try {
     await api.patch(url, body);
   } catch (error) {
-    if ((errorStatus(error) ?? 0) < SERVER_ERROR) throw error;
+    if (!mayHaveBeenApplied(error)) throw error;
 
     const { data } = await api.get<GroupDto>(url);
 

@@ -17,7 +17,8 @@ import classes from "./expected-form.module.scss";
 import type { FormBinding } from "../model/form-binding";
 
 const workspaceGaps: Partial<Record<OptionalCardField, string>> = {
-  reported_address: "АРМ обучаемого это поле не заполняет — при проверке будет расхождение всегда.",
+  reported_address:
+    "АРМ отправляет сюда структурированный адрес формы: «г. Москва», улица, дом, корпус, строение, подъезд, квартира. Уточнение места («во дворе», «у пруда») — только в адресе происшествия.",
   victims_count: "АРМ обучаемого это поле не заполняет — при проверке будет расхождение всегда.",
 };
 

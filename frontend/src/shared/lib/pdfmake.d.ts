@@ -31,7 +31,7 @@ declare module "pdfmake/build/pdfmake" {
       headerRows: number;
       dontBreakRows: boolean;
       widths: (number | "*" | "auto")[];
-      body: PdfTextNode[][];
+      body: PdfContent[][];
     };
     layout: PdfTableLayout;
     margin?: PdfMargin;
@@ -42,7 +42,12 @@ declare module "pdfmake/build/pdfmake" {
     margin?: PdfMargin;
   }
 
-  export type PdfContent = PdfTextNode | PdfTableNode | PdfColumnsNode;
+  export interface PdfSvgNode {
+    svg: string;
+    width: number;
+  }
+
+  export type PdfContent = PdfTextNode | PdfTableNode | PdfColumnsNode | PdfSvgNode;
 
   export interface PdfFontFamily {
     normal: string;

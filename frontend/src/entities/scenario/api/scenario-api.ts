@@ -1,6 +1,6 @@
 import {
   api,
-  errorStatus,
+  mayHaveBeenApplied,
   RequestError,
   toScenarioCopy,
   toScenarioDetail,
@@ -24,7 +24,6 @@ const COPY_SUFFIX = " (копия)";
 const REVISION_CONFLICT = 409;
 const NOT_FOUND = 404;
 const FORBIDDEN = 403;
-const SERVER_ERROR = 500;
 
 export interface ScenarioRevisionRequest {
   scenarioId: string;
@@ -66,8 +65,9 @@ type ScenarioPatch = ScenarioStatusPatch | TrainingScenarioUpdateDto;
 /**
  * PATCH сценария. Сервер применяет правку, но может ответить 500: ответ собирается уже после
  * коммита и падает на чтении обновлённой отметки времени. Повтор такого запроса получил бы 409,
- * поэтому при 5xx сценарий перечитывается: ревизия ровно на единицу выше ожидаемой, автор правки —
- * этот пользователь и статус тот, что запрошен, — значит правка применена.
+ * поэтому при 5xx или потерянном ответе сценарий перечитывается: ревизия ровно на единицу выше
+ * ожидаемой, автор правки — этот пользователь и статус тот, что запрошен, — значит правка применена
+ * и дальше работаем с ревизией сервера.
  */
 async function patchScenario(scenarioId: string, body: ScenarioPatch, status: ScenarioStatus): Promise<SavedScenario> {
   const url = `${CARD_API_URL}/training-scenarios/${scenarioId}`;
@@ -77,7 +77,7 @@ async function patchScenario(scenarioId: string, body: ScenarioPatch, status: Sc
 
     return { id: data.id, revision: data.revision };
   } catch (error) {
-    if ((errorStatus(error) ?? 0) < SERVER_ERROR) throw error;
+    if (!mayHaveBeenApplied(error)) throw error;
 
     const { data } = await api.get<TrainingScenarioDto>(url);
     const applied =

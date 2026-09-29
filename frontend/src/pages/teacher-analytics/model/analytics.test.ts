@@ -2,8 +2,22 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { backtest, forecastScore, lessonSeries, studentForecast } from "./forecast.ts";
 import {
+  addressConclusion,
+  addressSummary,
+  errorsConclusion,
+  groupSides,
+  missedServices,
+  periodKpis,
+  servicesConclusion,
+  sidesConclusion,
+  spellingConclusion,
+  spellingSummary,
+  stageSummary,
+  stagesConclusion,
+  studentSides,
+} from "./group-insights.ts";
+import {
   difficultyAdviceOf,
-  leadersAndLaggards,
   readinessOf,
   studentStats,
   trendOf,
@@ -37,6 +51,11 @@ function attempt(studentId: string, index: number, score: number, overrides: Par
     role: "DDS",
     errors: null,
     norms: norms(1),
+    addressChecks: 0,
+    addressMismatches: [],
+    serviceChecks: [],
+    stageTimes: [],
+    typedWords: [],
     ...overrides,
   };
 }
@@ -100,13 +119,13 @@ describe("рекомендуемая сложность", () => {
   });
 });
 
-describe("тренд, лидеры и отстающие", () => {
+describe("тренд и стороны группы", () => {
   it("тренд — последние три против предыдущих", () => {
     assert.equal(trendOf([60, 60, 80, 80, 80].map((score, index) => attempt("a", index, score))), 20);
     assert.equal(trendOf([60, 80].map((score, index) => attempt("a", index, score))), null);
   });
 
-  it("лидеры — с сильными сторонами, отстающие — с двумя главными ошибками", () => {
+  it("сильные и слабые стороны группы и обучаемого", () => {
     const clean = errors([
       ["C2", false],
       ["C7", false],
@@ -118,23 +137,115 @@ describe("тренд, лидеры и отстающие", () => {
     ]);
     const facts = [
       ...[95, 90].map((score, index) => attempt("best", index, score, { errors: clean })),
-      ...[85, 80].map((score, index) => attempt("good", index, score, { errors: clean })),
-      ...[75, 70].map((score, index) => attempt("mid", index, score, { errors: clean })),
       ...[40, 50].map((score, index) => attempt("weak", index, score, { errors: weak })),
-      attempt("single", 0, 10),
     ];
-    const { leaders, laggards } = leadersAndLaggards(studentStats(facts));
+    const sides = groupSides(facts);
+
+    assert.deepEqual(sides.weak.map((side) => side.column), ["C5", "C2"]);
+    assert.deepEqual(sides.strong.map((side) => side.column), ["C7"]);
+    assert.equal(sidesConclusion(facts), "Группа уверена: «Статусы реагирования»; проседает: «Тайминг», «Службы».");
+
+    const byStudent = new Map(studentStats(facts).map((student) => [student.studentId, studentSides(student)]));
+
+    assert.deepEqual(byStudent.get("weak"), { strong: "C7", weak: "C2" });
+    assert.deepEqual(byStudent.get("best"), { strong: "C2", weak: null });
+  });
+});
+
+describe("предметные блоки", () => {
+  it("ключевые показатели и орфография на попытку", () => {
+    const misspelled = new Map([["улитса", ["улица"]]]);
+    const facts = [
+      attempt("a", 0, 80, { typedWords: ["улитса", "дом"] }),
+      attempt("b", 0, 60, { typedWords: ["улица"] }),
+      attempt("c", 0, 100),
+    ];
+
+    assert.deepEqual(periodKpis(facts, misspelled), {
+      attempts: 3,
+      averageScore: 80,
+      passShare: 2 / 3,
+      normShare: 1,
+      spellingPerAttempt: 0.5,
+    });
+    assert.equal(periodKpis(facts, null).spellingPerAttempt, null);
+    assert.equal(spellingConclusion(spellingSummary(facts, misspelled)), "В среднем 0,5 орфографической ошибки на попытку; чаще всего — «улитса».");
+  });
+
+  it("ошибки в адресах — доля попыток оператора 112 и частые примеры", () => {
+    const mismatch = { expected: "г. Москва, ул. Дубининская, д. 5", actual: "г. Москва, ул. Дубнинская, д. 5" };
+    const facts = [
+      attempt("a", 0, 50, { role: "OPERATOR_112", addressChecks: 1, addressMismatches: [mismatch] }),
+      attempt("b", 0, 50, { role: "OPERATOR_112", addressChecks: 1, addressMismatches: [mismatch] }),
+      attempt("c", 0, 90, { role: "OPERATOR_112", addressChecks: 2 }),
+      attempt("d", 0, 90),
+    ];
+    const summary = addressSummary(facts);
+
+    assert.deepEqual(summary, { checked: 3, withErrors: 2, examples: [{ ...mismatch, count: 2 }] });
+    assert.equal(addressConclusion(summary), "Адрес со слов заявителя неверен в 67\u00a0% попыток оператора 112 (2 из 3).");
+  });
+
+  it("пропуски служб — по типу происшествия, самые частые первыми", () => {
+    const facts = [
+      attempt("a", 0, 50, {
+        serviceChecks: [
+          { incidentType: "ДТП с пострадавшими", serviceCode: "103", missed: true },
+          { incidentType: "ДТП с пострадавшими", serviceCode: "102", missed: false },
+        ],
+      }),
+      attempt("b", 0, 50, {
+        serviceChecks: [
+          { incidentType: "ДТП с пострадавшими", serviceCode: "103", missed: true },
+          { incidentType: "Пожар", serviceCode: "101", missed: true },
+          { incidentType: "Пожар", serviceCode: "101", missed: false },
+        ],
+      }),
+    ];
+    const rows = missedServices(facts);
+
+    assert.deepEqual(rows, [
+      { incidentType: "ДТП с пострадавшими", serviceCode: "103", missed: 2, total: 2 },
+      { incidentType: "Пожар", serviceCode: "101", missed: 1, total: 2 },
+    ]);
+    assert.equal(
+      servicesConclusion(rows, (code) => (code === "103" ? "Скорая медицинская помощь" : code)),
+      "Чаще всего забывают «Скорая медицинская помощь» при «ДТП с пострадавшими»: 2 из 2.",
+    );
+  });
+
+  it("время по статусам ДДС — среднее от «Получена» и самый долгий переход", () => {
+    const facts = [
+      attempt("a", 0, 50, {
+        stageTimes: [
+          { stage: "accepted", ms: 20_000 },
+          { stage: "responseStarted", ms: 40_000 },
+          { stage: "arrived", ms: 160_000 },
+        ],
+      }),
+      attempt("b", 0, 50, { stageTimes: [{ stage: "accepted", ms: 40_000 }] }),
+    ];
+    const summary = stageSummary(facts);
 
     assert.deepEqual(
-      leaders.map((leader) => leader.stats.studentId),
-      ["best", "good"],
+      summary.map((stage) => [stage.stage, stage.averageMs, stage.count]),
+      [
+        ["accepted", 30_000, 2],
+        ["responseStarted", 40_000, 1],
+        ["arrived", 160_000, 1],
+        ["completed", null, 0],
+      ],
     );
-    assert.match(leaders[0]?.text ?? "", /без ошибок: Службы, Статусы реагирования/);
-    assert.deepEqual(
-      laggards.map((laggard) => laggard.stats.studentId),
-      ["weak", "mid"],
-    );
-    assert.match(laggards[0]?.text ?? "", /ошибается: Службы \(2 из 2\), Тайминг \(2 из 2\)/);
+    assert.equal(stagesConclusion(summary), "Дольше всего — от «Начало реагирования» до «Прибытие»: в среднем 2:00.");
+  });
+
+  it("вывод по ошибкам — проверка с наибольшей долей", () => {
+    const facts = [
+      attempt("a", 0, 50, { errors: errors([["C4", true], ["C2", false]]) }),
+      attempt("b", 0, 50, { errors: errors([["C4", false], ["C2", false]]) }),
+    ];
+
+    assert.equal(errorsConclusion(facts), "Чаще всего группа ошибается по проверке «Адрес»: 50\u00a0% попыток (1 из 2).");
   });
 });
 

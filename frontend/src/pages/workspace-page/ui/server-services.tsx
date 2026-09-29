@@ -23,6 +23,7 @@ import {
   type LaunchContext,
 } from "@/entities/training";
 import classes from "./incident-viewer.module.scss";
+import { serviceDisplayName } from "@/shared/config";
 
 export function ServerServices({
   ctx,
@@ -157,7 +158,7 @@ function ServerService({
           <span className={classes.serviceContent}>
             {ctx.mode === "ARM112" && <Phone size={13} aria-hidden="true" />}
             <span className={classes.serviceName}>
-              {info?.name ?? "Служба"}
+              {info ? serviceDisplayName(info.code, info.name) : "Служба"}
             </span>
             {ctx.mode !== "ARM112" && (
               <span className={classes.serviceStatus}>
@@ -169,7 +170,7 @@ function ServerService({
       </Popover.Target>
       <Popover.Dropdown>
         <Stack gap="sm">
-          <Text fw={600}>{info?.name ?? "Служба"}</Text>
+          <Text fw={600}>{info ? serviceDisplayName(info.code, info.name) : "Служба"}</Text>
           <div style={{ maxHeight: 200, overflow: "auto" }}>
             {query.data?.map((item) => (
               <Text size="xs" key={item.id}>
@@ -277,7 +278,7 @@ function AddService({
           <Select
             searchable
             label="Служба"
-            data={directory.map((d) => ({ value: d.id, label: d.name }))}
+            data={directory.map((d) => ({ value: d.id, label: serviceDisplayName(d.code, d.name) }))}
             value={id}
             onChange={setId}
             comboboxProps={{ withinPortal: false }}

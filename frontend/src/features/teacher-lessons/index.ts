@@ -6,7 +6,7 @@ export { completedAttemptsPhrase, participantsPhrase } from "./model/plurals";
 export { useLessonFindings } from "./api/use-lesson-findings";
 export type { LessonFindingsState } from "./api/use-lesson-findings";
 export { downloadLessonReport, lessonReportFileName } from "./model/lesson-report";
-export type { LessonReport, ReportPalette } from "./model/lesson-report";
+export type { LessonReport } from "./model/lesson-report";
 export {
   MIN_ATTEMPTS_FOR_RANKING,
   interruptedAttempts,

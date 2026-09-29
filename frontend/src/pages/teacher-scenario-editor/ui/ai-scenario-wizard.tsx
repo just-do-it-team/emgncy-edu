@@ -115,7 +115,7 @@ interface AiScenarioWizardProps {
 export function AiScenarioWizard({ templates, userId }: AiScenarioWizardProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const generationId = searchParams.get(GENERATION_PARAM);
-  const generation = useTemplateGeneration(generationId, true);
+  const generation = useTemplateGeneration(generationId);
   const [composed, setComposed] = useState<ScenarioDraft | null>(null);
   const completed = generation.data?.status === "COMPLETED" ? generation.data : null;
   const active = composed !== null ? 2 : completed !== null ? 1 : 0;
@@ -175,7 +175,7 @@ export function AiScenarioWizard({ templates, userId }: AiScenarioWizardProps) {
       )}
 
       {completed === null && !generation.isError && (generationId === null || !generation.isPending) && (
-        <GenerateTemplatesForm userId={userId} onCompleted={start} />
+        <GenerateTemplatesForm userId={userId} initialService={null} onCompleted={start} />
       )}
 
       {completed !== null && (

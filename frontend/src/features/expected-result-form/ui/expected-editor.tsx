@@ -19,6 +19,7 @@ import { OutboundCallFields } from "./outbound-call-fields";
 import { ServicesField } from "./services-field";
 import { StatusHistoryEditor } from "./status-history-editor";
 import type { FormBinding } from "../model/form-binding";
+import { serviceWithCode } from "@/shared/config";
 
 interface ExpectedEditorProps {
   form: FormBinding;
@@ -34,7 +35,7 @@ export function ExpectedEditor({ form, path, value, variant, source, services, e
   const known = services.length > 0 ? new Set(services.map((service) => service.code)) : null;
   const auto = autoServices(value.recordId, value.flags, known);
   const dispatcher = isDispatcherVariant(variant);
-  const serviceName = (code: string) => services.find((service) => service.code === code)?.name ?? `служба ${code}`;
+  const serviceName = (code: string) => serviceWithCode(code, services.find((service) => service.code === code)?.name ?? null);
 
   const setServices = (next: string[]) => form.setFieldValue(`${path}.services`, next);
 

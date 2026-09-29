@@ -17,15 +17,29 @@ const cardFieldLabels: Record<string, string> = {
 };
 
 const classificationLabels: Record<string, string> = {
-  record_id: "запись классификатора",
-  group_code: "группа",
-  feature_1_code: "признак 1 порядка",
-  feature_2_code: "признак 2 порядка",
-  feature_3_code: "признак 3 порядка",
-  final_incident_type: "итоговый тип происшествия",
-  excluded_service_codes: "исключённые службы",
-  routing_flags: "флаги оповещения",
+  record_id: "Тип происшествия",
+  group_code: "Группа происшествий",
+  feature_1_code: "Признак 1 порядка",
+  feature_2_code: "Признак 2 порядка",
+  feature_3_code: "Признак 3 порядка",
+  final_incident_type: "Тип происшествия",
+  excluded_service_codes: "Исключённые службы",
+  routing_flags: "Флаги оповещения",
 };
+
+const objectFieldLabels: Record<string, string> = {
+  ...cardFieldLabels,
+  status: "статус",
+  comment: "комментарий",
+  unit_number: "бригада",
+  final_incident_type: "тип происшествия",
+  expected_text: "эталон",
+  actual_text: "сказано",
+  explanation: "пояснение",
+};
+
+// Служебные поля сервера: идентификаторы, модель, счётчики и отметки времени. В интерфейс не выводятся.
+const TECHNICAL_KEY = /^(id|key|model|attempts|sequence_no|revision)$|_id$|_at$|^workspace/;
 
 const cardStatusLabels: Record<string, string> = {
   REGISTERED: "Зарегистрирована",
@@ -82,6 +96,10 @@ export function cardFieldLabel(field: string): string {
   return cardFieldLabels[field] ?? field;
 }
 
+function codeAndName(code: string, name: string): string {
+  return name.includes(code) ? name : `${code} · ${name}`;
+}
+
 export function serviceLabel(
   serviceId: string | null,
   services: Map<string, EmergencyService> | undefined,
@@ -90,27 +108,62 @@ export function serviceLabel(
 
   const service = services?.get(serviceId);
 
-  return service ? `${service.code} ${service.name}` : `служба ${serviceId.slice(0, 8)}`;
+  return service ? codeAndName(service.code, service.name) : "служба не найдена в справочнике";
 }
 
 function serviceByCode(code: string, services: Map<string, EmergencyService> | undefined): string {
   const service = [...(services?.values() ?? [])].find((item) => item.code === code);
 
-  return service ? `${code} ${service.name}` : code;
+  return service ? codeAndName(code, service.name) : `служба ${code}`;
+}
+
+function formatNumber(value: number): string {
+  return value.toLocaleString("ru-RU", { maximumFractionDigits: 2 });
+}
+
+/**
+ * Объект из ответа сервера в одну строку для человека. Известные формы (доклад, проверенный моделью,
+ * запись истории статусов, классификация) форматируются по смыслу; у остальных остаются только поля
+ * с подписью, служебные ключи отбрасываются.
+ */
+function formatObject(value: Record<string, JsonValue>): string {
+  const similarity = value.similarity;
+  const threshold = value.minimum_similarity;
+
+  if (typeof similarity === "number") {
+    return typeof threshold === "number"
+      ? `сходство ${formatNumber(similarity)} при пороге ${formatNumber(threshold)}`
+      : `сходство ${formatNumber(similarity)}`;
+  }
+  if (typeof threshold === "number") return `сходство не ниже ${formatNumber(threshold)}`;
+  if (typeof value.final_incident_type === "string") return value.final_incident_type;
+  if (typeof value.status === "string") {
+    const comment = typeof value.comment === "string" && value.comment.trim() !== "" ? ` — ${value.comment}` : "";
+
+    return `${responseStatusLabel(value.status)}${comment}`;
+  }
+
+  const parts = Object.entries(value).flatMap(([key, item]) => {
+    const label = objectFieldLabels[key];
+
+    if (label === undefined || TECHNICAL_KEY.test(key) || (typeof item === "object" && item !== null)) return [];
+
+    return [`${label}: ${formatJsonValue(item)}`];
+  });
+
+  return parts.length === 0 ? "—" : parts.join("; ");
 }
 
 export function formatJsonValue(value: JsonValue): string {
   if (value === null) return "—";
   if (typeof value === "string") return value.trim() === "" ? "—" : value;
-  if (typeof value === "number") return value.toLocaleString("ru-RU");
+  if (typeof value === "number") return formatNumber(value);
   if (typeof value === "boolean") return value ? "да" : "нет";
   if (Array.isArray(value)) {
     return value.length === 0 ? "—" : value.map((item) => formatJsonValue(item)).join(", ");
   }
 
-  return Object.entries(value)
-    .map(([key, item]) => `${key}: ${formatJsonValue(item)}`)
-    .join("; ");
+  return formatObject(value);
 }
 
 export function discrepancyValue(path: string, value: JsonValue): string {
@@ -131,13 +184,13 @@ export function discrepancyLabel(
   const segments = path.split(".");
   const [root, second, third, fourth] = segments;
 
-  if (path === "expected_result.outbound_call") return "Исходящий звонок";
+  if (path === "expected_result.outbound_call") return "Доклад руководителю бригады (проверка моделью)";
 
   if (root === "card" && second === "classification") {
     if (third === undefined) return "Классификация";
-    if (third === "routing_flags") return `Флаг оповещения ${fourth ?? ""}`.trim();
+    if (third === "routing_flags") return "Флаг оповещения";
 
-    return `Классификация: ${classificationLabels[third] ?? third}`;
+    return classificationLabels[third] ?? "Классификация";
   }
   if (root === "card" && second === "questionnaire") {
     if (third === "questions") return "Опросная карта: вопросы";
@@ -172,8 +225,8 @@ export function discrepancyLabel(
       decision_deadline: "срок решения",
     };
 
-    return `${service}: ${labels[third ?? ""] ?? third}`;
+    return `${service}: ${labels[third ?? ""] ?? "обработка карточки"}`;
   }
 
-  return path;
+  return "Поле карточки";
 }

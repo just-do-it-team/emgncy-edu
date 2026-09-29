@@ -4,8 +4,6 @@ import {
   CONFIDENT_MIN_PASS_SHARE,
   CONFIDENT_MIN_SCORE,
   DIFFICULTY_WINDOW,
-  LEADERS_COUNT,
-  LEADERS_MIN_ATTEMPTS,
   LOWER_MAX_SCORE,
   LOWER_PASS_SHARE,
   MAX_DIFFICULTY,
@@ -15,7 +13,6 @@ import {
   READY_MIN_NORM_SHARE,
   READY_MIN_PASS_SHARE,
   READY_MIN_SCORE,
-  TOP_ERRORS_COUNT,
   TREND_WINDOW,
 } from "./analytics-rules.ts";
 
@@ -42,6 +39,24 @@ export interface NormFacts {
   entryMs: number[];
 }
 
+export interface AddressMismatch {
+  expected: string;
+  actual: string;
+}
+
+export interface ServiceCheck {
+  incidentType: string;
+  serviceCode: string;
+  missed: boolean;
+}
+
+export type DispatchStage = "accepted" | "responseStarted" | "arrived" | "completed";
+
+export interface StageTime {
+  stage: DispatchStage;
+  ms: number;
+}
+
 export interface AttemptFacts {
   sessionId: string;
   studentId: string;
@@ -56,6 +71,11 @@ export interface AttemptFacts {
   role: ParticipantRole;
   errors: Map<AnalyticsColumn, boolean> | null;
   norms: NormFacts | null;
+  addressChecks: number;
+  addressMismatches: AddressMismatch[];
+  serviceChecks: ServiceCheck[];
+  stageTimes: StageTime[];
+  typedWords: string[];
 }
 
 export interface ColumnShare {
@@ -277,46 +297,4 @@ export function studentStats(facts: AttemptFacts[]): StudentStats[] {
       },
     ];
   });
-}
-
-export interface RankedStudent {
-  stats: StudentStats;
-  text: string;
-}
-
-function shareText({ column, share }: { column: AnalyticsColumn; share: ColumnShare }): string {
-  return `${analyticsColumnLabels[column]} (${share.withErrors} из ${share.applicable})`;
-}
-
-/**
- * Лидеры и отстающие по среднему итоговому баллу — только у кого не меньше двух попыток. Списки не
- * пересекаются: при малой выборке она делится пополам, лидерам достаётся середина при нечётном числе. Пояснение
- * собирается шаблоном: сильные стороны — группы проверок, в которых ни одной ошибки; слабые — две
- * группы с наибольшей долей попыток с ошибкой.
- */
-export function leadersAndLaggards(stats: StudentStats[]): { leaders: RankedStudent[]; laggards: RankedStudent[] } {
-  const ranked = stats
-    .filter((student) => student.average !== null && student.attempts.length >= LEADERS_MIN_ATTEMPTS)
-    .sort((first, second) => (second.average ?? 0) - (first.average ?? 0));
-  const leadersCount = Math.min(LEADERS_COUNT, Math.ceil(ranked.length / 2));
-  const leaders = ranked.slice(0, leadersCount);
-  const laggards = ranked.slice(Math.max(leadersCount, ranked.length - LEADERS_COUNT)).reverse();
-
-  const strengths = (student: StudentStats) => {
-    const clean = [...student.columns]
-      .filter(([, share]) => share.applicable > 0 && share.withErrors === 0)
-      .map(([column]) => analyticsColumnLabels[column]);
-
-    return clean.length === 0 ? "ошибки есть в каждой группе проверок" : `без ошибок: ${clean.join(", ")}`;
-  };
-  const weaknesses = (student: StudentStats) => {
-    const top = topErrors(student.columns, TOP_ERRORS_COUNT);
-
-    return top.length === 0 ? "ошибок по проверкам нет" : `ошибается: ${top.map(shareText).join(", ")}`;
-  };
-
-  return {
-    leaders: leaders.map((student) => ({ stats: student, text: strengths(student) })),
-    laggards: laggards.map((student) => ({ stats: student, text: weaknesses(student) })),
-  };
 }

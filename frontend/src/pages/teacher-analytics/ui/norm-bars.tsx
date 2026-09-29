@@ -1,6 +1,8 @@
-import { Paper, SimpleGrid, Stack, Text, Title } from "@mantine/core";
+import { SimpleGrid, Stack, Text } from "@mantine/core";
 import { CARD_OPEN_NORM_SECONDS, FIRST_ENTRY_NORM_SECONDS } from "@/shared/config";
+import { normsConclusion } from "../model/group-insights";
 import type { StudentStats } from "../model/student-stats";
+import { AnalyticsCard } from "./analytics-card";
 import classes from "./analytics.module.scss";
 
 const SECOND_MS = 1000;
@@ -50,34 +52,31 @@ export function NormBars({ stats }: { stats: StudentStats[] }) {
     .sort((first, second) => first.student.name.localeCompare(second.student.name, "ru"));
 
   return (
-    <Paper withBorder p="md">
-      <Stack gap="sm">
-        <Title order={3} size="h5" fw={600}>
-          Время против норматива
-        </Title>
-        {rows.length === 0 ? (
-          <Text size="sm" c="povDark2.6">
-            Нет карточек ДДС с действиями обучаемых. Нормативы 30 с до открытия и 3 мин до первой записи есть только у
-            диспетчера ДДС; блок заполнится после первой разобранной попытки с карточкой.
-          </Text>
-        ) : (
-          <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md" verticalSpacing="sm">
-            {rows.map(({ student, open, entry }) => (
-              <Stack key={student.studentId} gap={4}>
-                <Text size="sm" fw={600}>
-                  {student.name}
-                </Text>
-                <Bar label="Открытие" value={open} norm={CARD_OPEN_NORM_SECONDS} />
-                <Bar label="Первая запись" value={entry} norm={FIRST_ENTRY_NORM_SECONDS} />
-              </Stack>
-            ))}
-          </SimpleGrid>
-        )}
-        <Text size="xs" c="povDark2.6">
-          Вертикальная черта — норматив, полоса — среднее время от выпуска карточки; красная — норматив превышен. Шкала
-          до двух нормативов.
+    <AnalyticsCard
+      title="Время против норматива"
+      conclusion={normsConclusion(stats.flatMap((student) => student.attempts))}
+      actions={null}
+      legend="Вертикальная черта — норматив, полоса — среднее время от выпуска карточки; красная — норматив превышен. Шкала до двух нормативов."
+      wide={false}
+    >
+      {rows.length === 0 ? (
+        <Text size="sm" c="povDark2.6">
+          Нормативы 30 с до открытия и 3 мин до первой записи есть только у диспетчера ДДС; блок заполнится после первой
+          разобранной попытки с карточкой.
         </Text>
-      </Stack>
-    </Paper>
+      ) : (
+        <SimpleGrid cols={1} spacing="md" verticalSpacing="sm">
+          {rows.map(({ student, open, entry }) => (
+            <Stack key={student.studentId} gap={4}>
+              <Text size="sm" fw={600}>
+                {student.name}
+              </Text>
+              <Bar label="Открытие" value={open} norm={CARD_OPEN_NORM_SECONDS} />
+              <Bar label="Первая запись" value={entry} norm={FIRST_ENTRY_NORM_SECONDS} />
+            </Stack>
+          ))}
+        </SimpleGrid>
+      )}
+    </AnalyticsCard>
   );
 }

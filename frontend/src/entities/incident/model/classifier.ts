@@ -72,6 +72,17 @@ export const routingFlags = [
   ["culture", "Объект из перечня Департамента культуры"],
 ] as const;
 export type RoutingFlag = (typeof routingFlags)[number][0];
+
+const recordsById = new Map(classifierRecords.map((record) => [record.id, record]));
+const routingFlagLabels = new Map<string, string>(routingFlags);
+
+export function classifierRecordById(recordId: number): ClassifierRecord | undefined {
+  return recordsById.get(recordId);
+}
+
+export function routingFlagLabel(key: string): string | undefined {
+  return routingFlagLabels.get(key);
+}
 export type RoutingFlags = Partial<Record<RoutingFlag, boolean>>;
 
 export function getFeatureOptions(

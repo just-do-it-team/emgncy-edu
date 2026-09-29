@@ -1,19 +1,25 @@
+import type { ReactNode } from "react";
 import { Anchor, Checkbox, Skeleton } from "@mantine/core";
 import {
   buildReviewBreakdown,
   discrepancyLabel,
   discrepancyValue,
+  OUTBOUND_CALL_PATH,
+  outboundVerdictRows,
   reasonLabels,
+  reviewCriterionCodes,
   reviewNotices,
+  type FindingGroup,
   type ReviewFinding,
   type ReviewNote,
   type Significance,
 } from "@/entities/expert-review";
-import type { AutomaticResult, EmergencyService, ParticipantRole } from "@/shared/api";
-import { criterionLabels } from "@/shared/config";
+import type { EmergencyService, ParticipantRole } from "@/shared/api";
+import { criterionLabels, type CriterionCode } from "@/shared/config";
 import { charSpans } from "@/shared/lib";
 import { significanceLabels } from "../model/review-labels";
-import { formatOffset, type StreamItem } from "../model/replay";
+import { formatOffset } from "../model/replay";
+import type { FindingLocator } from "./element-review";
 import classes from "./session-review.module.scss";
 
 export type RoleState =
@@ -81,138 +87,299 @@ export interface FindingDismissal {
   onChange: (path: string, dismissed: boolean) => void;
 }
 
+export interface ReviewGroup extends FindingGroup {
+  evaluated: boolean;
+}
+
+/** Куда ведёт клик по расхождению: в журнал выбранного элемента или к другому элементу. */
+interface FindingTarget {
+  locator: FindingLocator | null;
+  onOpen: (path: string) => void;
+}
+
 interface FindingRowProps {
   finding: ReviewFinding | ReviewNote;
   significance: Significance | null;
   formattingOnly: boolean;
   services: Map<string, EmergencyService> | undefined;
-  locate: (path: string) => StreamItem | null;
-  onLocate: (item: StreamItem) => void;
+  target: FindingTarget;
   dismissal: FindingDismissal | null;
 }
 
-function FindingRow({
-  finding,
-  significance,
-  formattingOnly,
-  services,
-  locate,
-  onLocate,
-  dismissal,
-}: FindingRowProps) {
-  const target = locate(finding.path);
-  const marker = significance ?? "low";
-  const reason = reasonLabels[finding.reason];
-  const content = (
-    <>
-      <div className={classes.findingHeader}>
-        <span className={classes.findingTitle} title={finding.path}>
-          {discrepancyLabel(finding.path, services)}
-        </span>
-        {significance && (
-          <span className={classes.findingMeta}>{significanceLabels[significance]}</span>
-        )}
-      </div>
-      <div className={classes.compare}>
-        <div>
-          <div className={classes.cellLabel}>ожидалось</div>
-          <CompareValue
-            path={finding.path}
-            value={finding.expected}
-            reference={finding.actual}
-            significance={marker}
-            highlight={!formattingOnly}
-          />
-        </div>
-        <div>
-          <div className={classes.cellLabel}>получено</div>
-          <CompareValue
-            path={finding.path}
-            value={finding.actual}
-            reference={finding.expected}
-            significance={marker}
-            highlight={!formattingOnly}
-          />
-        </div>
-      </div>
-      {formattingOnly && <div className={classes.findingFooter}>{reviewNotices.formattingOnly}</div>}
-      {reason && <div className={classes.findingFooter}>{reason}</div>}
-      {"explanation" in finding && (
-        <div className={classes.findingFooter}>{finding.explanation}</div>
-      )}
-      <div className={classes.findingFooter}>
-        {target
-          ? `в журнале: ${formatOffset(target.offsetMs)}`
-          : "момент заполнения в журнале не найден"}
-      </div>
-    </>
-  );
-  const className = `${classes.finding} ${significance ? findingClass[significance] : ""}`;
-  const row = target ? (
-    <button type="button" className={className} onClick={() => onLocate(target)}>
-      {content}
-    </button>
-  ) : (
-    <div className={className}>{content}</div>
-  );
-
-  if (dismissal === null) return row;
+function Dismissible({ path, dismissal, children }: { path: string; dismissal: FindingDismissal | null; children: ReactNode }) {
+  if (dismissal === null) return children;
 
   return (
     <div className={classes.findingGroup}>
-      {row}
+      {children}
       <div className={classes.findingDismiss}>
         <Checkbox
           size="xs"
           label="Не считаю ошибкой"
-          checked={dismissal.isDismissed(finding.path)}
-          onChange={(event) => dismissal.onChange(finding.path, event.currentTarget.checked)}
+          checked={dismissal.isDismissed(path)}
+          onChange={(event) => dismissal.onChange(path, event.currentTarget.checked)}
         />
       </div>
     </div>
   );
 }
 
-interface ReviewFindingsProps {
-  result: AutomaticResult | null;
-  roleState: RoleState;
+function Clickable({
+  path,
+  className,
+  target,
+  children,
+}: {
+  path: string;
+  className: string;
+  target: FindingTarget;
+  children: (footer: string) => ReactNode;
+}) {
+  if (target.locator === null) {
+    return (
+      <button type="button" className={className} onClick={() => target.onOpen(path)}>
+        {children("показать в журнале элемента")}
+      </button>
+    );
+  }
+
+  const item = target.locator.locate(path);
+
+  if (item === null) return <div className={className}>{children("момент заполнения в журнале не найден")}</div>;
+
+  const { show } = target.locator;
+
+  return (
+    <button type="button" className={className} onClick={() => show(item)}>
+      {children(`в журнале: ${formatOffset(item.offsetMs)}`)}
+    </button>
+  );
+}
+
+function FindingRow({ finding, significance, formattingOnly, services, target, dismissal }: FindingRowProps) {
+  const marker = significance ?? "low";
+  const reason = reasonLabels[finding.reason];
+  const className = `${classes.finding} ${significance ? findingClass[significance] : ""}`;
+
+  return (
+    <Dismissible path={finding.path} dismissal={dismissal}>
+      <Clickable path={finding.path} className={className} target={target}>
+        {(footer) => (
+          <>
+            <div className={classes.findingHeader}>
+              <span className={classes.findingTitle}>{discrepancyLabel(finding.path, services)}</span>
+              {significance && <span className={classes.findingMeta}>{significanceLabels[significance]}</span>}
+            </div>
+            <div className={classes.compare}>
+              <div>
+                <div className={classes.cellLabel}>ожидалось</div>
+                <CompareValue
+                  path={finding.path}
+                  value={finding.expected}
+                  reference={finding.actual}
+                  significance={marker}
+                  highlight={!formattingOnly}
+                />
+              </div>
+              <div>
+                <div className={classes.cellLabel}>указано</div>
+                <CompareValue
+                  path={finding.path}
+                  value={finding.actual}
+                  reference={finding.expected}
+                  significance={marker}
+                  highlight={!formattingOnly}
+                />
+              </div>
+            </div>
+            {formattingOnly && <div className={classes.findingFooter}>{reviewNotices.formattingOnly}</div>}
+            {reason && <div className={classes.findingFooter}>{reason}</div>}
+            {"explanation" in finding && <div className={classes.findingFooter}>{finding.explanation}</div>}
+            <div className={classes.findingFooter}>{footer}</div>
+          </>
+        )}
+      </Clickable>
+    </Dismissible>
+  );
+}
+
+function VerdictBlock({
+  group,
+  target,
+  dismissal,
+}: {
+  group: ReviewGroup;
+  target: FindingTarget;
+  dismissal: FindingDismissal | null;
+}) {
+  const { verdict } = group;
+
+  if (verdict === null) return null;
+
+  const reason = reasonLabels[group.discrepancies.find((item) => item.path === OUTBOUND_CALL_PATH)?.reason ?? ""];
+
+  return (
+    <>
+      <div className={classes.groupTitle}>Доклад руководителю бригады — проверка моделью</div>
+      <div className={classes.note}>{reviewNotices.modelEvaluation}</div>
+      <Dismissible path={OUTBOUND_CALL_PATH} dismissal={dismissal}>
+        <Clickable path={OUTBOUND_CALL_PATH} className={`${classes.finding} ${classes.findingMedium}`} target={target}>
+          {(footer) => (
+            <>
+              <dl className={classes.verdict}>
+                {outboundVerdictRows(verdict).map((row) => (
+                  <div key={row.label} className={classes.verdictRow}>
+                    <dt className={classes.cellLabel}>{row.label}</dt>
+                    <dd className={classes.verdictValue}>{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              {reason && <div className={classes.findingFooter}>{reason}</div>}
+              <div className={classes.findingFooter}>{footer}</div>
+            </>
+          )}
+        </Clickable>
+      </Dismissible>
+    </>
+  );
+}
+
+interface GroupBodyProps {
+  group: ReviewGroup;
+  role: ParticipantRole;
   services: Map<string, EmergencyService> | undefined;
-  locate: (path: string) => StreamItem | null;
-  onLocate: (item: StreamItem) => void;
-  scopeNote: string | null;
-  limitedNote: string | null;
+  target: FindingTarget;
   dismissal: FindingDismissal | null;
 }
 
+function GroupBody({ group, role, services, target, dismissal }: GroupBodyProps) {
+  if (!group.evaluated) {
+    return (
+      <div className={classes.state}>
+        Автоматическая проверка этого элемента не выполнена.
+        <div className={classes.stateHint}>Проверка запускается после завершения попытки. Откройте разбор позже.</div>
+      </div>
+    );
+  }
+
+  const breakdown = buildReviewBreakdown(
+    group.discrepancies.filter((item) => item.path !== OUTBOUND_CALL_PATH),
+    role,
+  );
+  const criteria = breakdown.criteria.flatMap((review) =>
+    review.applicable && review.findings.length > 0 ? [{ code: review.code, findings: review.findings }] : [],
+  );
+  const unassigned = [...breakdown.outsideRole, ...breakdown.unclassified];
+  const rowProps = { services, target, dismissal };
+  const empty =
+    criteria.length === 0 &&
+    group.verdict === null &&
+    breakdown.notes.length === 0 &&
+    breakdown.literalComments.length === 0 &&
+    unassigned.length === 0;
+
+  if (empty) return <div className={classes.note}>Расхождений с эталоном нет.</div>;
+
+  return (
+    <>
+      {criteria.map((criterion) => (
+        <div key={criterion.code}>
+          <div className={classes.groupTitle}>
+            {criterion.code} {criterionLabels[criterion.code]}
+          </div>
+          {criterion.findings.map((finding, index) => (
+            <FindingRow
+              key={`${finding.path}:${index}`}
+              finding={finding}
+              significance={finding.significance}
+              formattingOnly={finding.formattingOnly}
+              {...rowProps}
+            />
+          ))}
+        </div>
+      ))}
+      <VerdictBlock group={group} target={target} dismissal={dismissal} />
+      {unassigned.length > 0 && (
+        <>
+          <div className={classes.groupTitle}>Вне критериев роли — в балл роли не входит</div>
+          {unassigned.map((finding, index) => (
+            <FindingRow
+              key={`${finding.path}:${index}`}
+              finding={finding}
+              significance={finding.significance}
+              formattingOnly={finding.formattingOnly}
+              {...rowProps}
+            />
+          ))}
+        </>
+      )}
+      {breakdown.notes.length > 0 && (
+        <>
+          <div className={classes.groupTitle}>Сведения — не ошибки</div>
+          {breakdown.notes.map((note, index) => (
+            <FindingRow key={`${note.path}:${index}`} finding={note} significance={null} formattingOnly={false} {...rowProps} />
+          ))}
+        </>
+      )}
+      {breakdown.literalComments.length > 0 && (
+        <>
+          <div className={classes.groupTitle}>Комментарии — не оцениваются</div>
+          <div className={classes.note}>{reviewNotices.literalComments}</div>
+          {breakdown.literalComments.map((finding, index) => (
+            <FindingRow
+              key={`${finding.path}:${index}`}
+              finding={finding}
+              significance={finding.significance}
+              formattingOnly={finding.formattingOnly}
+              {...rowProps}
+            />
+          ))}
+        </>
+      )}
+    </>
+  );
+}
+
+function criterionCounts(groups: ReviewGroup[], role: ParticipantRole): Map<CriterionCode, number> {
+  const counts = new Map<CriterionCode, number>(reviewCriterionCodes.map((code) => [code, 0]));
+
+  for (const group of groups) {
+    for (const review of buildReviewBreakdown(group.discrepancies, role).criteria) {
+      if (review.applicable) counts.set(review.code, (counts.get(review.code) ?? 0) + review.findings.length);
+    }
+  }
+
+  return counts;
+}
+
+interface ReviewFindingsProps {
+  groups: ReviewGroup[];
+  selectedKey: string | null;
+  roleState: RoleState;
+  services: Map<string, EmergencyService> | undefined;
+  locator: FindingLocator;
+  onOpen: (groupKey: string, path: string) => void;
+  scopeNote: string | null;
+  limitedNote: string | null;
+  dismissalOf: (groupKey: string, title: string) => FindingDismissal | null;
+}
+
 export function ReviewFindings({
-  result,
+  groups,
+  selectedKey,
   roleState,
   services,
-  locate,
-  onLocate,
+  locator,
+  onOpen,
   scopeNote,
   limitedNote,
-  dismissal,
+  dismissalOf,
 }: ReviewFindingsProps) {
   if (limitedNote) {
     return (
       <>
-        <SectionBar title="Критерии" />
+        <SectionBar title="Расхождения" />
         <div className={classes.state}>{limitedNote}</div>
-      </>
-    );
-  }
-
-  if (result === null) {
-    return (
-      <>
-        <SectionBar title="Критерии" />
-        <div className={classes.state}>
-          Автоматическая проверка этого элемента ещё не выполнена.
-          <div className={classes.stateHint}>
-            Проверка запускается после завершения попытки. Откройте разбор позже.
-          </div>
-        </div>
       </>
     );
   }
@@ -220,7 +387,7 @@ export function ReviewFindings({
   if (roleState.status === "pending") {
     return (
       <>
-        <SectionBar title="Критерии" />
+        <SectionBar title="Расхождения" />
         <Skeleton height={182} radius={0} />
       </>
     );
@@ -229,7 +396,7 @@ export function ReviewFindings({
   if (roleState.status === "error") {
     return (
       <>
-        <SectionBar title="Критерии" />
+        <SectionBar title="Расхождения" />
         <div className={classes.state}>
           {roleState.message}
           <div className={classes.stateHint}>
@@ -243,20 +410,15 @@ export function ReviewFindings({
     );
   }
 
-  const breakdown = buildReviewBreakdown(result.discrepancies, roleState.role);
-  const groups = breakdown.criteria.flatMap((review) =>
-    review.applicable && review.findings.length > 0
-      ? [{ code: review.code, findings: review.findings }]
-      : [],
-  );
-  const unassigned = [...breakdown.outsideRole, ...breakdown.unclassified];
-  const rowProps = { services, locate, onLocate, dismissal };
+  const { role } = roleState;
+  const counts = criterionCounts(groups, role);
+  const applicable = buildReviewBreakdown([], role).criteria;
 
   return (
     <>
-      <SectionBar title="Критерии" hint="найдено расхождений" />
+      <SectionBar title="Критерии" hint="расхождений по всем элементам" />
       {scopeNote && <div className={classes.note}>{scopeNote}</div>}
-      {breakdown.criteria.map((review) => (
+      {applicable.map((review) => (
         <div
           key={review.code}
           className={`${classes.criterion} ${review.applicable ? "" : classes.criterionMuted}`}
@@ -266,100 +428,34 @@ export function ReviewFindings({
             {review.code} {criterionLabels[review.code]}
           </span>
           {review.applicable ? (
-            <span className={classes.criterionCount}>{review.findings.length}</span>
+            <span className={classes.criterionCount}>{counts.get(review.code) ?? 0}</span>
           ) : (
             <span>{reviewNotices.notApplicable}</span>
           )}
         </div>
       ))}
-
-      <SectionBar title="Расхождения" hint="по критериям" />
       <div className={classes.note}>{reviewNotices.significance}</div>
-      {groups.length === 0 ? (
-        <div className={classes.state}>
-          По применимым критериям расхождений с эталоном нет.
-          <div className={classes.stateHint}>Отдельные блоки ниже проверьте отдельно.</div>
-        </div>
-      ) : (
-        groups.map((group) => (
-          <div key={group.code}>
-            <div className={classes.groupTitle}>
-              {group.code} {criterionLabels[group.code]}
+
+      {groups.length === 0 && <div className={classes.state}>В попытке нет карточек и звонков с эталоном.</div>}
+      {groups.map((group) => {
+        const selected = group.key === selectedKey;
+
+        return (
+          <section key={group.key} className={selected ? classes.groupSelected : undefined} aria-label={group.title}>
+            <div className={classes.groupBar}>
+              <span>{group.title}</span>
+              {selected && <span className={classes.sectionHint}>журнал и диалог открыты</span>}
             </div>
-            {group.findings.map((finding, index) => (
-              <FindingRow
-                key={`${finding.path}:${index}`}
-                finding={finding}
-                significance={finding.significance}
-                formattingOnly={finding.formattingOnly}
-                {...rowProps}
-              />
-            ))}
-          </div>
-        ))
-      )}
-
-      <SectionBar title="Сведения" hint="не ошибки" />
-      {breakdown.notes.length === 0 ? (
-        <div className={classes.note}>Расхождений в адресе происшествия, АОН и описании нет.</div>
-      ) : (
-        breakdown.notes.map((note, index) => (
-          <FindingRow
-            key={`${note.path}:${index}`}
-            finding={note}
-            significance={null}
-            formattingOnly={false}
-            {...rowProps}
-          />
-        ))
-      )}
-
-      <SectionBar title="Комментарии" hint="не оцениваются" />
-      <div className={classes.note}>{reviewNotices.literalComments}</div>
-      {breakdown.literalComments.length === 0 ? (
-        <div className={classes.note}>Расхождений в комментариях нет.</div>
-      ) : (
-        breakdown.literalComments.map((finding, index) => (
-          <FindingRow
-            key={`${finding.path}:${index}`}
-            finding={finding}
-            significance={finding.significance}
-            formattingOnly={finding.formattingOnly}
-            {...rowProps}
-          />
-        ))
-      )}
-
-      <SectionBar title="Оценка модели" hint="не прямое соответствие" />
-      <div className={classes.note}>{reviewNotices.modelEvaluation}</div>
-      {breakdown.modelEvaluation.length === 0 ? (
-        <div className={classes.note}>Расхождений по исходящему звонку нет.</div>
-      ) : (
-        breakdown.modelEvaluation.map((finding, index) => (
-          <FindingRow
-            key={`${finding.path}:${index}`}
-            finding={finding}
-            significance={finding.significance}
-            formattingOnly={finding.formattingOnly}
-            {...rowProps}
-          />
-        ))
-      )}
-
-      {unassigned.length > 0 && (
-        <>
-          <SectionBar title="Не отнесено" hint="вне критериев роли или без критерия" />
-          {unassigned.map((finding, index) => (
-            <FindingRow
-              key={`${finding.path}:${index}`}
-              finding={finding}
-              significance={finding.significance}
-              formattingOnly={finding.formattingOnly}
-              {...rowProps}
+            <GroupBody
+              group={group}
+              role={role}
+              services={services}
+              target={{ locator: selected ? locator : null, onOpen: (path) => onOpen(group.key, path) }}
+              dismissal={dismissalOf(group.key, group.title)}
             />
-          ))}
-        </>
-      )}
+          </section>
+        );
+      })}
     </>
   );
 }

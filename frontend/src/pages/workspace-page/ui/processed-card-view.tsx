@@ -30,6 +30,7 @@ import {
 } from "@/entities/training";
 import { CardAudio } from "./card-audio";
 import classes from "./processed-card-view.module.scss";
+import { serviceDisplayName } from "@/shared/config";
 
 const savedAtFormatter = new Intl.DateTimeFormat("ru-RU", {
   day: "2-digit",
@@ -69,7 +70,7 @@ export function ProcessedCardView({
     (service) => service.is_active && service.is_visible,
   );
   const serviceNames = new Map(
-    directory.map((service) => [service.id, service.name]),
+    directory.map((service) => [service.id, serviceDisplayName(service.code, service.name)]),
   );
   const savedAt = new Date(card.registered_at);
   const operatorName =

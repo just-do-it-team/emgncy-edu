@@ -23,12 +23,11 @@ import {
   type Lesson,
   type LessonAiReview,
   type LessonFindingsState,
-  type ReportPalette,
   type ScoreDistribution,
 } from "@/features/teacher-lessons";
 import type { EmergencyService, MonitoredSession } from "@/shared/api";
 import { MONITOR_SOON_MINUTES, REACTION_NORMS_TEXT } from "@/shared/config";
-import { formatDayMonthTime } from "@/shared/lib";
+import { formatDayMonthTime, type ReportPalette } from "@/shared/lib";
 import { Button, Fact, ScoreBlock, tooltipEvents } from "@/shared/ui";
 import { TeacherAttemptsTable } from "@/widgets/teacher-attempts-table";
 import { LessonAiReviewBlock } from "./lesson-ai-review";

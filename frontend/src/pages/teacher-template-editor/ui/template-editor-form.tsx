@@ -33,6 +33,7 @@ import type { ScenarioTemplate } from "@/shared/api";
 import { errorMessages, focusFormField, useLeaveGuard } from "@/shared/lib";
 import { Button, IssuesList, LeaveConfirmModal } from "@/shared/ui";
 import { templatePathOf } from "../model/template-loc";
+import { serviceWithCode } from "@/shared/config";
 
 export interface TemplateTarget {
   templateKey: string | null;
@@ -65,7 +66,7 @@ export function TemplateEditorForm({ initial, target, draftOf, userId, cancelPat
   const guard = useLeaveGuard(form.isDirty() && !saved);
   const draft = form.values;
   const activeServices = services.data ? new Set(services.data.map((service) => service.code)) : null;
-  const serviceName = (code: string) => services.data?.find((service) => service.code === code)?.name ?? `служба ${code}`;
+  const serviceName = (code: string) => serviceWithCode(code, services.data?.find((service) => service.code === code)?.name ?? null);
   const validationContext = { recordExists, activeServices };
   const liveIssues = issues === null ? null : validateTemplateDraft(draft, validationContext);
 

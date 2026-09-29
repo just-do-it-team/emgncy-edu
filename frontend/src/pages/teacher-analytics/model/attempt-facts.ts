@@ -1,15 +1,17 @@
-import { buildReviewBreakdown } from "@/entities/expert-review";
+import { buildReviewBreakdown, spellingFields, spellingWords } from "@/entities/expert-review";
 import { lessonKeyOf } from "@/entities/monitoring";
 import type {
   ActionEvent,
   Discrepancy,
   ExpertReviewContext,
   MonitoredParticipant,
+  ReviewCall,
   MonitoredSession,
   ScenarioListItem,
   TeacherAssignment,
 } from "@/shared/api";
 import { CARD_OPEN_NORM_SECONDS, FIRST_ENTRY_NORM_SECONDS } from "@/shared/config";
+import { addressFacts, serviceFacts, stageFacts } from "./domain-facts";
 import { analyticsColumns, type AnalyticsColumn, type AttemptFacts, type NormFacts } from "./student-stats";
 
 const SECOND_MS = 1000;
@@ -64,13 +66,10 @@ function normFacts(actions: ActionEvent[], userId: string, soleDispatcher: boole
   return facts;
 }
 
-/**
- * Какие проверки применимы к участнику и в каких есть ошибки. Звонки относятся к оператору 112,
- * который их принял, карточки — к диспетчерам ДДС; внутри попытки сервер расхождения к участнику
- * не привязывает, поэтому в общей попытке они общие для всех участников той же роли. Ошибки
- * только в оформлении текста не считаются.
- */
-function errorFacts(context: ExpertReviewContext, participant: MonitoredParticipant, soleParticipant: boolean) {
+/** Звонки, которые принял оператор: в одиночной попытке — все звонки попытки. */
+function ownCalls(context: ExpertReviewContext, participant: MonitoredParticipant, soleParticipant: boolean): ReviewCall[] {
+  if (participant.role !== "OPERATOR_112") return [];
+
   const callOperators = new Map(
     context.actions.flatMap((action) =>
       action.kind === "call" && action.stage === "answered" && action.entityId !== null
@@ -78,11 +77,39 @@ function errorFacts(context: ExpertReviewContext, participant: MonitoredParticip
         : [],
     ),
   );
+
+  return context.incomingCalls.filter(
+    (call) => soleParticipant || callOperators.get(call.trainingCallId) === participant.userId,
+  );
+}
+
+function domainFacts(context: ExpertReviewContext | undefined, participant: MonitoredParticipant, soleParticipant: boolean) {
+  if (context === undefined) {
+    return { addressChecks: 0, addressMismatches: [], serviceChecks: [], stageTimes: [], typedWords: [] };
+  }
+
+  const calls = ownCalls(context, participant, soleParticipant);
+  const addresses = addressFacts(calls);
+
+  return {
+    addressChecks: addresses.checks,
+    addressMismatches: addresses.mismatches,
+    serviceChecks: serviceFacts(calls),
+    stageTimes: participant.role === "DDS" ? stageFacts(context.actions, participant.userId) : [],
+    typedWords: spellingWords(spellingFields(context, participant.userId)),
+  };
+}
+
+/**
+ * Какие проверки применимы к участнику и в каких есть ошибки. Звонки относятся к оператору 112,
+ * который их принял, карточки — к диспетчерам ДДС; внутри попытки сервер расхождения к участнику
+ * не привязывает, поэтому в общей попытке они общие для всех участников той же роли. Ошибки
+ * только в оформлении текста не считаются.
+ */
+function errorFacts(context: ExpertReviewContext, participant: MonitoredParticipant, soleParticipant: boolean) {
   const discrepancies: Discrepancy[] =
     participant.role === "OPERATOR_112"
-      ? context.incomingCalls
-          .filter((call) => soleParticipant || callOperators.get(call.trainingCallId) === participant.userId)
-          .flatMap((call) => call.automaticResult?.discrepancies ?? [])
+      ? ownCalls(context, participant, soleParticipant).flatMap((call) => call.automaticResult?.discrepancies ?? [])
       : context.cards.flatMap((card) => card.automaticResult?.discrepancies ?? []);
   const breakdown = buildReviewBreakdown(discrepancies, participant.role);
   const errors = new Map<AnalyticsColumn, boolean>();
@@ -139,6 +166,7 @@ export function attemptFacts({ sessions, assignments, scenarios, contexts, names
         context === undefined || participant.role !== "DDS"
           ? null
           : normFacts(context.actions, participant.userId, dispatchers.length === 1),
+      ...domainFacts(context, participant, session.participants.length === 1),
     }));
   });
 }

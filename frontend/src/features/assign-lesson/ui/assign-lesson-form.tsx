@@ -32,6 +32,7 @@ import {
 import { AssignmentResults } from "./assignment-results";
 import { ParticipantsPicker, type PickerSection } from "./participants-picker";
 import { ScenarioPicker } from "./scenario-picker";
+import { serviceWithCode } from "@/shared/config";
 
 const modeOptions: { value: AssignMode; label: string }[] = [
   { value: "single", label: "Одно задание всем" },
@@ -114,7 +115,7 @@ export function AssignLessonForm({
   const guard = useLeaveGuard(form.isDirty() && outcomes === null);
   const resolved = resolveRoles(draft, roles.rolesById);
   const services = [...(directory.data?.values() ?? [])].map((service) => ({ code: service.code, name: service.name }));
-  const serviceName = (code: string) => services.find((service) => service.code === code)?.name ?? `служба ${code}`;
+  const serviceName = (code: string) => serviceWithCode(code, services.find((service) => service.code === code)?.name ?? null);
   const active = activeAssignmentKeys(assignments.data ?? []);
   const now = Date.now();
   const span = assignmentWindow(draft.availableFrom, draft.dueAt, now);

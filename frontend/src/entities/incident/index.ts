@@ -2,9 +2,11 @@ export { demoIncidents } from "./api/demo-incidents";
 export type { Incident, IncidentService } from "./model/incident";
 export {
   classifierGroups,
+  classifierRecordById,
   classifierRecords,
   classifierServiceNames,
   routingFlags,
+  routingFlagLabel,
   getFeatureOptions,
   getClassificationMatches,
   resolveClassification,

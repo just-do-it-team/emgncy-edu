@@ -126,3 +126,40 @@
   font-size: 10px;
   fill: var(--mantine-color-povDark2-6);
 }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--mantine-spacing-md);
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+.cardHead {
+  min-width: 0;
+  flex: 1 1 280px;
+}
+
+.axisScale {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--mantine-font-size-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--mantine-color-povDark2-6);
+}
+
+.changed {
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--mantine-color-povOrange2-6);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+}
+
+@media (max-width: 62em) {
+  .cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

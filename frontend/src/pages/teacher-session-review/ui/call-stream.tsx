@@ -13,27 +13,10 @@ interface CallStreamProps {
   activeId: string | null;
   selectedId: string | null;
   registerItem: (id: string, element: HTMLDivElement | null) => void;
+  onPick: ((item: StreamItem) => void) | null;
 }
 
-function ItemBody({ item, services }: { item: StreamItem; services: CallStreamProps["services"] }) {
-  if (item.kind === "utterance") {
-    const { speaker, text } = item.utterance;
-
-    return (
-      <>
-        <span className={classes.speaker}>
-          {speakerLabels[speaker]}
-          {item.startNote && (
-            <span className={classes.inputMode} title={utteranceStartNotes[item.startNote].hint}>
-              {utteranceStartNotes[item.startNote].label}
-            </span>
-          )}
-        </span>
-        <span className={classes.utteranceText}>{text}</span>
-      </>
-    );
-  }
-
+function ActionBody({ item, services }: { item: Extract<StreamItem, { kind: "action" }>; services: CallStreamProps["services"] }) {
   const rejected = item.event.kind === "rejected";
 
   return (
@@ -53,6 +36,40 @@ function ItemBody({ item, services }: { item: StreamItem; services: CallStreamPr
   );
 }
 
+function Bubble({
+  item,
+  onPick,
+}: {
+  item: Extract<StreamItem, { kind: "utterance" }>;
+  onPick: CallStreamProps["onPick"];
+}) {
+  const { speaker, text } = item.utterance;
+  const own = speaker === "OPERATOR";
+  const note = item.startNote === null ? null : utteranceStartNotes[item.startNote];
+  const content = (
+    <>
+      <span className={classes.bubbleMeta}>
+        {speakerLabels[speaker]} · {formatOffset(item.offsetMs)}
+        {note && (
+          <span className={classes.inputMode} title={note.hint}>
+            {note.label}
+          </span>
+        )}
+      </span>
+      <span className={classes.utteranceText}>{text}</span>
+    </>
+  );
+  const className = `${classes.bubble} ${own ? classes.bubbleOwn : classes.bubbleOther}`;
+
+  return onPick === null ? (
+    <div className={className}>{content}</div>
+  ) : (
+    <button type="button" className={className} onClick={() => onPick(item)} title="Перейти к реплике в записи">
+      {content}
+    </button>
+  );
+}
+
 export function CallStream({
   items,
   notice,
@@ -61,6 +78,7 @@ export function CallStream({
   activeId,
   selectedId,
   registerItem,
+  onPick,
 }: CallStreamProps) {
   return (
     <div className={classes.stream}>
@@ -70,12 +88,18 @@ export function CallStream({
         <div
           key={item.id}
           ref={(element) => registerItem(item.id, element)}
-          className={`${classes.item} ${item.id === activeId ? classes.itemActive : ""} ${
-            item.id === selectedId ? classes.itemSelected : ""
-          }`}
+          className={`${classes.item} ${item.kind === "utterance" && item.utterance.speaker === "OPERATOR" ? classes.itemOwn : ""} ${
+            item.id === activeId ? classes.itemActive : ""
+          } ${item.id === selectedId ? classes.itemSelected : ""}`}
         >
-          <span className={classes.itemTime}>{formatOffset(item.offsetMs)}</span>
-          <ItemBody item={item} services={services} />
+          {item.kind === "utterance" ? (
+            <Bubble item={item} onPick={onPick} />
+          ) : (
+            <>
+              <span className={classes.itemTime}>{formatOffset(item.offsetMs)}</span>
+              <ActionBody item={item} services={services} />
+            </>
+          )}
         </div>
       ))}
     </div>

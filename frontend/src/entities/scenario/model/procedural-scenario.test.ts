@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ScenarioTemplate } from "@/shared/api";
-import { proceduralPool, proceduralScenarioDraft } from "./procedural-scenario.ts";
+import { poolSizesAbove, proceduralPool, proceduralScenarioDraft } from "./procedural-scenario.ts";
 import { definitionBody } from "./scenario-draft.ts";
 
 const classification = { record_id: 3010101, group_code: 3 };
@@ -55,6 +55,15 @@ describe("процедурный пул", () => {
       proceduralPool(templates, ["103", "104"], 3, []).map((candidate) => candidate.id),
       ["dds-103", "dds-104", "dds-103-hard"],
     );
+  });
+
+  it("подсказка по сложности — сколько шаблонов подойдёт на каждом уровне выше", () => {
+    assert.deepEqual(poolSizesAbove(templates, ["103"], 1, []), [
+      { difficulty: 2, size: 1 },
+      { difficulty: 3, size: 2 },
+      { difficulty: 4, size: 2 },
+    ]);
+    assert.deepEqual(poolSizesAbove(templates, ["103"], 4, []), []);
   });
 
   it("категории — по коду группы классификатора из исходной карточки", () => {

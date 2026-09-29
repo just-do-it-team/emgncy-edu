@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Alert, Group, Modal, Stack, Text, Title, Tooltip } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { notifications } from "@mantine/notifications";
@@ -79,7 +79,8 @@ export function ScenarioEditorForm({
   const publish = usePublishScenario();
   const refreshTemplates = useRefreshTemplates();
   const [checking, setChecking] = useState(false);
-  const [baseRevision] = useState(target?.revision ?? null);
+  const revision = useRef(target?.revision ?? null);
+  const saving = useRef(false);
   const [issues, setIssues] = useState<DraftIssue[] | null>(null);
   const [conflict, setConflict] = useState(false);
   const [confirmPublish, setConfirmPublish] = useState(false);
@@ -189,6 +190,10 @@ export function ScenarioEditorForm({
 
   const save = async (andPublish: boolean) => {
     if (andPublish && approvalBlock !== null) return;
+    // Кнопка блокируется только после перерисовки, а проверка шаблонов асинхронная: без флага второй
+    // клик успевает отправить тот же PATCH с той же ревизией и получает 409.
+    if (saving.current) return;
+    saving.current = true;
 
     setChecking(true);
     const fresh = await refreshTemplates().catch(() => templates);
@@ -197,6 +202,7 @@ export function ScenarioEditorForm({
     const found = validateScenarioDraft(draft, contextOf(fresh));
 
     if (hasErrors(found)) {
+      saving.current = false;
       report(found);
       return;
     }
@@ -204,11 +210,18 @@ export function ScenarioEditorForm({
     setIssues(found);
     form.clearErrors();
 
-    const onSuccess = (scenario: SavedScenario) =>
-      andPublish ? publishSaved(scenario) : finish(scenario, target === null ? "Сценарий создан" : "Черновик сохранён");
-    const onError = (error: unknown) => fail(error, found);
+    const onSuccess = (scenario: SavedScenario) => {
+      revision.current = scenario.revision;
+      saving.current = false;
+      if (andPublish) publishSaved(scenario);
+      else finish(scenario, target === null ? "Сценарий создан" : "Черновик сохранён");
+    };
+    const onError = (error: unknown) => {
+      saving.current = false;
+      fail(error, found);
+    };
 
-    if (target === null || baseRevision === null) {
+    if (target === null || revision.current === null) {
       create.mutate(scenarioCreateBody(draft, classificationFor, durationSeconds, userId), { onSuccess, onError });
       return;
     }
@@ -216,7 +229,7 @@ export function ScenarioEditorForm({
     update.mutate(
       {
         scenarioId: target.scenarioId,
-        body: scenarioUpdateBody(draft, classificationFor, durationSeconds, userId, baseRevision),
+        body: scenarioUpdateBody(draft, classificationFor, durationSeconds, userId, revision.current),
       },
       { onSuccess, onError },
     );

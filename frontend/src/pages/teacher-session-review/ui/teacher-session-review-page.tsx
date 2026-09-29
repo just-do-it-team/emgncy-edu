@@ -3,21 +3,30 @@ import { Alert, Anchor, SegmentedControl, Skeleton, Stack, Text } from "@mantine
 import { isAxiosError } from "axios";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useEmergencyServices } from "@/entities/emergency-service";
-import { discrepancyLabel, useExpertReviewContext, useReviewAssignment } from "@/entities/expert-review";
+import {
+  discrepancyLabel,
+  findingGroups,
+  useExpertReviewContext,
+  useReviewAssignment,
+  type ClassifierNames,
+  type FindingSource,
+} from "@/entities/expert-review";
+import { classifierRecordById, routingFlagLabel } from "@/entities/incident";
 import { useSessionStore } from "@/entities/session";
 import { useStudentNames } from "@/entities/student";
-import type { ExpertReviewContext, ReviewAssignment } from "@/shared/api";
+import type { ExpertReviewContext, ReviewAssignment, ReviewCall, ReviewCard } from "@/shared/api";
 import { formatDateTime } from "@/shared/lib";
-import { elementActions, formatOffset, offsetFrom, reviewElements } from "../model/replay";
+import { elementActions, formatOffset, offsetFrom, reviewElements, type ReviewElement } from "../model/replay";
 import { abortReasonText, type AbortActor } from "../model/review-labels";
 import { ABORTED_SESSION_STATUS, participantRoleLabels } from "@/entities/monitoring";
-import { CallElementReview, CardElementReview, OutgoingCallElementReview } from "./element-review";
-import { ExpertAssessmentCell } from "./expert-assessment";
+import { CallElementReview, CardElementReview, OutgoingCallElementReview, type FindingLocator } from "./element-review";
+import { ExpertAssessmentBlock } from "./expert-assessment";
 import { SpellingCell } from "./spelling-cell";
-import type { FindingDismissal, RoleState } from "./review-findings";
+import { ReviewFindings, type FindingDismissal, type ReviewGroup, type RoleState } from "./review-findings";
 import classes from "./session-review.module.scss";
 
 const scoreFormatter = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 });
+const classifierNames: ClassifierNames = { recordOf: classifierRecordById, flagLabel: routingFlagLabel };
 
 function RequestState({ title, children }: { title: string; children: string }) {
   return (
@@ -116,11 +125,40 @@ function participantRole(context: ExpertReviewContext, assignment: ReviewAssignm
   return roles.size === 0 ? "—" : [...roles].join(", ");
 }
 
-function discrepancyCount(context: ExpertReviewContext): number {
-  return [...context.incomingCalls, ...context.cards].reduce(
-    (total, element) => total + (element.automaticResult?.discrepancies.length ?? 0),
-    0,
+function sourceOf(key: string, element: ReviewCard | ReviewCall): FindingSource {
+  return {
+    key,
+    expectedResult: element.expectedResult,
+    currentState: element.currentState,
+    discrepancies: element.automaticResult?.discrepancies ?? [],
+  };
+}
+
+function reviewGroups(elements: ReviewElement[]): ReviewGroup[] {
+  const calls = elements.flatMap((item) => (item.kind === "call" ? [item] : []));
+  const cards = elements.flatMap((item) => (item.kind === "card" ? [item] : []));
+  const evaluated = new Set(
+    [...calls.map((item) => [item.key, item.call] as const), ...cards.map((item) => [item.key, item.card] as const)]
+      .filter(([, element]) => element.automaticResult !== null)
+      .map(([key]) => key),
   );
+
+  return [
+    ...findingGroups(calls.map((item) => sourceOf(item.key, item.call)), classifierNames, "Звонок"),
+    ...findingGroups(cards.map((item) => sourceOf(item.key, item.card)), classifierNames),
+  ].map((group) => ({ ...group, evaluated: evaluated.has(group.key) }));
+}
+
+/** Группа расхождений выбранного элемента: исходящий звонок относится к карточке, по которой звонили. */
+function groupKeyOf(element: ReviewElement | undefined, elements: ReviewElement[]): string | null {
+  if (element === undefined) return null;
+  if (element.kind !== "outgoing") return element.key;
+
+  const card = elements.find(
+    (item) => item.kind === "card" && item.card.incidentCardId !== null && item.card.incidentCardId === element.call.incidentCardId,
+  );
+
+  return card?.key ?? null;
 }
 
 function passedLabel(passed: boolean | null): string {
@@ -153,6 +191,11 @@ function LoadedReview({ context, teacherId, aborted }: LoadedReviewProps) {
   const [searchParams] = useSearchParams();
   const linkedElement = searchParams.get("element");
   const [selectedKey, setSelectedKey] = useState<string | null>(linkedElement);
+  const [focus, setFocus] = useState<{ key: string; path: string } | null>(() => {
+    const path = searchParams.get("focus");
+
+    return linkedElement !== null && path !== null ? { key: linkedElement, path } : null;
+  });
   const [participantId, setParticipantId] = useState<string | null>(() => {
     const linked = searchParams.get("participant");
 
@@ -186,39 +229,69 @@ function LoadedReview({ context, teacherId, aborted }: LoadedReviewProps) {
     assignment.data?.scenarioName ??
     (typeof context.scenarioSnapshot.name === "string" ? context.scenarioSnapshot.name : "—");
   const roleState = roleStateOf(context, assignment, participantId);
-  const dismissal: FindingDismissal | null =
-    aborted || element === undefined
+  const groups = reviewGroups(elements);
+  const selectedGroup = groupKeyOf(element, elements);
+  const discrepancyTotal = groups.reduce((total, group) => total + group.discrepancies.length, 0);
+  const dismissalOf = (groupKey: string, title: string): FindingDismissal | null =>
+    aborted
       ? null
       : {
-          isDismissed: (path) => dismissed.has(`${element.key}::${path}`),
+          isDismissed: (path) => dismissed.has(`${groupKey}::${path}`),
           onChange: (path, value) =>
             setDismissed((current) => {
               const next = new Map(current);
-              const key = `${element.key}::${path}`;
+              const key = `${groupKey}::${path}`;
 
-              if (value) next.set(key, `${element.label}: ${discrepancyLabel(path, services.data)}`);
+              if (value) next.set(key, `${title}: ${discrepancyLabel(path, services.data)}`);
               else next.delete(key);
 
               return next;
             }),
         };
+  const open = (groupKey: string, path: string) => {
+    setSelectedKey(groupKey);
+    setFocus({ key: groupKey, path });
+  };
+  const select = (key: string) => {
+    setSelectedKey(key);
+    setFocus(null);
+  };
+  const findings = (locator: FindingLocator) => (
+    <>
+      <ExpertAssessmentBlock
+        session={session}
+        teacherId={teacherId}
+        aborted={aborted}
+        dismissed={[...dismissed.values()]}
+      />
+      <ReviewFindings
+        groups={groups}
+        selectedKey={selectedGroup}
+        roleState={roleState}
+        services={services.data}
+        locator={locator}
+        onOpen={open}
+        dismissalOf={dismissalOf}
+        limitedNote={
+          aborted && !evaluated ? "Попытка прервана до оценки: сервер не выставлял по ней расхождения с эталоном." : null
+        }
+        scopeNote={[
+          aborted && evaluated ? "Попытка прервана: балл и расхождения — по состоянию на момент прерывания." : null,
+          participantId === null ? null : "Расхождения посчитаны по попытке группы, сервер не привязывает их к участнику.",
+        ]
+          .filter(Boolean)
+          .join(" ") || null}
+      />
+    </>
+  );
   const elementProps = element && {
-    dismissal,
     originAt: element.originAt,
     actions: elementActions(element, context.actions).filter(
       (action) => participantId === null || action.actorUserId === null || action.actorUserId === participantId,
     ),
-    roleState,
     services: services.data,
-    limitedNote: aborted
-      ? evaluated
-        ? "Попытка прервана: балл и расхождения — по состоянию на момент прерывания."
-        : "Попытка прервана до оценки: сервер не выставлял по ней расхождения с эталоном."
-      : null,
-    scopeNote:
-      participantId === null
-        ? null
-        : "Расхождения посчитаны по попытке группы, сервер не привязывает их к участнику.",
+    focusPath: focus !== null && focus.key === element.key ? focus.path : null,
+    findings,
   };
 
   return (
@@ -249,12 +322,11 @@ function LoadedReview({ context, teacherId, aborted }: LoadedReviewProps) {
         <Cell label="Расхождений">
           {aborted && !evaluated
             ? "не считались"
-            : `${discrepancyCount(context)}${aborted ? " на момент прерывания" : ""}`}
+            : `${discrepancyTotal}${aborted ? " на момент прерывания" : ""}`}
         </Cell>
         {aborted && (
           <Cell label="Причина прерывания">{abortReasonText(session.abortReason, abortActorOf(context))}</Cell>
         )}
-        <ExpertAssessmentCell session={session} teacherId={teacherId} aborted={aborted} dismissed={[...dismissed.values()]} />
         <SpellingCell context={context} participantId={participantId} />
         {context.participantIds.length > 1 && (
           <SegmentedControl
@@ -275,7 +347,7 @@ function LoadedReview({ context, teacherId, aborted }: LoadedReviewProps) {
             size="xs"
             radius={2}
             value={element.key}
-            onChange={setSelectedKey}
+            onChange={select}
             data={elements.map((item) => ({ value: item.key, label: item.label }))}
             aria-label="Элемент попытки"
           />
@@ -299,21 +371,18 @@ function LoadedReview({ context, teacherId, aborted }: LoadedReviewProps) {
         <CallElementReview
           key={element.key}
           call={element.call}
-          focusPath={element.key === linkedElement ? searchParams.get("focus") : null}
           {...elementProps}
         />
       ) : element.kind === "outgoing" ? (
         <OutgoingCallElementReview
           key={element.key}
           call={element.call}
-          focusPath={element.key === linkedElement ? searchParams.get("focus") : null}
           {...elementProps}
         />
       ) : (
         <CardElementReview
           key={element.key}
           card={element.card}
-          focusPath={element.key === linkedElement ? searchParams.get("focus") : null}
           {...elementProps}
         />
       )}

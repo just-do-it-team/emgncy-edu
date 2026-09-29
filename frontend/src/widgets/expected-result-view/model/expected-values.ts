@@ -1,6 +1,7 @@
 import { cardStatusLabel, formatJsonValue, responseStatusLabel } from "@/entities/expert-review";
 import { classifierRecords, routingFlags } from "@/entities/incident";
 import type { JsonObject, JsonValue } from "@/shared/api";
+import { serviceWithCode } from "@/shared/config";
 
 const flagLabels = new Map<string, string>(routingFlags);
 
@@ -38,7 +39,7 @@ function classificationLines(value: JsonObject): string[] {
 const DEFAULT_MINIMUM_SIMILARITY = 0.8;
 
 export function serviceName(code: string, serviceNames: Map<string, string>): string {
-  return serviceNames.get(code) ?? `служба ${code}`;
+  return serviceWithCode(code, serviceNames.get(code) ?? null);
 }
 
 export function expectedValueLines(

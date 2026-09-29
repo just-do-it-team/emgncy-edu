@@ -13,26 +13,8 @@ import {
   type OperatorCardDraft,
 } from "../model/operator-cards";
 import { classificationFromDraft } from "../model/api-card-adapter";
+import { cardAddresses } from "../model/card-addresses";
 import { OperatorCard } from "./operator-card";
-
-function incidentAddress(draft: OperatorCardDraft) {
-  const address = draft.address;
-  return [
-    address.country,
-    address.subject,
-    address.settlement,
-    address.object,
-    address.district,
-    address.street,
-    address.house && `д. ${address.house}`,
-    address.building && `корп. ${address.building}`,
-    address.structure && `стр. ${address.structure}`,
-    address.apartment && `кв. ${address.apartment}`,
-    address.descriptive,
-  ]
-    .filter(Boolean)
-    .join(", ");
-}
 
 export function CreateServerCard({
   opened,
@@ -113,7 +95,7 @@ export function CreateServerCard({
             automatic_phone_number: draft.aon.trim() || null,
             provided_phone_number: draft.providedPhone.trim() || null,
             location_phone_number: draft.locationPhone.trim() || null,
-            incident_address: incidentAddress(draft),
+            ...cardAddresses(draft),
             questionnaire:
               draft.questions || draft.answers
                 ? { questions: draft.questions, answers: draft.answers }

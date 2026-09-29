@@ -41,14 +41,14 @@ function passedText(passed: boolean | null): string {
   return passed === null ? "—" : passed ? "зачтено" : "не зачтено";
 }
 
-interface ExpertAssessmentCellProps {
+interface ExpertAssessmentBlockProps {
   session: ReviewSession;
   teacherId: string;
   aborted: boolean;
   dismissed: string[];
 }
 
-export function ExpertAssessmentCell({ session, teacherId, aborted, dismissed }: ExpertAssessmentCellProps) {
+export function ExpertAssessmentBlock({ session, teacherId, aborted, dismissed }: ExpertAssessmentBlockProps) {
   const update = useUpdateExpertAssessment(session.id, teacherId);
   const queryClient = useQueryClient();
   const sessions = useTeacherSessions(teacherId, "ANY");
@@ -101,8 +101,14 @@ export function ExpertAssessmentCell({ session, teacherId, aborted, dismissed }:
 
   return (
     <>
-      <div className={classes.cell}>
-        <span className={classes.cellLabel}>Оценка преподавателя</span>
+      <div className={`${classes.assessment} ${saved ? "" : classes.assessmentPending}`}>
+        <span className={classes.assessmentTitle}>
+          {saved ? "Оценка преподавателя" : "Проверьте оценку системы: подтвердите или исправьте"}
+        </span>
+        <span className={classes.assessmentHint}>
+          Автоматическая оценка:{" "}
+          {session.score === null ? "не рассчитана" : `${scoreFormatter.format(session.score)}, ${passedText(session.passed)}`}
+        </span>
         <Group gap={8} wrap="wrap">
           {saved ? (
             <Tooltip
@@ -118,13 +124,11 @@ export function ExpertAssessmentCell({ session, teacherId, aborted, dismissed }:
                 {`${scoreFormatter.format(saved.score)}, ${passedText(saved.passed)}`}
               </span>
             </Tooltip>
-          ) : (
-            <span className={classes.cellValue}>нет</span>
-          )}
+          ) : null}
           {!saved && (
             <Tooltip label={confirmBlock} disabled={confirmBlock === null} events={tooltipEvents} multiline w={260} color="povDark.6" radius={0}>
               <Button
-                size="compact-xs"
+                size="xs"
                 loading={update.isPending && !opened}
                 data-disabled={confirmBlock !== null || undefined}
                 aria-disabled={confirmBlock !== null}
@@ -139,7 +143,7 @@ export function ExpertAssessmentCell({ session, teacherId, aborted, dismissed }:
           )}
           <Tooltip label={ABORTED_HINT} disabled={!aborted} events={tooltipEvents} multiline w={260} color="povDark.6" radius={0}>
             <Button
-              size="compact-xs"
+              size="xs"
               variant="outline"
               color="povDark2.6"
               data-disabled={aborted || undefined}

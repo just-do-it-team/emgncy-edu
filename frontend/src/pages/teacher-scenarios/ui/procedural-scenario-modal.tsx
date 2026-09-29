@@ -5,8 +5,10 @@ import { Link, useNavigate } from "react-router-dom";
 import { incidentCategoryLabels } from "@/entities/incident";
 import {
   categoryOf,
+  difficultyLabel,
   difficultyOptions,
   isTemplateUsable,
+  poolSizesAbove,
   proceduralPool,
   proceduralScenarioDraft,
   scenarioCreateBody,
@@ -83,9 +85,7 @@ export function ProceduralScenarioModal({ userId, onClose }: { userId: string; o
     categoryCounts.set(code, (categoryCounts.get(code) ?? 0) + 1);
   }
 
-  const categoryOptions = [...categoryCounts.keys()]
-    .sort((first, second) => first - second)
-    .map((code) => ({ value: String(code), label: incidentCategoryLabels[code] ?? `Группа ${code}` }));
+  const categoryOptions = Object.entries(incidentCategoryLabels).map(([code, label]) => ({ value: code, label }));
   const choosing = values.role === "dds" && values.services.length === 0;
   const short = !choosing && pool.length < values.targetCount;
   const ddsTemplates = all.filter((template) => template.variant === "cardDds" && isTemplateUsable(template));
@@ -95,6 +95,19 @@ export function ProceduralScenarioModal({ userId, onClose }: { userId: string; o
     templatesPerService.set(code, (templatesPerService.get(code) ?? 0) + 1);
   }
 
+  const sizesAbove = short ? poolSizesAbove(all, positionsOf(values), difficulty, values.categories.map(Number)) : [];
+  const difficultyHint = sizesAbove
+    .filter((level) => level.size > pool.length)
+    .map((level, index) =>
+      index === 0
+        ? `При сложности «${difficultyLabel(level.difficulty)}» подойдёт ${level.size}`
+        : `«${difficultyLabel(level.difficulty)}» — ${level.size}`,
+    )
+    .join(", ");
+  const generatePath =
+    values.role === "dds" && values.services[0] !== undefined
+      ? `/teacher/scenarios/templates/generate?service=${values.services[0]}`
+      : "/teacher/scenarios/templates/generate";
   const serviceOptions = [...templatesPerService.keys()]
     .map((code) => ({ value: code, label: serviceName(code, serviceNames) }))
     .sort((first, second) => first.label.localeCompare(second.label, "ru"));
@@ -172,15 +185,18 @@ export function ProceduralScenarioModal({ userId, onClose }: { userId: string; o
             size="sm"
             label="Категории происшествий"
             description="Не выбрано — любые категории"
-            placeholder={categoryOptions.length === 0 ? "Нет подходящих шаблонов" : "Все категории"}
+            placeholder="Все категории"
             data={categoryOptions}
-            disabled={categoryOptions.length === 0}
             clearable
-            renderOption={({ option }) => (
-              <Text size="sm">
-                {option.label} — шаблонов: {categoryCounts.get(Number(option.value)) ?? 0}
-              </Text>
-            )}
+            renderOption={({ option }) => {
+              const count = categoryCounts.get(Number(option.value)) ?? 0;
+
+              return (
+                <Text size="sm" c={count === 0 ? "povDark2.6" : undefined}>
+                  {option.label} — шаблонов: {count}
+                </Text>
+              );
+            }}
             {...form.getInputProps("categories")}
           />
           <Group gap="sm" align="flex-start" wrap="wrap">
@@ -235,7 +251,12 @@ export function ProceduralScenarioModal({ userId, onClose }: { userId: string; o
                     выбранных категорий со сложностью не выше выбранной и с заданным типом происшествия. Уменьшите число карточек,
                     поднимите сложность или добавьте шаблоны.
                   </Text>
-                  <Button size="xs" variant="outline" color="povDark2.6" component={Link} to="/teacher/scenarios/templates/generate">
+                  {difficultyHint !== "" && (
+                    <Text size="sm">
+                      {difficultyHint}.
+                    </Text>
+                  )}
+                  <Button size="xs" variant="outline" color="povDark2.6" component={Link} to={generatePath}>
                     Сгенерировать шаблоны с ИИ
                   </Button>
                 </Stack>

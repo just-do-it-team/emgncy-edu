@@ -1,11 +1,19 @@
 import { useState } from "react";
-import { Anchor, Group, Paper, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
+import { Anchor, Group, Stack, Table, Text, Tooltip } from "@mantine/core";
 import { Link } from "react-router-dom";
 import { difficultyLabel } from "@/entities/scenario";
 import { downloadCsv, localDayKey, type SortDirection } from "@/shared/lib";
 import { Button, SortableTh, tooltipEvents } from "@/shared/ui";
 import { TREND_WINDOW } from "../model/analytics-rules";
-import { analyticsColumnLabels, readinessLabels, type DifficultyVerdict, type StudentStats } from "../model/student-stats";
+import { performanceConclusion, studentSides } from "../model/group-insights";
+import {
+  analyticsColumnLabels,
+  readinessLabels,
+  type AnalyticsColumn,
+  type DifficultyVerdict,
+  type StudentStats,
+} from "../model/student-stats";
+import { AnalyticsCard } from "./analytics-card";
 import classes from "./analytics.module.scss";
 
 const score = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 });
@@ -28,6 +36,10 @@ function Hinted({ label, children }: { label: string; children: string }) {
   );
 }
 
+function sideLabel(column: AnalyticsColumn | null): string {
+  return column === null ? "—" : analyticsColumnLabels[column];
+}
+
 function csvRows(rows: StudentStats[]): string[][] {
   return rows.map((student) => [
     student.name,
@@ -37,9 +49,8 @@ function csvRows(rows: StudentStats[]): string[][] {
     student.trend === null ? "—" : signed.format(student.trend),
     student.passShare === null ? "—" : percent.format(student.passShare),
     student.normShare === null ? "—" : percent.format(student.normShare),
-    student.mainError === null
-      ? "—"
-      : `${analyticsColumnLabels[student.mainError.column]}: ${student.mainError.share.withErrors} из ${student.mainError.share.applicable}`,
+    sideLabel(studentSides(student).strong),
+    sideLabel(studentSides(student).weak),
     student.readiness === null ? "—" : readinessLabels[student.readiness.level],
     student.difficulty === null ? "—" : adviceText[student.difficulty.advice](student.difficulty),
   ]);
@@ -53,12 +64,19 @@ const CSV_HEADER = [
   "Тренд",
   "Зачтено",
   "Нормативы 30 с / 3 мин",
-  "Главная ошибка",
+  "Сильная сторона",
+  "Слабая сторона",
   "Готовность",
   "Сложность следующего занятия",
 ];
 
-export function PerformanceTable({ stats }: { stats: StudentStats[] }) {
+interface PerformanceTableProps {
+  stats: StudentStats[];
+  onDownloadPdf: (rows: StudentStats[]) => void;
+  pdfPending: boolean;
+}
+
+export function PerformanceTable({ stats, onDownloadPdf, pdfPending }: PerformanceTableProps) {
   const [direction, setDirection] = useState<SortDirection>("desc");
   const rows = [...stats].sort((first, second) => {
     const difference = (first.average ?? -1) - (second.average ?? -1);
@@ -67,12 +85,11 @@ export function PerformanceTable({ stats }: { stats: StudentStats[] }) {
   });
 
   return (
-    <Paper withBorder p="md">
-      <Stack gap="sm">
-        <Group justify="space-between" wrap="wrap" gap="sm">
-          <Title order={3} size="h5" fw={600}>
-            Успеваемость обучаемых
-          </Title>
+    <AnalyticsCard
+      title="Успеваемость обучаемых"
+      conclusion={performanceConclusion(stats)}
+      actions={
+        <Group gap="xs">
           <Button
             size="xs"
             variant="outline"
@@ -82,8 +99,15 @@ export function PerformanceTable({ stats }: { stats: StudentStats[] }) {
           >
             Скачать CSV
           </Button>
+          <Button size="xs" variant="outline" color="povDark2.6" loading={pdfPending} onClick={() => onDownloadPdf(rows)}>
+            Скачать PDF
+          </Button>
         </Group>
-        <Table.ScrollContainer minWidth={1040} type="native">
+      }
+      legend="Сильная сторона — группа проверок с наименьшей долей ошибок, слабая — с наибольшей. Готовность и сложность раскрываются подсказкой."
+      wide
+    >
+        <Table.ScrollContainer minWidth={1140} type="native">
           <Table verticalSpacing="xs" fz="sm" highlightOnHover>
             <Table.Thead>
               <Table.Tr>
@@ -98,7 +122,8 @@ export function PerformanceTable({ stats }: { stats: StudentStats[] }) {
                 <Table.Th>Тренд</Table.Th>
                 <Table.Th>Зачтено</Table.Th>
                 <Table.Th title="Доля карточек, раскрытых за 30 с и с первой записью за 3 мин">Нормативы</Table.Th>
-                <Table.Th>Главная ошибка</Table.Th>
+                <Table.Th>Сильная сторона</Table.Th>
+                <Table.Th>Слабая сторона</Table.Th>
                 <Table.Th>Готовность</Table.Th>
                 <Table.Th>Следующее занятие</Table.Th>
               </Table.Tr>
@@ -141,11 +166,8 @@ export function PerformanceTable({ stats }: { stats: StudentStats[] }) {
                       percent.format(student.normShare)
                     )}
                   </Table.Td>
-                  <Table.Td className={classes.wrap}>
-                    {student.mainError === null
-                      ? "—"
-                      : `${analyticsColumnLabels[student.mainError.column]}: ${student.mainError.share.withErrors} из ${student.mainError.share.applicable}`}
-                  </Table.Td>
+                  <Table.Td className={classes.wrap}>{sideLabel(studentSides(student).strong)}</Table.Td>
+                  <Table.Td className={classes.wrap}>{sideLabel(studentSides(student).weak)}</Table.Td>
                   <Table.Td>
                     {student.readiness === null ? (
                       "—"
@@ -180,7 +202,6 @@ export function PerformanceTable({ stats }: { stats: StudentStats[] }) {
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>
-      </Stack>
-    </Paper>
+    </AnalyticsCard>
   );
 }

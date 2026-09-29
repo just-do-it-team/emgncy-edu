@@ -132,7 +132,7 @@ export type {
 export { eligiblePoolSize, itemLabel, scenarioServerIssue, validateScenarioDraft } from "./model/scenario-validation";
 export { triggerActions } from "./model/trigger-actions";
 export { scenarioDurationSeconds } from "./model/scenario-duration";
-export { categoryOf, proceduralPool, proceduralScenarioDraft } from "./model/procedural-scenario";
+export { categoryOf, poolSizesAbove, proceduralPool, proceduralScenarioDraft } from "./model/procedural-scenario";
 export type { ProceduralSetup } from "./model/procedural-scenario";
 export { strictnessOf } from "./model/strictness";
 export type { ExpectedSource } from "./model/strictness";
@@ -153,4 +153,11 @@ export {
 } from "./model/template-review";
 export type { ReviewSection, SectionState, TemplateReviewProgress } from "./model/template-review";
 export { CALL_ITEM_KEY, scenarioDraftFromTemplates } from "./model/generated-scenario";
-export { isGenerationFinished, useStartTemplateGeneration, useTemplateGeneration, useUpdateTemplate } from "./api/use-template-generation";
+export {
+  isGenerationFinished,
+  usePendingGenerations,
+  useStartTemplateGeneration,
+  useTemplateGeneration,
+  useUpdateTemplate,
+} from "./api/use-template-generation";
+export { rememberedGenerations, rememberGeneration } from "./model/generation-storage";

@@ -47,6 +47,7 @@ import {
   type OperatorCardEntry,
   type OperatorCardDraft,
 } from "../model/operator-cards";
+import { serviceDisplayName } from "@/shared/config";
 
 const addressLabels = {
   country: "Страна",
@@ -750,7 +751,7 @@ export function OperatorCard({
                         data-manual={service.manual || undefined}
                       >
                         <Phone size={14} aria-hidden="true" />
-                        <strong>{service.name}</strong>
+                        <strong>{"code" in service ? serviceDisplayName(service.code, service.name) : service.name}</strong>
                         <small>
                           {service.manual
                             ? "Добавлена вручную"
@@ -950,7 +951,7 @@ export function OperatorCard({
                       !services.some(
                         (routed) => routed.code === service.code,
                       ) &&
-                      service.name
+                      serviceDisplayName(service.code, service.name)
                         .toLocaleLowerCase("ru")
                         .includes(serviceSearch.toLocaleLowerCase("ru")),
                   )
@@ -972,7 +973,7 @@ export function OperatorCard({
                         )
                       }
                     >
-                      {service.name}
+                      {serviceDisplayName(service.code, service.name)}
                     </button>
                   ))}
               </div>

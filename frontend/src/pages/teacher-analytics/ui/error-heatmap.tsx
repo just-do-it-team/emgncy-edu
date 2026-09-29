@@ -1,4 +1,4 @@
-import { Group, Paper, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
+import { Group, Table, Text, Tooltip } from "@mantine/core";
 import { useNavigate } from "react-router-dom";
 import { tooltipEvents } from "@/shared/ui";
 import {
@@ -10,6 +10,8 @@ import {
   type ColumnShare,
   type StudentStats,
 } from "../model/student-stats";
+import { errorsConclusion } from "../model/group-insights";
+import { AnalyticsCard } from "./analytics-card";
 import classes from "./analytics.module.scss";
 
 const LEVELS = 5;
@@ -63,78 +65,79 @@ export function ErrorHeatmap({ stats, facts }: ErrorHeatmapProps) {
   const total = columnShares(analyzed);
   const rows = [...stats].sort((first, second) => first.name.localeCompare(second.name, "ru"));
 
-  return (
-    <Paper withBorder p="md">
-      <Stack gap="sm">
-        <Group justify="space-between" wrap="wrap" gap="sm">
-          <Title order={3} size="h5" fw={600}>
-            Тепловая карта ошибок
-          </Title>
-          <Group gap="xs" wrap="wrap" aria-label="Шкала: доля попыток с ошибкой">
-            <Text size="xs">доля попыток с ошибкой:</Text>
-            {Array.from({ length: LEVELS + 1 }, (_, level) => (
-              <span key={level} className={classes.legend}>
-                <span className={`${classes.heatCell} ${classes.legendSwatch}`} data-level={level} />
-                <Text size="xs" className={classes.numeric}>
-                  {level === 0 ? "0" : `до ${percent.format(level / LEVELS)}`}
-                </Text>
-              </span>
-            ))}
-          </Group>
-        </Group>
-        {analyzed.length === 0 ? (
-          <Text size="sm" c="povDark2.6">
-            Разборы попыток ещё не загружены. Карта строится по расхождениям с эталоном — нужна хотя бы одна
-            завершённая и оценённая сервером попытка.
+  const legend = (
+    <Group gap="xs" wrap="wrap" aria-label="Шкала: доля попыток с ошибкой">
+      <Text size="xs">доля попыток с ошибкой:</Text>
+      {Array.from({ length: LEVELS + 1 }, (_, level) => (
+        <span key={level} className={classes.legend}>
+          <span className={`${classes.heatCell} ${classes.legendSwatch}`} data-level={level} />
+          <Text size="xs" className={classes.numeric}>
+            {level === 0 ? "0" : `до ${percent.format(level / LEVELS)}`}
           </Text>
-        ) : (
-          <Table.ScrollContainer minWidth={760} type="native">
-            <Table verticalSpacing={0} horizontalSpacing={4} withColumnBorders fz="sm">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Обучаемый</Table.Th>
-                  {analyticsColumns.map((column) => (
-                    <Table.Th key={column} ta="center">
-                      {analyticsColumnLabels[column]}
-                    </Table.Th>
-                  ))}
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {rows.map((student) => (
-                  <Table.Tr key={student.studentId}>
-                    <Table.Td className={classes.wrap}>{student.name}</Table.Td>
-                    {analyticsColumns.map((column) => (
-                      <Table.Td key={column} p={0}>
-                        <HeatCell
-                          column={column}
-                          share={student.columns.get(column)}
-                          who={student.name}
-                          onOpen={() =>
-                            navigate(`/teacher/attempts/${student.lastSessionId}/review?participant=${student.studentId}`)
-                          }
-                        />
-                      </Table.Td>
-                    ))}
-                  </Table.Tr>
+        </span>
+      ))}
+      <Text size="xs" c="povDark2.6">
+        Ячейка — доля попыток обучаемого с ошибкой в группе проверок из разбора. Ошибки только в оформлении текста не
+        считаются. «—» — проверка не относится к роли обучаемого.
+      </Text>
+    </Group>
+  );
+
+  return (
+    <AnalyticsCard
+      title="Тепловая карта ошибок"
+      conclusion={analyzed.length === 0 ? "Разборы попыток ещё не загружены." : errorsConclusion(analyzed)}
+      actions={null}
+      legend={legend}
+      wide
+    >
+      {analyzed.length === 0 ? (
+        <Text size="sm" c="povDark2.6">
+          Карта строится по расхождениям с эталоном — нужна хотя бы одна завершённая и оценённая сервером попытка.
+        </Text>
+      ) : (
+        <Table.ScrollContainer minWidth={760} type="native">
+          <Table verticalSpacing={0} horizontalSpacing={4} withColumnBorders fz="sm">
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Обучаемый</Table.Th>
+                {analyticsColumns.map((column) => (
+                  <Table.Th key={column} ta="center">
+                    {analyticsColumnLabels[column]}
+                  </Table.Th>
                 ))}
-                <Table.Tr className={classes.totalRow}>
-                  <Table.Td>Итого по выборке</Table.Td>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {rows.map((student) => (
+                <Table.Tr key={student.studentId}>
+                  <Table.Td className={classes.wrap}>{student.name}</Table.Td>
                   {analyticsColumns.map((column) => (
                     <Table.Td key={column} p={0}>
-                      <HeatCell column={column} share={total.get(column)} who="Все обучаемые" onOpen={null} />
+                      <HeatCell
+                        column={column}
+                        share={student.columns.get(column)}
+                        who={student.name}
+                        onOpen={() =>
+                          navigate(`/teacher/attempts/${student.lastSessionId}/review?participant=${student.studentId}`)
+                        }
+                      />
                     </Table.Td>
                   ))}
                 </Table.Tr>
-              </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
-        )}
-        <Text size="xs" c="povDark2.6">
-          Ячейка — доля попыток обучаемого с ошибкой в группе проверок из разбора. Ошибки только в оформлении текста не
-          считаются. «—» — проверка не относится к роли обучаемого.
-        </Text>
-      </Stack>
-    </Paper>
+              ))}
+              <Table.Tr className={classes.totalRow}>
+                <Table.Td>Итого по выборке</Table.Td>
+                {analyticsColumns.map((column) => (
+                  <Table.Td key={column} p={0}>
+                    <HeatCell column={column} share={total.get(column)} who="Все обучаемые" onOpen={null} />
+                  </Table.Td>
+                ))}
+              </Table.Tr>
+            </Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
+      )}
+    </AnalyticsCard>
   );
 }

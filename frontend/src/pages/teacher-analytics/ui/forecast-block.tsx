@@ -1,8 +1,9 @@
-import { Group, Paper, Stack, Table, Text, Title } from "@mantine/core";
+import { Group, Stack, Table, Text } from "@mantine/core";
 import { Fact } from "@/shared/ui";
 import { MAX_SCORE, MIN_INTERVAL_HALF_WIDTH, RELIABLE_BACKTEST_PAIRS, RISK_NORM_SHARE, SMOOTHING_LEVEL, SMOOTHING_TREND } from "../model/analytics-rules";
 import { backtest, studentForecast, type BacktestPair } from "../model/forecast";
 import type { StudentStats } from "../model/student-stats";
+import { AnalyticsCard } from "./analytics-card";
 import classes from "./analytics.module.scss";
 
 const score = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 });
@@ -75,14 +76,21 @@ export function ForecastBlock({ stats }: { stats: StudentStats[] }) {
     summary.meanAbsoluteError !== null && summary.naiveMeanAbsoluteError !== null
       ? summary.meanAbsoluteError <= summary.naiveMeanAbsoluteError
       : null;
+  const atRisk = forecasts.filter(({ value }) => value.atRisk).length;
+  const backtestConclusion =
+    summary.meanAbsoluteError === null || summary.naiveMeanAbsoluteError === null
+      ? "Сравнивать не с чем: нужен обучаемый хотя бы с двумя занятиями."
+      : `Средняя ошибка прогноза ${score.format(summary.meanAbsoluteError)} балла против ${score.format(summary.naiveMeanAbsoluteError)} у наивного среднего${summary.reliable ? "" : " — выводы предварительные"}.`;
 
   return (
     <>
-      <Paper withBorder p="md">
-        <Stack gap="sm">
-          <Title order={3} size="h5" fw={600}>
-            Прогноз на следующее занятие
-          </Title>
+      <AnalyticsCard
+        title="Прогноз на следующее занятие"
+        conclusion={atRisk === 0 ? "В зоне риска никого нет." : `В зоне риска: ${atRisk} из ${forecasts.length} обучаемых.`}
+        actions={null}
+        legend="Зона риска — ожидаемый балл ниже порога зачёта или нормативы соблюдаются редко."
+        wide={false}
+      >
           <Table.ScrollContainer minWidth={640} type="native">
             <Table verticalSpacing="xs" fz="sm">
               <Table.Thead>
@@ -117,14 +125,15 @@ export function ForecastBlock({ stats }: { stats: StudentStats[] }) {
               </Table.Tbody>
             </Table>
           </Table.ScrollContainer>
-        </Stack>
-      </Paper>
+      </AnalyticsCard>
 
-      <Paper withBorder p="md">
-        <Stack gap="sm">
-          <Title order={3} size="h5" fw={600}>
-            Прогноз ↔ факт
-          </Title>
+      <AnalyticsCard
+        title="Прогноз ↔ факт"
+        conclusion={backtestConclusion}
+        actions={null}
+        legend={`Методика. Балл занятия — средний итоговый балл обучаемого в нём. Прогноз — экспоненциальное сглаживание с трендом (уровень ${ratio.format(SMOOTHING_LEVEL)}, тренд ${ratio.format(SMOOTHING_TREND)}); интервал — ± стандартное отклонение прошлых баллов, не уже ${MIN_INTERVAL_HALF_WIDTH} баллов. Зона риска — прогноз ниже порога зачёта или нормативы соблюдаются реже чем в ${percent.format(RISK_NORM_SHARE)} случаев. Проверка честная: прогноз на каждое занятие, кроме первого, строится только по предыдущим занятиям и сравнивается с фактом; «наивный» прогноз — среднее прошлых баллов. Точка на диагонали — прогноз совпал с фактом.`}
+        wide={false}
+      >
           {summary.pairs.length === 0 ? (
             <Text size="sm" c="povDark2.6">
               Сравнивать не с чем: нужен обучаемый хотя бы с двумя занятиями — прогноз по первому проверяется баллом
@@ -159,16 +168,7 @@ export function ForecastBlock({ stats }: { stats: StudentStats[] }) {
               </Stack>
             </Group>
           )}
-          <Text size="xs" c="povDark2.6">
-            Методика. Балл занятия — средний итоговый балл обучаемого в нём. Прогноз — экспоненциальное сглаживание с
-            трендом (уровень {ratio.format(SMOOTHING_LEVEL)}, тренд {ratio.format(SMOOTHING_TREND)}); интервал — ± стандартное отклонение прошлых
-            баллов, не уже {MIN_INTERVAL_HALF_WIDTH} баллов. Зона риска — прогноз ниже порога зачёта или нормативы соблюдаются реже чем в{" "}
-            {percent.format(RISK_NORM_SHARE)} случаев. Проверка честная: прогноз на каждое занятие, кроме первого, строится
-            только по предыдущим занятиям и сравнивается с фактом; «наивный» прогноз — среднее прошлых баллов. Точка на
-            диагонали — прогноз совпал с фактом.
-          </Text>
-        </Stack>
-      </Paper>
+      </AnalyticsCard>
     </>
   );
 }

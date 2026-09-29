@@ -13,6 +13,7 @@ import {
   type ScenarioRoles,
 } from "../model/assignment-plan";
 import classes from "./assign-lesson.module.scss";
+import { serviceWithCode } from "@/shared/config";
 
 const OPERATOR = "operator";
 
@@ -53,7 +54,7 @@ function RoleCell({ row, index, roles, services, error, onChange }: RoleCellProp
   if (!roles) return <Text size="sm">—</Text>;
 
   const hasCalls = roles.callKeys.length > 0;
-  const name = (code: string) => services.find((service) => service.code === code)?.name ?? `служба ${code}`;
+  const name = (code: string) => serviceWithCode(code, services.find((service) => service.code === code)?.name ?? null);
   const required = roles.workspaceMode === "INDIVIDUAL" ? (roles.requiredPositions?.[0] ?? undefined) : undefined;
 
   if (roles.workspaceMode === "INDIVIDUAL" && (hasCalls || required !== undefined)) {

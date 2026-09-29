@@ -1,5 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { TemplateGenerationDto } from "@/shared/api";
+import { useState } from "react";
+import { useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { errorStatus, type TemplateGenerationDto } from "@/shared/api";
+import { forgetGeneration, rememberedGenerations } from "../model/generation-storage";
 import { scenarioKeys } from "./scenario.keys";
 import { fetchTemplateGeneration, startTemplateGeneration, updateTemplate } from "./template-generation-api";
 
@@ -15,34 +17,55 @@ export function useStartTemplateGeneration() {
   return useMutation({ mutationFn: startTemplateGeneration, retry: false });
 }
 
-/**
- * Опрос фоновой генерации шаблонов. Пока задача не завершена, статус запрашивается раз в 2 с;
- * на скрытой вкладке опрос встаёт, при возвращении — сразу обновляется. Когда генерация
- * завершилась, список шаблонов инвалидируется, чтобы новые черновики появились в библиотеке.
- * `watching` позволяет прекратить ожидание, не отменяя задачу на сервере.
- */
-export function useTemplateGeneration(generationId: string | null, watching: boolean) {
-  const queryClient = useQueryClient();
+const NOT_FOUND = 404;
 
-  return useQuery({
-    queryKey: scenarioKeys.generation(generationId ?? ""),
-    queryFn: async ({ signal }) => {
-      const generation = await fetchTemplateGeneration(generationId ?? "", signal);
+function generationQuery(generationId: string, queryClient: QueryClient, onMissing: (() => void) | null) {
+  return {
+    queryKey: scenarioKeys.generation(generationId),
+    queryFn: async ({ signal }: { signal: AbortSignal }) => {
+      const generation = await fetchTemplateGeneration(generationId, signal).catch((error: unknown) => {
+        if (errorStatus(error) === NOT_FOUND) onMissing?.();
+        throw error;
+      });
 
+      if (isGenerationFinished(generation)) forgetGeneration(generation.created_by, generation.id);
       if (generation.status === "COMPLETED") {
         await queryClient.invalidateQueries({ queryKey: scenarioKeys.templateList() });
       }
 
       return generation;
     },
-    enabled: generationId !== null && watching,
     staleTime: 0,
     gcTime: GENERATION_GC_MS,
-    refetchInterval: (query) =>
+    refetchInterval: (query: { state: { data: TemplateGenerationDto | undefined } }) =>
       document.hidden || isGenerationFinished(query.state.data) ? false : POLL_MS,
     refetchOnWindowFocus: true,
     retry: false,
     meta: { showGlobalError: false },
+  };
+}
+
+/**
+ * Опрос фоновой генерации шаблонов, пока страница открыта. Пока задача не завершена, статус
+ * запрашивается раз в 2 с; на скрытой вкладке опрос встаёт, при возвращении — сразу обновляется.
+ * Когда генерация завершилась, список шаблонов инвалидируется, чтобы черновики появились в
+ * библиотеке, а задача убирается из списка незавершённых.
+ */
+export function useTemplateGeneration(generationId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useQuery({ ...generationQuery(generationId ?? "", queryClient, null), enabled: generationId !== null });
+}
+
+/** Незавершённые генерации преподавателя, запущенные в этом браузере. */
+export function usePendingGenerations(userId: string) {
+  const queryClient = useQueryClient();
+  const [ids] = useState(() => rememberedGenerations(userId));
+
+  return useQueries({
+    queries: ids.map((id) => generationQuery(id, queryClient, () => forgetGeneration(userId, id))),
+    combine: (results) =>
+      results.flatMap((result) => (result.data && !isGenerationFinished(result.data) ? [result.data] : [])),
   });
 }
 

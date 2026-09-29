@@ -5,6 +5,7 @@ export { IDLE_ALERT_MINUTES, MONITOR_SOON_MINUTES } from "./lesson-monitor";
 export { PROCEDURAL_PACE_BY_DIFFICULTY } from "./procedural-pace";
 export type { ProceduralPace } from "./procedural-pace";
 export { safeReturnPath } from "./return-path";
+export { serviceDisplayName, serviceWithCode } from "./service-names";
 export { criterionCodes, criterionLabels } from "./criteria";
 export type { CriterionCode } from "./criteria";
 export {

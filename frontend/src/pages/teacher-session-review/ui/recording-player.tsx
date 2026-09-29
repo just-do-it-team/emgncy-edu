@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState, type RefObject } from "react";
 import { SegmentedControl, Skeleton, Tooltip } from "@mantine/core";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { Info, Pause, Play } from "lucide-react";
@@ -18,14 +18,14 @@ const playbackRates = [
 ];
 
 interface ReadyPlayerProps {
+  audioRef: RefObject<HTMLAudioElement>;
   callId: string;
   durationMs: number;
   syncNotice: string | null;
   onPlaybackChange: (ms: number | null) => void;
 }
 
-function ReadyPlayer({ callId, durationMs, syncNotice, onPlaybackChange }: ReadyPlayerProps) {
-  const audioRef = useRef<HTMLAudioElement>(null);
+function ReadyPlayer({ audioRef, callId, durationMs, syncNotice, onPlaybackChange }: ReadyPlayerProps) {
   const [playing, setPlaying] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const [rate, setRate] = useState("1");
@@ -115,13 +115,14 @@ function ReadyPlayer({ callId, durationMs, syncNotice, onPlaybackChange }: Ready
 }
 
 interface RecordingPlayerProps {
+  audioRef: RefObject<HTMLAudioElement>;
   callId: string;
   recording: UseQueryResult<CallRecording, Error>;
   syncNotice: string | null;
   onPlaybackChange: (ms: number | null) => void;
 }
 
-export function RecordingPlayer({ callId, recording, syncNotice, onPlaybackChange }: RecordingPlayerProps) {
+export function RecordingPlayer({ audioRef, callId, recording, syncNotice, onPlaybackChange }: RecordingPlayerProps) {
   if (recording.isPending) {
     return (
       <div className={classes.player}>
@@ -146,6 +147,7 @@ export function RecordingPlayer({ callId, recording, syncNotice, onPlaybackChang
     <div className={classes.player}>
       {data.status === "READY" && (
         <ReadyPlayer
+          audioRef={audioRef}
           callId={callId}
           durationMs={data.durationMs}
           syncNotice={syncNotice}

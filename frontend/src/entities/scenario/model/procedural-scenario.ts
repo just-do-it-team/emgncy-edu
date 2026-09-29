@@ -55,6 +55,24 @@ export function proceduralPool(
   );
 }
 
+const MAX_DIFFICULTY = 4;
+
+/**
+ * Размер пула на более высоких уровнях сложности: шаблон входит в пул, если он не сложнее сценария,
+ * поэтому подсказка «поднимите сложность» показывает, сколько шаблонов добавит каждый уровень выше.
+ */
+export function poolSizesAbove(
+  templates: ScenarioTemplate[],
+  positions: ParticipantPosition[],
+  difficulty: number,
+  categories: number[],
+): { difficulty: number; size: number }[] {
+  return Array.from({ length: MAX_DIFFICULTY - difficulty }, (_, index) => difficulty + index + 1).map((level) => ({
+    difficulty: level,
+    size: proceduralPool(templates, positions, level, categories).length,
+  }));
+}
+
 /**
  * Черновик процедурного сценария. Одна позиция — индивидуальное рабочее место; несколько служб ДДС —
  * общее рабочее место, где каждую службу занимает свой участник, поэтому участников ровно столько,

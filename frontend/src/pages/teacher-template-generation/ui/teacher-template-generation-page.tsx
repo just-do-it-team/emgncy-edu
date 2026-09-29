@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { Anchor, Skeleton, Stack, Text, Title } from "@mantine/core";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useTemplates } from "@/entities/scenario";
 import { useSessionStore } from "@/entities/session";
 import { GeneratedTemplates, GenerateTemplatesForm, generatedTemplatesOf } from "@/features/generate-templates";
@@ -35,6 +35,7 @@ function GenerationResult({ generation }: { generation: TemplateGenerationDto })
 
 const TeacherTemplateGenerationPage = () => {
   const userId = useSessionStore((state) => state.profile?.userId ?? null);
+  const [searchParams] = useSearchParams();
   const [generation, setGeneration] = useState<TemplateGenerationDto | null>(null);
   const complete = useCallback((completed: TemplateGenerationDto) => setGeneration(completed), []);
 
@@ -50,7 +51,7 @@ const TeacherTemplateGenerationPage = () => {
           К списку шаблонов
         </Anchor>
       </Stack>
-      <GenerateTemplatesForm userId={userId} onCompleted={complete} />
+      <GenerateTemplatesForm userId={userId} initialService={searchParams.get("service")} onCompleted={complete} />
       {generation && <GenerationResult generation={generation} />}
     </Stack>
   );
