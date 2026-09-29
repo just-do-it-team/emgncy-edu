@@ -8,6 +8,7 @@ import { downloadPdf, reportDocument, reportFileName, useSpelling, type ReportPa
 import { Button } from "@/shared/ui";
 import { NO_GROUP, periodOptions, useAnalyticsData, useAnalyticsFilters } from "../api/use-analytics-data";
 import { analyticsDocument, performanceContent } from "../model/analytics-report";
+import { backtest } from "../model/forecast";
 import { addressSummary, missedServices, periodKpis, spellingSummary, stageSummary } from "../model/group-insights";
 import { studentStats, type StudentStats } from "../model/student-stats";
 import { AddressErrors } from "./address-errors";
@@ -18,6 +19,7 @@ import { KpiTiles } from "./kpi-tiles";
 import { MissedServices } from "./missed-services";
 import { NormBars } from "./norm-bars";
 import { PerformanceTable } from "./performance-table";
+import { ResultsDonut } from "./results-donut";
 import { SpellingBlock } from "./spelling-block";
 import { StatusTimes } from "./status-times";
 import classes from "./analytics.module.scss";
@@ -44,6 +46,26 @@ function Analytics({ teacherId }: { teacherId: string }) {
   const spellingStats = misspelled === null ? null : spellingSummary(data.facts, misspelled);
   const missed = missedServices(data.facts);
   const stages = stageSummary(data.facts);
+  const analyzed = data.facts.some((attempt) => attempt.errors !== null);
+  const available = {
+    errors: analyzed,
+    norms: data.facts.some((attempt) => (attempt.norms?.openMs.length ?? 0) + (attempt.norms?.entryMs.length ?? 0) > 0),
+    address: address.checked > 0,
+    spelling: !spelling.isError && (spellingStats === null || spellingStats.students.length > 0),
+    services: data.facts.some((attempt) => attempt.serviceChecks.length > 0),
+    stages: stages.some((stage) => stage.averageMs !== null),
+    backtest: backtest(new Map(stats.map((student) => [student.studentId, student.attempts]))).pairs.length > 0,
+  };
+  // Блок без данных не показывается пустым: что появится позже, перечислено одной строкой внизу.
+  const missing = [
+    available.errors ? null : "тепловая карта ошибок и сильные стороны группы — после разбора попыток сервером",
+    available.norms ? null : "время против норматива — по попыткам диспетчеров ДДС",
+    available.address ? null : "ошибки в адресах — по звонкам оператора 112",
+    available.spelling ? null : "грамотность ввода — когда обучаемые вводят текст сами",
+    available.services ? null : "какие службы забывают оповестить — когда в эталоне звонка задан список служб",
+    available.stages ? null : "время по статусам ДДС — после раскрытия карточек диспетчером",
+    available.backtest ? null : "проверка «прогноз ↔ факт» — у обучаемых с двумя занятиями и больше",
+  ].filter((item): item is string => item !== null);
   const scope = [
     `Группа: ${groupOptions.find((option) => option.value === filters.group)?.label ?? "все группы"}`,
     `период: ${periodOptions.find((option) => option.value === filters.period)?.label ?? filters.period}`,
@@ -162,20 +184,22 @@ function Analytics({ teacherId }: { teacherId: string }) {
         <>
           <KpiTiles current={kpis} previous={data.previousFacts === null ? null : periodKpis(data.previousFacts, misspelled)} />
           <div className={classes.cards}>
-            <ErrorHeatmap stats={stats} facts={data.facts} />
+            <ResultsDonut facts={data.facts} />
+            {available.errors && <GroupSides facts={data.facts} />}
+            {available.errors && <ErrorHeatmap stats={stats} facts={data.facts} />}
             <PerformanceTable
               stats={stats}
               pdfPending={pdfPending === "performance"}
               onDownloadPdf={(rows) => void download("performance", rows)}
             />
-            <GroupSides facts={data.facts} />
-            <NormBars stats={stats} />
-            <AddressErrors summary={address} />
-            <SpellingBlock summary={spellingStats} failed={spelling.isError} />
-            <MissedServices facts={data.facts} serviceName={serviceName} />
-            <StatusTimes summary={stages} />
+            {available.norms && <NormBars stats={stats} />}
+            {available.stages && <StatusTimes summary={stages} />}
+            {available.address && <AddressErrors summary={address} />}
+            {available.spelling && <SpellingBlock summary={spellingStats} />}
+            {available.services && <MissedServices facts={data.facts} serviceName={serviceName} />}
             <ForecastBlock stats={stats} />
           </div>
+          {missing.length > 0 && <Text className={classes.missing}>Появятся при наличии данных: {missing.join("; ")}.</Text>}
         </>
       )}
     </Stack>

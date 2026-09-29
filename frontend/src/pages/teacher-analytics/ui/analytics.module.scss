@@ -28,23 +28,23 @@
 }
 
 .heatCell[data-level="1"] {
-  background: color-mix(in srgb, var(--mantine-color-povOrange2-6) 20%, var(--mantine-color-white));
+  background: color-mix(in srgb, var(--cov-orange, var(--mantine-color-povOrange2-6)) 20%, var(--mantine-color-white));
 }
 
 .heatCell[data-level="2"] {
-  background: color-mix(in srgb, var(--mantine-color-povOrange2-6) 40%, var(--mantine-color-white));
+  background: color-mix(in srgb, var(--cov-orange, var(--mantine-color-povOrange2-6)) 40%, var(--mantine-color-white));
 }
 
 .heatCell[data-level="3"] {
-  background: color-mix(in srgb, var(--mantine-color-povOrange2-6) 60%, var(--mantine-color-white));
+  background: color-mix(in srgb, var(--cov-orange, var(--mantine-color-povOrange2-6)) 60%, var(--mantine-color-white));
 }
 
 .heatCell[data-level="4"] {
-  background: color-mix(in srgb, var(--mantine-color-povOrange2-6) 80%, var(--mantine-color-white));
+  background: color-mix(in srgb, var(--cov-orange, var(--mantine-color-povOrange2-6)) 80%, var(--mantine-color-white));
 }
 
 .heatCell[data-level="5"] {
-  background: var(--mantine-color-povOrange2-6);
+  background: var(--cov-orange, var(--mantine-color-povOrange2-6));
 }
 
 .heatEmpty {
@@ -75,13 +75,15 @@
 .barTrack {
   position: relative;
   height: 12px;
-  background: var(--mantine-color-povLight-6);
+  background: var(--cov-blue-pale, var(--mantine-color-povLight-6));
+  border-radius: var(--cov-bar-radius, 0);
+  overflow: hidden;
 }
 
 .barFill {
   position: absolute;
   inset: 0 auto 0 0;
-  background: var(--mantine-color-povBlue-6);
+  background: var(--cov-blue, var(--mantine-color-povBlue-6));
 }
 
 .barFill[data-over] {
@@ -104,12 +106,12 @@
 }
 
 .axis {
-  stroke: var(--mantine-color-povDark2-6);
+  stroke: var(--cov-muted, var(--mantine-color-povDark2-6));
   stroke-width: 1;
 }
 
 .grid {
-  stroke: var(--mantine-color-povLine-6);
+  stroke: var(--cov-line, var(--mantine-color-povLine-6));
   stroke-width: 1;
 }
 
@@ -119,12 +121,12 @@
 }
 
 .point {
-  fill: var(--mantine-color-povBlue-6);
+  fill: var(--cov-blue, var(--mantine-color-povBlue-6));
 }
 
 .tick {
   font-size: 10px;
-  fill: var(--mantine-color-povDark2-6);
+  fill: var(--cov-muted, var(--mantine-color-povDark2-6));
 }
 
 .cards {
@@ -147,7 +149,85 @@
   justify-content: space-between;
   font-size: var(--mantine-font-size-xs);
   font-variant-numeric: tabular-nums;
-  color: var(--mantine-color-povDark2-6);
+  color: var(--cov-muted, var(--mantine-color-povDark2-6));
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kpiLabel {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.kpiValue {
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 42px;
+  font-variant-numeric: tabular-nums;
+  color: var(--cov-blue, var(--mantine-color-text));
+}
+
+.kpiChange {
+  font-size: var(--mantine-font-size-xs);
+  color: var(--cov-muted, var(--mantine-color-povDark2-6));
+}
+
+.missing {
+  font-size: var(--mantine-font-size-sm);
+  color: var(--cov-muted, var(--mantine-color-povDark2-6));
+}
+
+.donut {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--mantine-spacing-lg);
+}
+
+.donutSvg {
+  width: 100%;
+  height: auto;
+}
+
+.donutTotal {
+  font-size: 30px;
+  font-weight: 700;
+  fill: var(--mantine-color-text);
+}
+
+.donutCaption {
+  font-size: 11px;
+  fill: var(--cov-muted, var(--mantine-color-povDark2-6));
+}
+
+.legendRow {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--mantine-font-size-sm);
+}
+
+.legendDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.legendValue {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 30em) {
+  .donut {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .changed {
@@ -162,4 +242,28 @@
   .cards {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.segmentPrimary {
+  stroke: var(--cov-blue, var(--mantine-color-povBlue-6));
+}
+
+.segmentAccent {
+  stroke: var(--cov-orange, var(--mantine-color-povOrange-6));
+}
+
+.segmentLight {
+  stroke: var(--cov-blue-light, var(--mantine-color-povLight-6));
+}
+
+.legendDot .segmentPrimary {
+  fill: var(--cov-blue, var(--mantine-color-povBlue-6));
+}
+
+.legendDot .segmentAccent {
+  fill: var(--cov-orange, var(--mantine-color-povOrange-6));
+}
+
+.legendDot .segmentLight {
+  fill: var(--cov-blue-light, var(--mantine-color-povLight-6));
 }

@@ -22,6 +22,7 @@ import {
   attemptDeadline,
   attemptResultKind,
   attemptResultLabel,
+  type AttemptResultKind,
   formatDeviation,
   formatFillTime,
   participantRoleLabels,
@@ -42,6 +43,8 @@ import {
   TablePagination,
   tooltipEvents,
   usePagination,
+  StatusPill,
+  type PillTone,
 } from "@/shared/ui";
 import classes from "./teacher-attempts-table.module.scss";
 
@@ -239,16 +242,25 @@ function ScoreCell({ session }: { session: MonitoredSession }) {
   );
 }
 
+const resultTones: Record<AttemptResultKind, PillTone> = {
+  passed: "green",
+  failed: "red",
+  aborted: "gray",
+  other: "blue",
+};
+
 function ResultCell({ session }: { session: MonitoredSession }) {
   const hint = reviewAccessHint(session.status);
 
-  if (hint === null) return <Text size="sm">{attemptResultLabel(session)}</Text>;
+  const pill = <StatusPill tone={resultTones[attemptResultKind(session)]}>{attemptResultLabel(session)}</StatusPill>;
+
+  if (hint === null) return pill;
 
   return (
     <Tooltip label={hint} events={tooltipEvents} color="povDark.6" radius={0}>
-      <Text size="sm" tabIndex={0} className={classes.focusable}>
-        {attemptResultLabel(session)}
-      </Text>
+      <span tabIndex={0} className={classes.focusable}>
+        {pill}
+      </span>
     </Tooltip>
   );
 }

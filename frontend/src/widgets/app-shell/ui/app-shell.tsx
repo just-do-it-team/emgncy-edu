@@ -21,6 +21,7 @@ import classes from "./app-shell.module.scss";
 interface AppShellProps {
   items: NavItem[];
   roleLabel: string;
+  look: "cov" | "plain";
 }
 
 const HEADER_HEIGHT = 56;
@@ -73,7 +74,7 @@ function SidebarLink({
   );
 }
 
-export function AppShell({ items, roleLabel }: AppShellProps) {
+export function AppShell({ items, roleLabel, look }: AppShellProps) {
   const { pathname } = useLocation();
   const handleLogout = useSignOut();
   const sidebar = useSidebarCollapsed();
@@ -89,6 +90,7 @@ export function AppShell({ items, roleLabel }: AppShellProps) {
         breakpoint: 0,
       }}
       padding="md"
+      className={look === "cov" ? classes.cov : undefined}
     >
       <MantineAppShell.Header bg="povLight2.6">
         <div className={classes.headerInner}>

@@ -1,4 +1,5 @@
 import { ABORTED_SESSION_STATUS, COMPLETED_SESSION_STATUS } from "@/entities/monitoring";
+import type { PillTone } from "@/shared/ui";
 import type { MonitoredSession, TeacherAssignment } from "@/shared/api";
 
 export type LessonStatus = "PLANNED" | "RUNNING" | "FINISHED" | "CANCELLED";
@@ -8,6 +9,13 @@ export const lessonStatusLabels: Record<LessonStatus, string> = {
   RUNNING: "Идёт",
   FINISHED: "Завершено",
   CANCELLED: "Отменено",
+};
+
+export const lessonStatusTones: Record<LessonStatus, PillTone> = {
+  PLANNED: "gray",
+  RUNNING: "blue",
+  FINISHED: "green",
+  CANCELLED: "gray",
 };
 
 export interface LessonAverage {

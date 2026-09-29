@@ -1,4 +1,5 @@
 import type { ScenarioListItem, ScenarioStatus, ScenarioTemplate, TemplateVariant } from "@/shared/api";
+import type { PillTone } from "@/shared/ui";
 
 export const templateVariantLabels: Record<TemplateVariant, string> = {
   card112: "Карточка 112",
@@ -60,6 +61,13 @@ export function templateState(template: ScenarioTemplate): TemplateState {
 
   return "published";
 }
+
+export const templateStateTones: Record<TemplateState, PillTone> = {
+  published: "blue",
+  aiDraft: "orange",
+  draft: "orange",
+  archived: "gray",
+};
 
 export const templateStateLabels: Record<TemplateState, string> = {
   published: "Опубликован",

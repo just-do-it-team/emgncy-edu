@@ -5,7 +5,7 @@ import { actionTypeLabel, responseStatusLabel } from "@/entities/expert-review";
 import { isReviewable, reviewAccessHint } from "@/entities/monitoring";
 import type { EmergencyService, TrainingActionDto } from "@/shared/api";
 import { formatClockTime } from "@/shared/lib";
-import { tooltipEvents } from "@/shared/ui";
+import { StatusPill, tooltipEvents, type PillTone } from "@/shared/ui";
 import { elementLabels, type ParticipantRow, type RowStatus, type TimerLevel, type TimerPhase } from "@/entities/monitoring";
 import { formatAgo, formatDuration } from "../model/format";
 import { positionText } from "../model/position";
@@ -23,6 +23,13 @@ const statusLabels: Record<RowStatus, string> = {
   completed: "Завершена",
   aborted: "Прервана",
   not_started: "Не начата",
+};
+
+const statusTones: Record<RowStatus, PillTone> = {
+  running: "blue",
+  completed: "green",
+  aborted: "red",
+  not_started: "gray",
 };
 
 const timerLevelLabels: Record<TimerLevel, string | null> = {
@@ -207,7 +214,7 @@ export function ParticipantsTable({
                     </Text>
                   </Table.Td>
                   <Table.Td>
-                    <Text size="sm">{statusLabels[row.status]}</Text>
+                    <StatusPill tone={statusTones[row.status]}>{statusLabels[row.status]}</StatusPill>
                     {session !== null && session.score !== null && row.status !== "running" && (
                       <Text size="xs" c="povDark2.6">
                         {`балл ${scoreFormatter.format(session.score)}${session.teacherAssessed ? ", оценка преподавателя" : ""}`}

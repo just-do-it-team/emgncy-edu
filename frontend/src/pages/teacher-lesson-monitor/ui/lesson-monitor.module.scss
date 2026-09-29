@@ -121,8 +121,10 @@
   align-content: start;
   gap: 8px;
   padding: 12px;
-  border: 1px solid var(--mantine-color-povLine-6);
+  border: 1px solid var(--cov-card-border, var(--mantine-color-povLine-6));
+  border-radius: var(--cov-radius, 0);
   background: var(--mantine-color-white);
+  box-shadow: var(--cov-shadow, none);
 }
 
 .tile[data-overdue] {
@@ -177,7 +179,7 @@
   min-height: 100vh;
   padding: var(--mantine-spacing-lg);
   overflow-y: auto;
-  background: var(--mantine-color-povLight-6);
+  background: var(--cov-page, var(--mantine-color-povLight-6));
   --mantine-font-size-xs: 16px;
   --mantine-font-size-sm: 20px;
   --mantine-font-size-md: 24px;
