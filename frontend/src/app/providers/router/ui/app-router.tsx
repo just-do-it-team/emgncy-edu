@@ -30,10 +30,17 @@ import { StudentResultsPage } from "@/pages/student-results";
 import { StudentHelpPage } from "@/pages/student-help";
 import { AdminOverviewPage, AdminMonitoringPage, AdminUsersPage, AdminReportsPage, AdminServicesPage, AdminBackupsPage, AdminUpdatesPage, AdminSecurityPage } from "@/pages/admin";
 import { useSessionExpiry, useSessionStore, type UserRole } from "@/entities/session";
+import { SessionGate } from "@/features/auth";
 
 const roleNavigation: Record<UserRole, NavItem[]> = navigation;
 
-const AppRouter: FC = () => {
+const AppRouter: FC = () => (
+  <SessionGate>
+    <GuardedRoutes />
+  </SessionGate>
+);
+
+const GuardedRoutes: FC = () => {
   const location = useLocation();
   const role = useSessionStore((state) => state.profile?.role ?? null);
 

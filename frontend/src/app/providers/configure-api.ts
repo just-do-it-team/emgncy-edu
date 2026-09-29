@@ -1,7 +1,7 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from "axios";
 import { notifications } from "@mantine/notifications";
 import { getToken, useSessionStore } from "@/entities/session";
-import { authEndpoints } from "@/features/auth";
+import { authEndpoints, SESSION_EXPIRED_MESSAGE } from "@/features/auth";
 import { api, RequestError } from "@/shared/api";
 import { AUTH_API_URL } from "@/shared/config";
 
@@ -17,8 +17,8 @@ function expireSession() {
   useSessionStore.getState().logout();
   notifications.show({
     id: "session-expired",
-    title: "Ошибка",
-    message: SESSION_EXPIRED,
+    title: "Нужно войти снова",
+    message: SESSION_EXPIRED_MESSAGE,
     color: "red",
   });
 }

@@ -10,8 +10,8 @@ import {
 } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { LogOut, PanelLeftClose, PanelLeftOpen, UserRound } from "lucide-react";
-import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useSessionStore } from "@/entities/session";
+import { Link, Outlet, useLocation } from "react-router-dom";
+import { useSignOut } from "@/features/auth";
 import { ActionIcon, Spinner } from "@/shared/ui";
 import { matchRouteTitle, type NavItem } from "@/shared/config";
 import { useSidebarCollapsed } from "../model/sidebar";
@@ -75,17 +75,11 @@ function SidebarLink({
 
 export function AppShell({ items, roleLabel }: AppShellProps) {
   const { pathname } = useLocation();
-  const navigate = useNavigate();
-  const logout = useSessionStore((state) => state.logout);
+  const handleLogout = useSignOut();
   const sidebar = useSidebarCollapsed();
   const compact = useMediaQuery(COMPACT_QUERY) ?? false;
   const collapsed = compact || sidebar.collapsed;
   const activeTitle = matchRouteTitle(pathname);
-
-  const handleLogout = () => {
-    logout();
-    navigate("/login", { replace: true });
-  };
 
   return (
     <MantineAppShell
