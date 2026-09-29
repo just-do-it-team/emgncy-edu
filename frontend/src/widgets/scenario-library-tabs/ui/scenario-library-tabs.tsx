@@ -21,7 +21,7 @@ export function ScenarioLibraryTabs({ active, actions }: ScenarioLibraryTabsProp
       <Title order={2} size="h4" fw={600}>
         Сценарии
       </Title>
-      <Group justify="space-between" align="flex-end" wrap="nowrap" gap="md">
+      <Group justify="space-between" align="flex-end" wrap="wrap" gap="md">
         <nav aria-label="Раздел библиотеки" className={classes.tabs}>
           {tabs.map((tab) => (
             <Link

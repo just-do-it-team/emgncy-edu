@@ -3,6 +3,7 @@ import { Checkbox, Group, Paper, Stack, Text } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
   forbiddenMessage,
+  isTemplateUsable,
   upgradeCandidates,
   upgradeScenariosBody,
   useUpgradeTemplateScenarios,
@@ -27,7 +28,7 @@ export function UpgradeDrafts({ latest, usages, teacherId, onConflict }: Upgrade
   const [selected, setSelected] = useState<string[]>([]);
   const chosen = candidates.filter((usage) => selected.includes(usage.scenarioId));
 
-  if (!latest.isActive || candidates.length === 0) return null;
+  if (!isTemplateUsable(latest) || candidates.length === 0) return null;
 
   const submit = () =>
     upgrade.mutate(

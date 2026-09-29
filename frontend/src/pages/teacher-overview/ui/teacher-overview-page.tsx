@@ -13,13 +13,12 @@ import {
   type Lesson,
 } from "@/features/teacher-lessons";
 import { formatDayMonthTime, localDayKey, sortRows, useTableQuery } from "@/shared/lib";
-import type { ExpertAssessment, MonitoredSession } from "@/shared/api";
+import type { MonitoredSession } from "@/shared/api";
 import { Button, FilteredEmpty, LinkRow, SortableTh, tooltipEvents } from "@/shared/ui";
 import { TeacherAttemptsTable } from "@/widgets/teacher-attempts-table";
 import classes from "./teacher-overview.module.scss";
 
 const UPCOMING_LIMIT = 5;
-const NO_TEACHER_ASSESSMENTS = new Map<string, ExpertAssessment>();
 
 const UPCOMING_SORT_KEYS = ["lesson", "assigned", "due", "participants"] as const;
 const UPCOMING_FILTER_KEYS = ["group"] as const;
@@ -305,9 +304,10 @@ function Overview({ teacherId }: OverviewProps) {
         <TeacherAttemptsTable
           query={attempts}
           sessions={todayAttempts}
-          assessments={NO_TEACHER_ASSESSMENTS}
           assignments={assignmentsById}
           queryPrefix="today"
+          metrics={null}
+          csvName={null}
           showGroup
           emptyTitle="Сегодня завершённых попыток нет"
           emptyHint="Попытки появятся, когда участники завершат занятия. Прошедшие попытки — в разделе «Обучаемые»."

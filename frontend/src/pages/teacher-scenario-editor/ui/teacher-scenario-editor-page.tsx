@@ -6,6 +6,8 @@ import { useSessionStore } from "@/entities/session";
 import { GenerateScenarioForm, type GeneratedScenario } from "@/features/generate-scenario";
 import type { ScenarioTemplate } from "@/shared/api";
 import { Button } from "@/shared/ui";
+import { mocks } from "@/shared/config";
+import { AiScenarioWizard } from "./ai-scenario-wizard";
 import { ScenarioEditorForm } from "./scenario-editor-form";
 
 const SCENARIOS_PATH = "/teacher/scenarios";
@@ -92,7 +94,7 @@ interface GeneratedEditorProps {
   userId: string;
 }
 
-function GeneratedEditor({ templates, userId }: GeneratedEditorProps) {
+function LegacyGeneratedEditor({ templates, userId }: GeneratedEditorProps) {
   const [generated, setGenerated] = useState<GeneratedScenario | null>(null);
 
   if (generated === null) {
@@ -136,7 +138,13 @@ const TeacherScenarioEditorPage = () => {
     return <ExistingEditor key={scenarioId} scenarioId={scenarioId} templates={templates.data} userId={userId} />;
   }
 
-  if (searchParams.get(GENERATE_PARAM) !== null) return <GeneratedEditor templates={templates.data} userId={userId} />;
+  if (searchParams.get(GENERATE_PARAM) !== null) {
+    return mocks.legacyAiScenario ? (
+      <LegacyGeneratedEditor templates={templates.data} userId={userId} />
+    ) : (
+      <AiScenarioWizard templates={templates.data} userId={userId} />
+    );
+  }
 
   return (
     <ScenarioEditorForm

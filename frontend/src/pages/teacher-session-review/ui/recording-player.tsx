@@ -1,14 +1,14 @@
 import { useRef, useState } from "react";
-import { SegmentedControl, Skeleton } from "@mantine/core";
+import { SegmentedControl, Skeleton, Tooltip } from "@mantine/core";
 import type { UseQueryResult } from "@tanstack/react-query";
-import { Pause, Play } from "lucide-react";
+import { Info, Pause, Play } from "lucide-react";
 import {
   recordingErrorKind,
   recordingErrorMessages,
   useCallRecordingAudio,
 } from "@/entities/call-recording";
 import type { CallRecording } from "@/shared/api";
-import { ActionIcon } from "@/shared/ui";
+import { ActionIcon, tooltipEvents } from "@/shared/ui";
 import { formatOffset } from "../model/replay";
 import classes from "./session-review.module.scss";
 
@@ -96,7 +96,20 @@ function ReadyPlayer({ callId, durationMs, syncNotice, onPlaybackChange }: Ready
         data={playbackRates}
         aria-label="Скорость воспроизведения"
       />
-      {syncNotice && <span className={classes.playerHint}>{syncNotice}</span>}
+      {syncNotice && (
+        <Tooltip
+          label={`Точная привязка реплик к записи недоступна для этой попытки. ${syncNotice}`}
+          events={tooltipEvents}
+          multiline
+          w={300}
+          color="povDark.6"
+          radius={0}
+        >
+          <span className={classes.syncInfo} tabIndex={0} aria-label="Точная привязка реплик к записи недоступна для этой попытки">
+            <Info size={14} aria-hidden="true" />
+          </span>
+        </Tooltip>
+      )}
     </>
   );
 }

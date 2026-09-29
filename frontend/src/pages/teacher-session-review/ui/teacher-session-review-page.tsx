@@ -13,6 +13,7 @@ import { abortReasonText, type AbortActor } from "../model/review-labels";
 import { ABORTED_SESSION_STATUS, participantRoleLabels } from "@/entities/monitoring";
 import { CallElementReview, CardElementReview, OutgoingCallElementReview } from "./element-review";
 import { ExpertAssessmentCell } from "./expert-assessment";
+import { SpellingCell } from "./spelling-cell";
 import type { FindingDismissal, RoleState } from "./review-findings";
 import classes from "./session-review.module.scss";
 
@@ -254,6 +255,7 @@ function LoadedReview({ context, teacherId, aborted }: LoadedReviewProps) {
           <Cell label="Причина прерывания">{abortReasonText(session.abortReason, abortActorOf(context))}</Cell>
         )}
         <ExpertAssessmentCell session={session} teacherId={teacherId} aborted={aborted} dismissed={[...dismissed.values()]} />
+        <SpellingCell context={context} participantId={participantId} />
         {context.participantIds.length > 1 && (
           <SegmentedControl
             size="xs"

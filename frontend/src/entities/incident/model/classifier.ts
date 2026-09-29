@@ -1,4 +1,5 @@
 import source from "../data/incident-classifier.json?raw";
+import { MAIN_SERVICE_REASON, primaryServiceCode, withMainServiceFirst } from "./main-service";
 
 type ClassifierRow = [
   number,
@@ -268,6 +269,17 @@ const routeServiceCodes = [
   "DEP_CIVIL_CONSTRUCTION",
 ];
 
+function mainServiceName(code: string): string {
+  const id = routeServiceCodes.findIndex((candidate) => candidate === code);
+  const definition = reference.route_definitions.find((item) => item[0] === id);
+
+  return definition ? routeServiceName(definition) : `Служба ${code}`;
+}
+
+/**
+ * Список оповещения по записи классификатора и обстоятельствам: применимые маршруты справочника
+ * плюс главная служба типа, которая всегда стоит первой (см. `withMainServiceFirst`).
+ */
 export function resolveServices(
   record: ClassifierRecord | undefined,
   flags: RoutingFlags,
@@ -292,9 +304,14 @@ export function resolveServices(
     service.reasons.add(value);
     services.set(code, service);
   }
-  return [...services].map(([code, service]) => ({
+  const routed = [...services].map(([code, service]) => ({
     code,
     name: service.name,
     reasons: [...service.reasons],
   }));
+  const mainCode = primaryServiceCode(record?.primaryService ?? null);
+  return withMainServiceFirst(
+    routed,
+    mainCode === null ? null : { code: mainCode, name: mainServiceName(mainCode), reasons: [MAIN_SERVICE_REASON] },
+  );
 }

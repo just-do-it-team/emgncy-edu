@@ -43,8 +43,13 @@ function template(id: string, kind: ScenarioTemplate["kind"], overrides: Partial
     name: id,
     description: null,
     difficulty: 1,
+    status: "PUBLISHED",
+    generatedByAi: false,
+    aiReviewState: null,
+    generationId: null,
     isActive: true,
     createdBy: "teacher",
+    createdByName: null,
     createdAt: "2026-09-20T10:00:00+03:00",
     initialCard: null,
     initialCall: null,
@@ -95,7 +100,12 @@ const context: ScenarioValidationContext = {
   recordExists: () => true,
   activeServices: new Set(["104"]),
   templates: new Map([["t-call", template("t-call", "call")]]),
-  cardTemplates: [template("c1", "card"), template("c2", "card", { difficulty: 3 }), template("c3", "card", { isActive: false })],
+  cardTemplates: [
+    template("c1", "card"),
+    template("c2", "card", { difficulty: 3 }),
+    template("c3", "card", { isActive: false }),
+    template("c4", "card", { status: "DRAFT", generatedByAi: true }),
+  ],
 };
 
 const norms: DurationNorms = { cardReactionSeconds: 210, proceduralInitialDelaySeconds: 5, proceduralIntervalSeconds: 180 };
@@ -202,10 +212,41 @@ describe("порядок и условия подачи", () => {
 
     assert.ok(validateScenarioDraft(draft, inactive).some((issue) => issue.path === "items.0.source"));
   });
+
+  it("шаблон со старой цепочкой 103 — ошибка с подсказкой создать новую версию", () => {
+    const legacy = {
+      ...context,
+      templates: new Map([
+        [
+          "t-call",
+          template("t-call", "call", {
+            expectedResult: { service_status_history: { "103": [{ status: "RECEIVED" }, { status: "REJECTED" }] } },
+          }),
+        ],
+      ]),
+    };
+
+    assert.ok(
+      validateScenarioDraft(draft, legacy).some(
+        (issue) => issue.path === "items.0.source" && /новую версию шаблона/.test(issue.message),
+      ),
+    );
+  });
+
+  it("черновик ИИ нельзя поставить в сценарий, пока он не опубликован", () => {
+    const aiDraft = {
+      ...context,
+      templates: new Map([["t-call", template("t-call", "call", { status: "DRAFT", generatedByAi: true })]]),
+    };
+
+    assert.ok(
+      validateScenarioDraft(draft, aiDraft).some((issue) => issue.path === "items.0.source" && /черновик ИИ/.test(issue.message)),
+    );
+  });
 });
 
 describe("процедурный пул", () => {
-  it("учитываются только активные шаблоны не сложнее сценария", () => {
+  it("учитываются только активные опубликованные шаблоны не сложнее сценария, черновики ИИ — нет", () => {
     assert.equal(eligiblePoolSize({ ...draft, difficulty: 1 }, context.cardTemplates), 1);
     assert.equal(eligiblePoolSize({ ...draft, difficulty: 3 }, context.cardTemplates), 2);
   });
@@ -323,6 +364,7 @@ describe("чтение сценария в черновик", () => {
       revision: 3,
       status: "DRAFT",
       createdBy: "teacher",
+      createdByName: null,
       createdAt: "2026-09-20T10:00:00+03:00",
       updatedAt: "2026-09-21T10:00:00+03:00",
       composition: { itemTypes: ["INCOMING_CALL", "INCIDENT_CARD"], procedural: false },

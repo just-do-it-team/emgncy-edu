@@ -10,4 +10,6 @@ export const scenarioKeys = {
   templateList: () => [...scenarioKeys.templates(), "list"] as const,
   template: (kind: ScenarioTemplateKind, templateId: string) =>
     [...scenarioKeys.templates(), kind, templateId] as const,
+  generations: () => [...scenarioKeys.all, "template-generation"] as const,
+  generation: (generationId: string) => [...scenarioKeys.generations(), generationId] as const,
 };

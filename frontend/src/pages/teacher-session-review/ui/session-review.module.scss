@@ -490,3 +490,37 @@ button.finding:focus-visible {
 .findingGroup .finding {
   border-bottom: 0;
 }
+
+@media (max-width: 48em) {
+  .screen {
+    height: auto;
+  }
+
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.spellingText {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.misspelled {
+  background: transparent;
+  color: inherit;
+  text-decoration: underline wavy var(--mantine-color-povDark-6);
+  text-underline-offset: 3px;
+}
+
+.syncInfo {
+  display: inline-flex;
+  align-items: center;
+  color: var(--mantine-color-povDark2-6);
+  cursor: help;
+}
+
+.syncInfo:focus-visible {
+  outline: 2px solid var(--mantine-color-povDark-6);
+  outline-offset: 2px;
+}

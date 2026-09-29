@@ -6,7 +6,8 @@ import { assignmentWindow, assignmentWindowProblem, ScheduleFields, useAssignmen
 import { useEmergencyServices } from "@/entities/emergency-service";
 import { useGroups } from "@/entities/group";
 import { difficultyLabel } from "@/entities/scenario";
-import type { ScenarioListItem } from "@/shared/api";
+import { useTeacherStudents } from "@/entities/student";
+import type { Group as LearningGroup, ScenarioListItem } from "@/shared/api";
 import { focusFormField, formatDateTime, issueMessages, useLeaveGuard } from "@/shared/lib";
 import { Button, Fact, IssuesList, LeaveConfirmModal } from "@/shared/ui";
 import { useAssignLesson } from "../api/use-assign-lesson";
@@ -25,10 +26,11 @@ import {
   validateAssignment,
   type AssignMode,
   type AssignmentDraft,
+  type Audience,
   type RequestOutcome,
 } from "../model/assignment-plan";
 import { AssignmentResults } from "./assignment-results";
-import { ParticipantsPicker } from "./participants-picker";
+import { ParticipantsPicker, type PickerSection } from "./participants-picker";
 import { ScenarioPicker } from "./scenario-picker";
 
 const modeOptions: { value: AssignMode; label: string }[] = [
@@ -36,25 +38,68 @@ const modeOptions: { value: AssignMode; label: string }[] = [
   { value: "perStudent", label: "Разные задания" },
 ];
 
+const audienceOptions: { value: Audience; label: string }[] = [
+  { value: "group", label: "Группе" },
+  { value: "students", label: "Обучаемым" },
+];
+
 function isMode(value: string): value is AssignMode {
   return value === "single" || value === "perStudent";
+}
+
+function isAudience(value: string): value is Audience {
+  return value === "group" || value === "students";
+}
+
+function initialDraft(scenarioId: string | null, group: LearningGroup | null, studentId: string | null): AssignmentDraft {
+  if (studentId !== null) {
+    return {
+      ...emptyAssignmentDraft,
+      audience: "students",
+      scenarioId,
+      rows: [{ groupId: null, studentId, scenarioId: null, position: null, manual: false }],
+    };
+  }
+
+  return {
+    ...emptyAssignmentDraft,
+    scenarioId,
+    rows: (group?.students ?? []).map((student) => ({
+      groupId: group?.id ?? null,
+      studentId: student.id,
+      scenarioId: null,
+      position: null,
+      manual: false,
+    })),
+  };
 }
 
 interface AssignLessonFormProps {
   scenarios: ScenarioListItem[];
   initialScenarioId: string | null;
+  initialGroup: LearningGroup | null;
+  initialStudentId: string | null;
+  initialDifficulty: string | null;
   userId: string;
 }
 
-export function AssignLessonForm({ scenarios, initialScenarioId, userId }: AssignLessonFormProps) {
+export function AssignLessonForm({
+  scenarios,
+  initialScenarioId,
+  initialGroup,
+  initialStudentId,
+  initialDifficulty,
+  userId,
+}: AssignLessonFormProps) {
   const navigate = useNavigate();
   const groups = useGroups(userId);
+  const teacherStudents = useTeacherStudents(userId);
   const assignments = useAssignments({ assignedBy: userId });
   const directory = useEmergencyServices();
   const assign = useAssignLesson();
   const [outcomes, setOutcomes] = useState<RequestOutcome[] | null>(null);
   const [shownIssues, setShownIssues] = useState(false);
-  const form = useForm<AssignmentDraft>({ initialValues: { ...emptyAssignmentDraft, scenarioId: initialScenarioId } });
+  const form = useForm<AssignmentDraft>({ initialValues: initialDraft(initialScenarioId, initialGroup, initialStudentId) });
   const draft = form.values;
   const scenarioIds = [
     ...new Set(
@@ -81,8 +126,33 @@ export function AssignLessonForm({ scenarios, initialScenarioId, userId }: Assig
   });
   const errors = shownIssues ? issueMessages(issues) : {};
   const requests = planRequests(resolved, roles.rolesById, userId);
-  const students = new Map((groups.data ?? []).flatMap((group) => group.students.map((student) => [student.id, student.displayName])));
+  const students = new Map([
+    ...(teacherStudents.data ?? []).map((student) => [student.id, student.displayName] as const),
+    ...(groups.data ?? []).flatMap((group) => group.students.map((student) => [student.id, student.displayName] as const)),
+  ]);
   const groupNames = new Map((groups.data ?? []).map((group) => [group.id, group.name]));
+  const audienceQuery = draft.audience === "group" ? groups : teacherStudents;
+  const assignable = (teacherStudents.data ?? []).filter((student) => !student.isBlocked);
+  const sections: PickerSection[] =
+    draft.audience === "group"
+      ? (groups.data ?? []).map((group) => ({
+          groupId: group.id,
+          title: `Вся группа «${group.name}»`,
+          students: group.students.map((student) => ({ ...student, hint: null })),
+        }))
+      : assignable.length > 0
+        ? [
+            {
+              groupId: null,
+              title: null,
+              students: assignable.map((student) => ({
+                  id: student.id,
+                  displayName: student.displayName,
+                  hint: student.groupNames.length === 0 ? "без группы" : student.groupNames.join(", "),
+                })),
+            },
+          ]
+        : [];
   const singleRoles = draft.mode === "single" && draft.scenarioId !== null ? roles.rolesById.get(draft.scenarioId) : undefined;
   const callOperators = singleRoles ? effectiveCallOperators(resolved, singleRoles) : {};
   const operators = singleRoles ? operatorsOf(resolved, singleRoles.scenarioId) : [];
@@ -138,7 +208,7 @@ export function AssignLessonForm({ scenarios, initialScenarioId, userId }: Assig
         <AssignmentResults
           outcomes={outcomes}
           rolesById={roles.rolesById}
-          groupName={(groupId) => groupNames.get(groupId) ?? "группа"}
+          groupName={(groupId) => (groupId === null ? "без группы" : (groupNames.get(groupId) ?? "группа"))}
           studentName={(studentId) => students.get(studentId) ?? "обучаемый"}
           retrying={assign.isPending}
           onRetry={retry}
@@ -190,6 +260,7 @@ export function AssignLessonForm({ scenarios, initialScenarioId, userId }: Assig
           {draft.mode === "single" ? (
             <ScenarioPicker
               scenarios={scenarios}
+              initialDifficulty={initialDifficulty}
               value={draft.scenarioId}
               error={errors.scenarioId}
               onChange={(scenarioId) => form.setValues({ scenarioId, callOperators: {} })}
@@ -216,16 +287,28 @@ export function AssignLessonForm({ scenarios, initialScenarioId, userId }: Assig
           <Title order={3} size="h5" fw={600}>
             Кому
           </Title>
-          {groups.isPending ? (
+          <SegmentedControl
+            size="xs"
+            radius={2}
+            color="povDark2.6"
+            w="fit-content"
+            data={audienceOptions}
+            value={draft.audience}
+            onChange={(value) => {
+              if (isAudience(value)) form.setValues({ audience: value, rows: [], callOperators: {} });
+            }}
+            aria-label="Кому назначить"
+          />
+          {audienceQuery.isPending ? (
             <Stack gap="xs">
               {[0, 1, 2].map((row) => (
                 <Skeleton key={row} height={28} radius={2} />
               ))}
             </Stack>
-          ) : groups.isError ? (
+          ) : audienceQuery.isError ? (
             <Group gap="xs">
-              <Text size="sm">Группы не загрузились.</Text>
-              <Button size="xs" variant="outline" color="povDark2.6" onClick={() => groups.refetch()}>
+              <Text size="sm">{draft.audience === "group" ? "Группы не загрузились." : "Список обучаемых не загрузился."}</Text>
+              <Button size="xs" variant="outline" color="povDark2.6" onClick={() => audienceQuery.refetch()}>
                 Повторить
               </Button>
             </Group>
@@ -233,7 +316,12 @@ export function AssignLessonForm({ scenarios, initialScenarioId, userId }: Assig
             <ParticipantsPicker
               form={form}
               resolved={resolved}
-              groups={groups.data}
+              sections={sections}
+              emptyText={
+                draft.audience === "group"
+                  ? "У вас нет активных групп. Создайте группу в разделе «Группы» или назначьте занятие обучаемым напрямую."
+                  : "Обучаемых пока нет: в списке — те, кто состоит в ваших группах или уже получал от вас занятия. Добавьте обучаемого в группу в разделе «Группы»."
+              }
               scenarios={scenarios}
               rolesById={roles.rolesById}
               active={active}
@@ -335,7 +423,9 @@ export function AssignLessonForm({ scenarios, initialScenarioId, userId }: Assig
           </Group>
           {requests.length > 1 && (
             <Text size="xs" c="povDark2.6">
-              Сервер создаёт занятие на пару «группа — сценарий».
+              {draft.audience === "group"
+                ? "Сервер создаёт занятие на пару «группа — сценарий»."
+                : "Без группы каждому обучаемому создаётся своё занятие; общее рабочее место — одно занятие на всех."}
             </Text>
           )}
         </Stack>

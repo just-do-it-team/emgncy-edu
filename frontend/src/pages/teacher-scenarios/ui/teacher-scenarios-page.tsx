@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Alert, Anchor, Group, Paper, Select, Skeleton, Stack, Table, Text, TextInput, Tooltip } from "@mantine/core";
 import { Search } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -26,6 +27,7 @@ import {
   usePagination,
 } from "@/shared/ui";
 import { ScenarioLibraryTabs } from "@/widgets/scenario-library-tabs";
+import { ProceduralScenarioModal } from "./procedural-scenario-modal";
 import classes from "./teacher-scenarios.module.scss";
 
 const SORT_KEYS = ["name", "difficulty", "status", "author", "items", "used", "updated"] as const;
@@ -275,8 +277,8 @@ function ScenariosTable({ rows }: { rows: ScenarioRow[] }) {
                     <Text size="sm">{scenarioStatusLabels[scenario.status]}</Text>
                   </Table.Td>
                   <Table.Td>
-                    <Text size="sm" c={own ? undefined : "povDark2.6"}>
-                      {own ? "Вы" : "Другой преподаватель"}
+                    <Text size="sm" lineClamp={2} c={own ? undefined : "povDark2.6"}>
+                      {own ? "Вы" : (scenario.createdByName ?? "Другой преподаватель")}
                     </Text>
                   </Table.Td>
                   <Table.Td>
@@ -315,6 +317,7 @@ function Scenarios({ teacherId }: { teacherId: string }) {
   const scenarios = useScenarios();
   const assignments = useAssignments({ assignedBy: teacherId });
   const lessons = assignments.data && lessonsByScenario(assignments.data);
+  const [procedural, setProcedural] = useState(false);
   const rows: ScenarioRow[] = (scenarios.data ?? []).map((scenario) => {
     const { role, derived } = resolvedScenarioRole(scenario.requiredPositions, scenario.composition);
 
@@ -335,6 +338,9 @@ function Scenarios({ teacherId }: { teacherId: string }) {
           <Group gap="xs">
             <Button size="sm" variant="outline" color="povDark2.6" component={Link} to="/teacher/scenarios/new?ai=1">
               Сгенерировать с ИИ
+            </Button>
+            <Button size="sm" variant="outline" color="povDark2.6" onClick={() => setProcedural(true)}>
+              Создать процедурный сценарий
             </Button>
             <Button size="sm" component={Link} to="/teacher/scenarios/new">
               Создать сценарий
@@ -390,6 +396,8 @@ function Scenarios({ teacherId }: { teacherId: string }) {
       )}
 
       {scenarios.isSuccess && scenarios.data.length > 0 && <ScenariosTable rows={rows} />}
+
+      {procedural && <ProceduralScenarioModal userId={teacherId} onClose={() => setProcedural(false)} />}
     </Stack>
   );
 }

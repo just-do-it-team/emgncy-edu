@@ -47,3 +47,15 @@
   outline: 2px solid var(--mantine-color-povDark-6);
   outline-offset: 2px;
 }
+
+@media (max-width: 48em) {
+  .checkModeField {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .checkModes {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}

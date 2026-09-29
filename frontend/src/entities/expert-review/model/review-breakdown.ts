@@ -90,6 +90,11 @@ const FREE_TEXT_PATHS = new Set([
   "card.incident_address",
 ]);
 
+/**
+ * Относит путь расхождения сервера к критерию C1–C7 или к отдельной группе. Сервер критерий
+ * не передаёт, поэтому соответствие задано здесь по пути поля. Комментарии к статусам ДДС и
+ * смысловая оценка исходящего звонка вынесены в свои группы: в балл по критериям они не входят.
+ */
 function groupOf(path: string): ReviewGroup | null {
   if (path === "expected_result.outbound_call") return "model_evaluation";
   if (SERVICE_HISTORY_COMMENT.test(path)) return "literal_comment";
@@ -118,6 +123,11 @@ function normalizeText(value: string): string {
     .trim();
 }
 
+/**
+ * Расхождение только в оформлении: свободный текст совпадает после приведения к нижнему регистру
+ * и удаления пунктуации. Такие расхождения показываются с низкой значимостью, чтобы преподаватель
+ * не тратил на них внимание.
+ */
 function isFormattingOnly({ path, expected, actual }: Discrepancy): boolean {
   if (!FREE_TEXT_PATHS.has(path) && !SERVICE_HISTORY_COMMENT.test(path)) return false;
   if (typeof expected !== "string" || typeof actual !== "string") return false;
@@ -147,6 +157,14 @@ function toFinding(discrepancy: Discrepancy): ReviewFinding {
   return { ...discrepancy, significance, formattingOnly };
 }
 
+/**
+ * Раскладывает расхождения попытки по критериям с учётом роли участника.
+ *
+ * Порядок проверок важен: сначала пояснения для полей, которые сервер больше не оценивает
+ * (старые попытки), затем группы вне критериев, затем критерии. Критерий, неприменимый к роли
+ * (например, классификация для диспетчера ДДС), в знаменатель не входит, а его расхождения
+ * уходят в `outsideRole`, а не пропадают.
+ */
 export function buildReviewBreakdown(
   discrepancies: Discrepancy[],
   role: ParticipantRole,

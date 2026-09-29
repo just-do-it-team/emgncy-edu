@@ -8,12 +8,16 @@ import {
   cardSourceTypes,
   difficultyLevel,
   difficultyOptions,
+  draftUpdateRequest,
   hasErrors,
+  reviewSectionLabels,
   templateCreateBody,
   templateVariantLabels,
   useCreateTemplate,
+  useUpdateTemplate,
   validateTemplateDraft,
   type DraftIssue,
+  type ReviewSection,
   type TemplateDraft,
 } from "@/entities/scenario";
 import {
@@ -25,6 +29,7 @@ import {
   TraineePreview,
   useActiveServices,
 } from "@/features/expected-result-form";
+import type { ScenarioTemplate } from "@/shared/api";
 import { errorMessages, focusFormField, useLeaveGuard } from "@/shared/lib";
 import { Button, IssuesList, LeaveConfirmModal } from "@/shared/ui";
 import { templatePathOf } from "../model/template-loc";
@@ -35,17 +40,25 @@ export interface TemplateTarget {
   previousVersion: number | null;
 }
 
+export interface DraftTarget {
+  template: ScenarioTemplate;
+  sections: ReviewSection[];
+  returnPath: string | null;
+}
+
 interface TemplateEditorFormProps {
   initial: TemplateDraft;
   target: TemplateTarget;
+  draftOf: DraftTarget | null;
   userId: string;
   cancelPath: string;
 }
 
-export function TemplateEditorForm({ initial, target, userId, cancelPath }: TemplateEditorFormProps) {
+export function TemplateEditorForm({ initial, target, draftOf, userId, cancelPath }: TemplateEditorFormProps) {
   const navigate = useNavigate();
   const services = useActiveServices();
   const create = useCreateTemplate();
+  const update = useUpdateTemplate();
   const [issues, setIssues] = useState<DraftIssue[] | null>(null);
   const [saved, setSaved] = useState(false);
   const form = useForm<TemplateDraft>({ initialValues: initial });
@@ -78,13 +91,37 @@ export function TemplateEditorForm({ initial, target, userId, cancelPath }: Temp
 
     setIssues(found);
     form.clearErrors();
+
+    const body = templateCreateBody(draft, {
+      classification,
+      userId,
+      templateKey: target.templateKey,
+      version: target.version,
+    });
+
+    if (draftOf !== null) {
+      update.mutate(draftUpdateRequest(draftOf.template.id, body, userId, draftOf.sections), {
+        onSuccess: (template) => {
+          setSaved(true);
+          notifications.show({ title: "Черновик сохранён", message: template.name, color: "gray" });
+          navigate(draftOf.returnPath ?? `/teacher/scenarios/templates/${template.kind}/${template.id}`);
+        },
+        onError: (error) => {
+          const failure = serverFailure(error, templatePathOf);
+
+          if (failure.kind === "validation") {
+            report([...found.filter((issue) => issue.severity === "warning"), ...failure.issues]);
+            return;
+          }
+
+          notifications.show({ title: "Черновик не сохранён", message: failure.message, color: "red" });
+        },
+      });
+      return;
+    }
+
     create.mutate(
-      templateCreateBody(draft, {
-        classification,
-        userId,
-        templateKey: target.templateKey,
-        version: target.version,
-      }),
+      body,
       {
         onSuccess: (template) => {
           setSaved(true);
@@ -130,11 +167,21 @@ export function TemplateEditorForm({ initial, target, userId, cancelPath }: Temp
       <Paper withBorder p="md">
         <Stack gap="xs">
           <Title order={2} size="h4" fw={600}>
-            {target.previousVersion === null
-              ? `Новый шаблон: ${templateVariantLabels[draft.variant].toLowerCase()}`
-              : `Новая версия шаблона «${initial.name}»`}
+            {draftOf !== null
+              ? `Исправление черновика ИИ «${initial.name}»`
+              : target.previousVersion === null
+                ? `Новый шаблон: ${templateVariantLabels[draft.variant].toLowerCase()}`
+                : `Новая версия шаблона «${initial.name}»`}
           </Title>
-          {target.previousVersion !== null && (
+          {draftOf !== null && (
+            <Text size="sm">
+              Черновик правится на месте, новая версия не создаётся.
+              {draftOf.sections.length > 0
+                ? ` После сохранения секции ${draftOf.sections.map((section) => `«${reviewSectionLabels[section]}»`).join(", ")} будут отмечены как исправленные.`
+                : " Решения по секциям не меняются — отметьте их в карточке шаблона."}
+            </Text>
+          )}
+          {draftOf === null && target.previousVersion !== null && (
             <Text size="sm">
               Шаблон не редактируется на месте: сохранится версия {target.version}. Сценарии, которые ссылаются на
               версию {target.previousVersion} и более ранние, сами не переключатся — переключение делается в редакторе
@@ -249,8 +296,12 @@ export function TemplateEditorForm({ initial, target, userId, cancelPath }: Temp
         <Button size="sm" variant="outline" color="povDark2.6" component={Link} to={cancelPath}>
           Отмена
         </Button>
-        <Button size="sm" loading={create.isPending} onClick={save}>
-          {target.previousVersion === null ? "Сохранить шаблон" : `Сохранить версию ${target.version}`}
+        <Button size="sm" loading={create.isPending || update.isPending} onClick={save}>
+          {draftOf !== null
+            ? "Сохранить черновик"
+            : target.previousVersion === null
+              ? "Сохранить шаблон"
+              : `Сохранить версию ${target.version}`}
         </Button>
       </Group>
 

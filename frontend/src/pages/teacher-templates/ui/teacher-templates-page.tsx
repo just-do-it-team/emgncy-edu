@@ -4,9 +4,17 @@ import { Link } from "react-router-dom";
 import { classifierRecords } from "@/entities/incident";
 import {
   activeUsages,
+  difficultyLabel,
   groupTemplates,
+  templateAuthorLabel,
+  templateSourceLabel,
+  templateState,
+  templateStateLabels,
   templateUsages,
+  templateVariantHints,
   templateVariantLabels,
+  templateVariantOrder,
+  type TemplateState,
   useScenarios,
   useTemplates,
   type TemplateEntry,
@@ -20,21 +28,24 @@ import { ScenarioLibraryTabs } from "@/widgets/scenario-library-tabs";
 import { CreateTemplateMenu } from "./create-template-menu";
 import classes from "./teacher-templates.module.scss";
 
-const SORT_KEYS = ["name", "variant", "type", "version", "active", "author", "used", "updated"] as const;
-const FILTER_KEYS = ["q", "variant", "type", "service", "activity", "author"] as const;
+const SORT_KEYS = ["name", "variant", "type", "difficulty", "version", "state", "author", "used", "updated"] as const;
+const FILTER_KEYS = ["q", "variant", "type", "service", "state", "author"] as const;
 
-const INACTIVE = "inactive";
 const ALL = "all";
 const OWN = "own";
 
 const variantOrder: Record<TemplateVariant, number> = { call: 0, card112: 1, cardDds: 2 };
 
-const variantOptions = Object.entries(templateVariantLabels).map(([value, label]) => ({ value, label }));
+const variantOptions = templateVariantOrder.map((variant) => ({ value: variant, label: templateVariantLabels[variant] }));
 
-const activityOptions = [
-  { value: INACTIVE, label: "Неактивные" },
-  { value: ALL, label: "Все, включая неактивные" },
+const stateOptions = [
+  { value: "published", label: "Опубликованные" },
+  { value: "aiDraft", label: "Черновики ИИ" },
+  { value: "archived", label: "В архиве" },
+  { value: ALL, label: "Все, включая архив" },
 ];
+
+const stateOrder: Record<TemplateState, number> = { aiDraft: 0, draft: 1, published: 2, archived: 3 };
 
 const authorOptions = [{ value: OWN, label: "Мои" }];
 
@@ -43,24 +54,29 @@ const recordNames = new Map(classifierRecords.map((record) => [record.id, record
 interface TemplateRow {
   entry: TemplateEntry;
   typeName: string | null;
+  author: string;
   own: boolean;
   used: number | null;
 }
 
-function matchesActivity(active: boolean, filter: string | null): boolean {
+function matchesState(state: TemplateState, filter: string | null): boolean {
   if (filter === ALL) return true;
-  if (filter === INACTIVE) return !active;
+  if (filter === null) return state !== "archived";
 
-  return active;
+  return state === filter;
 }
+
+const DDS_VARIANT = "cardDds";
 
 function TemplatesTable({ rows, serviceNames }: { rows: TemplateRow[]; serviceNames: Map<string, string> }) {
   const table = useTableQuery("templates", SORT_KEYS, FILTER_KEYS);
   const query = table.filter("q")?.trim().toLocaleLowerCase("ru") ?? "";
   const variant = table.filter("variant");
   const type = table.filter("type");
-  const service = table.filter("service");
-  const activity = table.filter("activity");
+  const chosenVariants = templateVariantOrder.filter((shown) => shown === variant);
+  const serviceFilterOn = variant === DDS_VARIANT;
+  const service = serviceFilterOn ? table.filter("service") : null;
+  const stateFilter = table.filter("state");
   const author = table.filter("author");
 
   const typeOptions = [
@@ -74,7 +90,9 @@ function TemplatesTable({ rows, serviceNames }: { rows: TemplateRow[]; serviceNa
   ]
     .map(([value, label]) => ({ value, label }))
     .sort((first, second) => first.label.localeCompare(second.label, "ru"));
-  const serviceOptions = [...new Set(rows.flatMap((row) => row.entry.latest.services))]
+  const serviceOptions = [
+    ...new Set(rows.filter((row) => row.entry.latest.variant === DDS_VARIANT).flatMap((row) => row.entry.latest.services)),
+  ]
     .map((code) => ({ value: code, label: serviceName(code, serviceNames) }))
     .sort((first, second) => first.label.localeCompare(second.label, "ru"));
 
@@ -85,7 +103,7 @@ function TemplatesTable({ rows, serviceNames }: { rows: TemplateRow[]; serviceNa
         (variant === null || entry.latest.variant === variant) &&
         (type === null || String(entry.latest.recordId) === type) &&
         (service === null || entry.latest.services.includes(service)) &&
-        matchesActivity(entry.latest.isActive, activity) &&
+        matchesState(templateState(entry.latest), stateFilter) &&
         (author === null || own),
     ),
     table.sort,
@@ -93,8 +111,9 @@ function TemplatesTable({ rows, serviceNames }: { rows: TemplateRow[]; serviceNa
       name: (row) => row.entry.latest.name,
       variant: (row) => variantOrder[row.entry.latest.variant],
       type: (row) => row.typeName,
+      difficulty: (row) => row.entry.latest.difficulty,
       version: (row) => row.entry.latest.version,
-      active: (row) => (row.entry.latest.isActive ? 0 : 1),
+      state: (row) => stateOrder[templateState(row.entry.latest)],
       author: (row) => (row.own ? 0 : 1),
       used: (row) => row.used,
       updated: (row) => Date.parse(row.entry.latest.createdAt),
@@ -122,7 +141,10 @@ function TemplatesTable({ rows, serviceNames }: { rows: TemplateRow[]; serviceNa
           aria-label="Фильтр по виду"
           data={variantOptions}
           value={variant}
-          onChange={(value) => table.setFilter("variant", value)}
+          onChange={(value) => {
+            table.setFilter("variant", value);
+            if (value !== DDS_VARIANT) table.setFilter("service", null);
+          }}
           clearable
         />
         <Select
@@ -139,22 +161,24 @@ function TemplatesTable({ rows, serviceNames }: { rows: TemplateRow[]; serviceNa
         <Select
           size="xs"
           w={180}
-          placeholder="Служба: любая"
+          placeholder={serviceFilterOn ? "Служба: любая" : "Служба: для карточек ДДС"}
           aria-label="Фильтр по службе"
+          title={serviceFilterOn ? undefined : "Фильтр по службе работает для вида «Карточка ДДС»"}
           data={serviceOptions}
           value={service}
           onChange={(value) => table.setFilter("service", value)}
+          disabled={!serviceFilterOn}
           searchable
           clearable
         />
         <Select
           size="xs"
           w={200}
-          placeholder="Активные"
-          aria-label="Фильтр по активности"
-          data={activityOptions}
-          value={activity}
-          onChange={(value) => table.setFilter("activity", value)}
+          placeholder="Статус: без архива"
+          aria-label="Фильтр по статусу"
+          data={stateOptions}
+          value={stateFilter}
+          onChange={(value) => table.setFilter("state", value)}
           clearable
         />
         <Select
@@ -169,6 +193,14 @@ function TemplatesTable({ rows, serviceNames }: { rows: TemplateRow[]; serviceNa
         />
       </Group>
 
+      <Stack gap={0}>
+        {(chosenVariants.length > 0 ? chosenVariants : templateVariantOrder).map((shown) => (
+          <Text key={shown} size="xs" c="povDark2.6">
+            {templateVariantLabels[shown]} — {templateVariantHints[shown]}
+          </Text>
+        ))}
+      </Stack>
+
       {visible.length === 0 ? (
         <FilteredEmpty onReset={table.resetFilters} />
       ) : (
@@ -176,13 +208,14 @@ function TemplatesTable({ rows, serviceNames }: { rows: TemplateRow[]; serviceNa
           <Table verticalSpacing="sm" highlightOnHover layout="fixed">
             <colgroup>
               <col />
-              <col width={130} />
-              <col width={200} />
-              <col width={90} />
+              <col width={120} />
+              <col width={180} />
               <col width={100} />
-              <col width={120} />
-              <col width={120} />
-              <col width={120} />
+              <col width={80} />
+              <col width={150} />
+              <col width={110} />
+              <col width={115} />
+              <col width={110} />
             </colgroup>
             <Table.Thead>
               <Table.Tr>
@@ -194,14 +227,19 @@ function TemplatesTable({ rows, serviceNames }: { rows: TemplateRow[]; serviceNa
                   onSort={() => table.cycleSort("type")}
                 />
                 <SortableTh
+                  label="Сложность"
+                  direction={table.directionOf("difficulty")}
+                  onSort={() => table.cycleSort("difficulty")}
+                />
+                <SortableTh
                   label="Версия"
                   direction={table.directionOf("version")}
                   onSort={() => table.cycleSort("version")}
                 />
                 <SortableTh
-                  label="Активен"
-                  direction={table.directionOf("active")}
-                  onSort={() => table.cycleSort("active")}
+                  label="Статус"
+                  direction={table.directionOf("state")}
+                  onSort={() => table.cycleSort("state")}
                 />
                 <SortableTh
                   label="Автор"
@@ -223,7 +261,7 @@ function TemplatesTable({ rows, serviceNames }: { rows: TemplateRow[]; serviceNa
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {pagination.rows.map(({ entry, typeName, own, used }) => (
+              {pagination.rows.map(({ entry, typeName, author, own, used }) => (
                 <LinkRow key={`${entry.latest.kind}:${entry.templateKey}`}>
                   <Table.Td>
                     <Anchor
@@ -233,18 +271,30 @@ function TemplatesTable({ rows, serviceNames }: { rows: TemplateRow[]; serviceNa
                       c="povDark2.6"
                       underline="never"
                       data-row-link
-                      className={classes.truncatedLink}
+                      lineClamp={2}
+                      className={classes.nameLink}
                     >
                       {entry.latest.name}
                     </Anchor>
                   </Table.Td>
                   <Table.Td>
                     <Text size="sm">{templateVariantLabels[entry.latest.variant]}</Text>
+                    <Text size="xs" c="povDark2.6">
+                      {templateSourceLabel(entry.latest)}
+                    </Text>
                   </Table.Td>
                   <Table.Td>
                     <Text size="sm" lineClamp={2} c={typeName ? undefined : "povDark2.6"}>
                       {typeName ?? "не найден в классификаторе"}
                     </Text>
+                    {entry.latest.services.length > 0 && (
+                      <Text size="xs" c="povDark2.6" lineClamp={1}>
+                        {entry.latest.services.map((code) => serviceName(code, serviceNames)).join(", ")}
+                      </Text>
+                    )}
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="sm">{difficultyLabel(entry.latest.difficulty)}</Text>
                   </Table.Td>
                   <Table.Td>
                     <Text size="sm" className={classes.numeric}>
@@ -252,13 +302,17 @@ function TemplatesTable({ rows, serviceNames }: { rows: TemplateRow[]; serviceNa
                     </Text>
                   </Table.Td>
                   <Table.Td>
-                    <Text size="sm" c={entry.latest.isActive ? undefined : "povDark2.6"}>
-                      {entry.latest.isActive ? "да" : "нет"}
+                    <Text
+                      size="sm"
+                      fw={templateState(entry.latest) === "aiDraft" ? 600 : undefined}
+                      c={templateState(entry.latest) === "archived" ? "povDark2.6" : undefined}
+                    >
+                      {templateStateLabels[templateState(entry.latest)]}
                     </Text>
                   </Table.Td>
                   <Table.Td>
-                    <Text size="sm" c={own ? undefined : "povDark2.6"}>
-                      {own ? "Вы" : "Другой преподаватель"}
+                    <Text size="sm" lineClamp={2} c={own ? undefined : "povDark2.6"}>
+                      {author}
                     </Text>
                   </Table.Td>
                   <Table.Td>
@@ -296,6 +350,7 @@ function templateRows(
   return entries.map((entry) => ({
     entry,
     typeName: entry.latest.recordId === null ? null : (recordNames.get(entry.latest.recordId) ?? null),
+    author: templateAuthorLabel(entry.latest, teacherId),
     own: entry.latest.createdBy === teacherId,
     used: scenarios ? activeUsages(templateUsages(entry, scenarios)).length : null,
   }));
@@ -309,7 +364,17 @@ function Templates({ teacherId }: { teacherId: string }) {
 
   return (
     <Stack gap="md">
-      <ScenarioLibraryTabs active="templates" actions={<CreateTemplateMenu />} />
+      <ScenarioLibraryTabs
+        active="templates"
+        actions={
+          <Group gap="xs">
+            <Button size="sm" component={Link} to="/teacher/scenarios/templates/generate">
+              Сгенерировать шаблоны с ИИ
+            </Button>
+            <CreateTemplateMenu />
+          </Group>
+        }
+      />
 
       {templates.isPending && (
         <Paper withBorder p="md">

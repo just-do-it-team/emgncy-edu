@@ -139,3 +139,15 @@
   outline: 2px solid var(--mantine-color-povDark-6);
   outline-offset: 2px;
 }
+
+@media (max-width: 48em) {
+  .screen {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+
+  .listColumn {
+    border-right: 0;
+    border-bottom: 1px solid var(--mantine-color-povLine-6);
+  }
+}

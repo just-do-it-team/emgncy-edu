@@ -64,7 +64,7 @@ const rolesById = new Map([callRoles, ddsRoles, sharedRoles].map((roles) => [rol
 const serviceName = (code: string) => `служба ${code}`;
 const input = { rolesById, active: new Set<string>(), windowProblem: null, serviceName };
 
-function rows(groupId: string, ids: string[], scenarioId: string | null = null) {
+function rows(groupId: string | null, ids: string[], scenarioId: string | null = null) {
   return ids.map((studentId) => ({ groupId, studentId, scenarioId, position: null, manual: false }));
 }
 
@@ -106,6 +106,7 @@ describe("роли сценария", () => {
       revision: 4,
       status: "PUBLISHED",
       createdBy: TEACHER,
+      createdByName: null,
       createdAt: "2026-09-20T10:00:00+03:00",
       updatedAt: "2026-09-21T10:00:00+03:00",
       composition: { itemTypes: ["INCOMING_CALL", "INCIDENT_CARD"], procedural: false },
@@ -276,6 +277,38 @@ describe("тело запроса", () => {
 
     assert.equal(hasAssignmentErrors(issues), false);
     assert.ok(issues.some((issue) => issue.path === "rows.0.studentId" && issue.severity === "warning"));
+  });
+});
+
+describe("назначение обучаемым без группы", () => {
+  it("индивидуальный сценарий — отдельный запрос на каждого, без группы", () => {
+    const draft = resolveRoles(
+      { ...emptyAssignmentDraft, audience: "students", scenarioId: "s-dds", rows: rows(null, ["u1", "u2"]) },
+      rolesById,
+    );
+    const requests = planRequests(draft, rolesById, TEACHER);
+
+    assert.equal(hasAssignmentErrors(validateAssignment(draft, input)), false);
+    assert.deepEqual(
+      requests.map((request) => [request.groupId, request.studentIds, request.body.launch_policy]),
+      [
+        [null, ["u1"], "STUDENT_SELF_START"],
+        [null, ["u2"], "STUDENT_SELF_START"],
+      ],
+    );
+  });
+
+  it("общее рабочее место — один запрос на всех выбранных", () => {
+    const draft = resolveRoles(
+      { ...emptyAssignmentDraft, audience: "students", scenarioId: "s-shared", rows: rows(null, ["u1", "u2", "u3"]) },
+      rolesById,
+    );
+    const requests = planRequests(draft, rolesById, TEACHER);
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]?.groupId, null);
+    assert.deepEqual(requests[0]?.studentIds, ["u1", "u2", "u3"]);
+    assert.equal(requests[0]?.body.launch_policy, "TEACHER_START");
   });
 });
 

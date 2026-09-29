@@ -6,7 +6,6 @@ import type { ServiceOption } from "../model/use-active-services";
 interface ServicesFieldProps {
   auto: string[];
   chosen: string[];
-  restoredMain: string | null;
   options: ServiceOption[];
   error: string | null;
   dataPath: string;
@@ -17,7 +16,7 @@ function nameOf(code: string, options: ServiceOption[]): string {
   return options.find((option) => option.code === code)?.name ?? `служба ${code}`;
 }
 
-export function ServicesField({ auto, chosen, restoredMain, options, error, dataPath, onChange }: ServicesFieldProps) {
+export function ServicesField({ auto, chosen, options, error, dataPath, onChange }: ServicesFieldProps) {
   const { added, removed } = serviceDiff(auto, chosen);
   const rows = [...chosen, ...removed];
   const [main] = chosen;
@@ -73,9 +72,7 @@ export function ServicesField({ auto, chosen, restoredMain, options, error, data
                         ? "добавлено вручную"
                         : removed.includes(code)
                           ? "убрано из автоподбора"
-                          : code === restoredMain
-                            ? "главная служба добавлена по классификатору"
-                            : "по ЕКП"}
+                          : "по ЕКП"}
                     </Text>
                   </Table.Td>
                   <Table.Td>
@@ -99,7 +96,7 @@ export function ServicesField({ auto, chosen, restoredMain, options, error, data
       )}
       <Select
         size="xs"
-        w={320}
+        w={{ base: "100%", sm: 320 }}
         label="Добавить службу вручную"
         placeholder="Выберите службу"
         data={addable.map((option) => ({ value: option.code, label: option.name }))}

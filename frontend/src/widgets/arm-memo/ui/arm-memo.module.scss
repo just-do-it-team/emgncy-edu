@@ -1,0 +1,37 @@
+.layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  gap: var(--mantine-spacing-lg);
+  align-items: start;
+}
+
+.toc {
+  position: sticky;
+  top: var(--mantine-spacing-md);
+}
+
+.note {
+  padding: 8px 12px;
+  border-left: 3px solid var(--mantine-color-povOrange-6);
+  background: var(--mantine-color-povLight-6);
+}
+
+.text {
+  max-width: 820px;
+  line-height: 1.55;
+}
+
+.cell {
+  white-space: pre-line;
+  vertical-align: top;
+}
+
+@media (max-width: 62em) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .toc {
+    position: static;
+  }
+}

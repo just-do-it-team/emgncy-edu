@@ -114,6 +114,17 @@ export function rowStatusOf(session: MonitoredSession | null): RowStatus {
   return "completed";
 }
 
+/**
+ * Состояние карточки ДДС глазами одного обучаемого, восстановленное по журналу действий.
+ *
+ * Карточка уходит в несколько служб сразу, а обучаемый играет одну — поэтому учитываются только
+ * действия со `service_id` его службы. Норматив применяется, если в журнале уже есть действие по
+ * его службе или если он единственный диспетчер попытки: до первой серверной отметки иначе не
+ * узнать, адресована ли карточка ему.
+ *
+ * Первая запись по уточнению заказчика — статус вместе с непустым комментарием; решение без
+ * текста норматив не закрывает.
+ */
 function cardElement(
   release: TrainingActionDto,
   label: string,
@@ -182,13 +193,16 @@ function elementsOf(input: ParticipantInput): Element[] {
       return [cardElement(action, label, actions, input.serviceId, input.soleDispatcher)];
     }
 
+    const answered = actions.find((item) => item.action_type === "INCOMING_CALL_ANSWERED" && item.entity_id === key);
+    const linked = actions.find((item) => item.action_type === "INCIDENT_CARD_CREATED_FROM_CALL" && item.entity_id === key);
+
     return [
       {
         key,
         label,
         appearedAt: timeOf(action),
-        openedAt: null,
-        firstEntryAt: null,
+        openedAt: answered ? timeOf(answered) : null,
+        firstEntryAt: linked ? timeOf(linked) : null,
         normed: false,
         finished: actions.some((item) => item.action_type === "INCOMING_CALL_COMPLETED" && item.entity_id === key),
       },
@@ -200,6 +214,12 @@ function sessionEnd(session: MonitoredSession, now: number): number {
   return session.completedAt === null ? now : Math.min(now, Date.parse(session.completedAt));
 }
 
+/**
+ * Тревоги по нормативам реакции: 30 с от появления карточки до открытия и 3 мин до первой записи.
+ * Отсчёт от выпуска карточки (`CARD_RELEASED`), а не от открытия — так сформулировал заказчик.
+ * Если действие выполнено с опозданием, тревога остаётся с пометкой: нарушение уже случилось.
+ * Если попытка завершилась раньше срока, нарушения нет.
+ */
 function normAlarms(element: Element, input: ParticipantInput, session: MonitoredSession, now: number, norms: MonitorNorms): MonitorAlarm[] {
   if (!element.normed) return [];
 
@@ -270,6 +290,12 @@ function lastOwnActionAt(input: ParticipantInput): number | null {
   return own.length === 0 ? null : Math.max(...own.map(timeOf));
 }
 
+/**
+ * Бездействие считается по собственным действиям обучаемого, а не по `last_activity_at` снимка:
+ * там учитываются и действия сервера (выпуск карточки, просрочки), которые не говорят о работе
+ * человека. Идентификатор тревоги включает момент последнего действия, поэтому новое действие
+ * закрывает старую тревогу, а следующая пауза создаёт новую.
+ */
 function idleAlarm(input: ParticipantInput, session: MonitoredSession, since: number, now: number, norms: MonitorNorms): MonitorAlarm[] {
   if (session.status !== RUNNING || now - since < norms.idleMs) return [];
 
@@ -295,6 +321,11 @@ export function timerLevel(elapsedMs: number, limitMs: number | null, warningRat
   return "ok";
 }
 
+/**
+ * Таймер текущего элемента — последнего появившегося и ещё не завершённого. До открытия он идёт
+ * против 30 с, после открытия — против 3 мин от появления, после первой записи норматива нет.
+ * У звонков оператора 112 норматива реакции нет, таймер показывает только прошедшее время.
+ */
 function currentTimer(elements: Element[], session: MonitoredSession, now: number, norms: MonitorNorms): ElementTimer | null {
   if (session.status !== RUNNING) return null;
 
@@ -352,10 +383,54 @@ export function participantRow(input: ParticipantInput, now: number, norms: Moni
   };
 }
 
+export interface NormCompliance {
+  checks: number;
+  violations: number;
+}
+
+/** Сколько проверок нормативов 30 с / 3 мин было у участника и сколько нарушено — по тем же правилам, что тревоги монитора. */
+export function normCompliance(input: ParticipantInput, now: number, norms: MonitorNorms): NormCompliance {
+  const { session } = input;
+
+  if (session === null) return { checks: 0, violations: 0 };
+
+  const normed = elementsOf(input).filter((element) => element.normed);
+
+  return {
+    checks: normed.length * 2,
+    violations: normed.flatMap((element) => normAlarms(element, input, session, now, norms)).length,
+  };
+}
+
+export interface FillTime {
+  label: string;
+  ms: number;
+  normMs: number | null;
+}
+
+/**
+ * Время заполнения карточки по каждому элементу — та же реконструкция по журналу, что у монитора.
+ * У карточки ДДС это время от выпуска до первой записи (статус с текстом) против норматива 3 мин;
+ * у звонка оператора 112 — от ответа на звонок до создания карточки из него, норматива нет.
+ */
+export function fillTimes(input: ParticipantInput, norms: MonitorNorms): FillTime[] {
+  return elementsOf(input).flatMap((element) => {
+    if (element.firstEntryAt === null) return [];
+
+    const start = element.normed ? element.appearedAt : (element.openedAt ?? element.appearedAt);
+
+    return [{ label: element.label, ms: element.firstEntryAt - start, normMs: element.normed ? norms.firstEntryMs : null }];
+  });
+}
+
 export function alarmFeed(rows: ParticipantRow[]): MonitorAlarm[] {
   return rows.flatMap((row) => row.alarms).sort((first, second) => second.at - first.at);
 }
 
+/**
+ * Порядок «по проблемности»: сначала идущие попытки с просрочкой или бездействием — там ещё можно
+ * вмешаться, затем идущие с нарушениями, затем близкие к нормативу, затем остальные.
+ */
 function problemGroup(row: ParticipantRow, norms: MonitorNorms): number {
   const idle = row.idleMs !== null && row.idleMs >= norms.idleMs;
 

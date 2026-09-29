@@ -17,3 +17,4 @@ export type {
   RoutedService,
 } from "./model/classifier";
 export { useServiceDirectory } from "./api/service-directory";
+export { incidentCategoryLabels } from "./model/incident-categories";

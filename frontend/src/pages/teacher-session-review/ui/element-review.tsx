@@ -154,17 +154,13 @@ const callStatusLabels: Record<string, string> = {
 };
 
 function syncNotice(axis: RecordingAxis | null): string | null {
-  if (axis === null) {
-    return "Синхронизация недоступна: расшифровка не загружена, подсветка реплик отключена.";
-  }
+  if (axis === null) return "Расшифровка не загружена.";
   if (axis.status === "available") return null;
-  if (axis.reason === "missing_duration") {
-    return "Синхронизация недоступна: у части реплик нет длительности, подсветка реплик отключена.";
-  }
+  if (axis.reason === "missing_duration") return "У части реплик нет длительности.";
 
-  return `Синхронизация недоступна: запись и сумма реплик расходятся на ${(
+  return `Запись и сумма реплик расходятся на ${(
     Math.abs(axis.recordingMs - axis.utterancesTotalMs) / 1000
-  ).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} с, подсветка реплик отключена.`;
+  ).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} с.`;
 }
 
 function transcriptProblem(error: Error): string {

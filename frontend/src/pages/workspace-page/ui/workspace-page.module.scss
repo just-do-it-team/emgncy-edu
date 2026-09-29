@@ -544,3 +544,14 @@
   padding: 0 24px 24px;
   text-align: center;
 }
+
+.replyWaiting {
+  display: grid;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.replyHint {
+  color: inherit;
+  font-weight: 400;
+}

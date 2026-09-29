@@ -4,14 +4,11 @@
   white-space: nowrap;
 }
 
-.truncatedLink {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.nameLink {
+  overflow-wrap: anywhere;
 }
 
-.truncatedLink:focus-visible {
+.nameLink:focus-visible {
   outline: 2px solid var(--mantine-color-povDark-6);
   outline-offset: 2px;
 }

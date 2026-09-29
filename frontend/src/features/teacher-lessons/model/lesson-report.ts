@@ -15,11 +15,14 @@ import {
   attemptDeadline,
   attemptResultKind,
   attemptResultLabel,
+  formatDeviation,
+  formatFillTime,
   participantRoleLabels,
+  type AttemptMetrics,
 } from "@/entities/monitoring";
-import type { EmergencyService, ExpertAssessment, MonitoredSession } from "@/shared/api";
+import type { EmergencyService, MonitoredSession } from "@/shared/api";
 import { criterionLabels, REACTION_NORMS_TEXT } from "@/shared/config";
-import { formatDateTime, localDayKey } from "@/shared/lib";
+import { formatDateTime, localDayKey, SPELLING_CAPTION } from "@/shared/lib";
 import type { Lesson } from "./build-lessons";
 import type { LessonAiReview } from "./lesson-ai-review";
 import type { AttemptLink, LessonFindingsSummary } from "./lesson-summary";
@@ -57,12 +60,17 @@ export interface LessonReport {
   findingsTotal: number;
   services: Map<string, EmergencyService> | undefined;
   aiReview: LessonAiReview | null;
-  assessments: ReadonlyMap<string, ExpertAssessment>;
+  metrics: Map<string, AttemptMetrics>;
   generatedAt: Date;
 }
 
 type TextStyle = Omit<PdfTextNode, "text">;
 
+/**
+ * Делит строку на фрагменты латиницы и кириллицы для pdfmake. Файлы Roboto из пакета шрифтов
+ * разбиты по алфавитам, а pdfmake не умеет подбирать запасной шрифт по символу, поэтому каждому
+ * фрагменту шрифт назначается явно — иначе кириллица в PDF превратится в пустые квадраты.
+ */
 function runs(value: string): PdfTextRun[] {
   return value
     .split(CYRILLIC_RUN)
@@ -282,15 +290,11 @@ function aiReviewContent({ aiReview }: LessonReport, palette: ReportPalette): Pd
   ]);
 }
 
-function attemptOutcomeCells(
-  session: MonitoredSession,
-  assessment: ExpertAssessment | undefined,
-  palette: ReportPalette,
-): PdfTextNode[] {
-  if (assessment) {
+function attemptOutcomeCells(session: MonitoredSession, palette: ReportPalette): PdfTextNode[] {
+  if (session.teacherAssessed && session.score !== null) {
     return [
-      text(`${scoreFormatter.format(assessment.score)} преп.`, { alignment: "right" }),
-      text(assessment.passed ? "Зачёт" : "Не зачтено", assessment.passed ? {} : { color: palette.deviation }),
+      text(`${scoreFormatter.format(session.score)} преп.`, { alignment: "right" }),
+      text(attemptResultLabel(session), attemptResultKind(session) === "failed" ? { color: palette.deviation } : {}),
     ];
   }
 
@@ -300,7 +304,7 @@ function attemptOutcomeCells(
   ];
 }
 
-function attemptsContent({ lesson, assessments }: LessonReport, palette: ReportPalette): PdfContent[] {
+function attemptsContent({ lesson, metrics }: LessonReport, palette: ReportPalette): PdfContent[] {
   if (lesson.attempts.length === 0) return [];
 
   const assignments = new Map(lesson.assignments.map((assignment) => [assignment.id, assignment]));
@@ -308,27 +312,36 @@ function attemptsContent({ lesson, assessments }: LessonReport, palette: ReportP
     (first, second) => Date.parse(first.completedAt ?? "") - Date.parse(second.completedAt ?? ""),
   );
 
-  const teacherScored = ordered.some((session) => assessments.has(session.sessionId));
+  const teacherScored = ordered.some((session) => session.teacherAssessed);
 
   return section("Попытки", [
     ...(teacherScored
       ? [text("«преп.» — оценка преподавателя, она заменяет автоматическую.", { color: palette.muted, margin: NOTE_MARGIN })]
       : []),
+    text(`Заполнение — карточка ДДС от выпуска до первой записи, звонок 112 от ответа до создания карточки; «±» — к нормативу 3 мин. ${SPELLING_CAPTION}`, {
+      color: palette.muted,
+      margin: NOTE_MARGIN,
+    }),
     grid(
       palette,
-      ["*", 90, 90, 40, 70, 60],
-      ["Обучаемый", "Роль", "Завершена", "Балл", "Результат", "В срок"],
+      ["*", 72, 72, 34, 58, 50, 44, 40, 40],
+      ["Обучаемый", "Роль", "Завершена", "Балл", "Результат", "В срок", "Заполн.", "±", "Орфогр."],
       ordered.map((session) => {
         const deadline = attemptDeadline(session, assignments.get(session.assignmentId));
+        const metric = metrics.get(session.sessionId);
+        const deviation = metric?.deviationMs ?? null;
 
         return [
           text(studentsOf(session)),
           text(rolesOf(session)),
           text(session.completedAt ? formatDateTime(session.completedAt) : "—"),
-          ...attemptOutcomeCells(session, assessments.get(session.sessionId), palette),
+          ...attemptOutcomeCells(session, palette),
           deadline === "late"
             ? text("с опозданием", { color: palette.deviation })
             : text(deadline === "on_time" ? "в срок" : "—"),
+          text(formatFillTime(metric?.fillMs ?? null)),
+          text(formatDeviation(deviation), deviation !== null && deviation > 0 ? { color: palette.deviation } : {}),
+          text(metric?.misspellings === null || metric === undefined ? "—" : String(metric.misspellings)),
         ];
       }),
     ),
@@ -367,10 +380,10 @@ export function lessonReportDocument(report: LessonReport, palette: ReportPalett
   };
 }
 
-export function lessonReportFileName(lesson: Lesson, now: Date): string {
+export function lessonReportFileName(lesson: Lesson, now: Date, extension: "pdf" | "csv"): string {
   const name = lesson.scenarioName.replace(FORBIDDEN_FILE_CHARACTERS, "_");
 
-  return `${name}_${localDayKey(now)}.pdf`;
+  return `${name}_${localDayKey(now)}.${extension}`;
 }
 
 function absoluteUrl(path: string): string {
@@ -381,6 +394,11 @@ function isSameOrigin(url: string): boolean {
   return new URL(url).origin === window.location.origin;
 }
 
+/**
+ * Собирает PDF в браузере. pdfmake подгружается только по кнопке, чтобы не утяжелять страницу.
+ * Шрифты берутся из собственного бандла, а загрузка ресурсов по URL ограничена своим адресом —
+ * в изолированном контуре отчёт не делает внешних запросов.
+ */
 export async function downloadLessonReport(report: LessonReport, palette: ReportPalette): Promise<void> {
   const { default: pdfMake } = await import("pdfmake/build/pdfmake");
 
@@ -392,5 +410,5 @@ export async function downloadLessonReport(report: LessonReport, palette: Report
 
   await pdfMake
     .createPdf(lessonReportDocument(report, palette))
-    .download(lessonReportFileName(report.lesson, report.generatedAt));
+    .download(lessonReportFileName(report.lesson, report.generatedAt, "pdf"));
 }

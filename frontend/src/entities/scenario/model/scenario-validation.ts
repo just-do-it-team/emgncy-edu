@@ -1,5 +1,8 @@
 import type { ScenarioTemplate } from "@/shared/api";
 import { MAX_PASSING_SCORE, type ScenarioDraft, type ScenarioItemDraft } from "./scenario-draft.ts";
+import { AMBULANCE_SERVICE_CODE, isResponseStatus, isStatusAllowedFor } from "./response-status.ts";
+import { isTemplateUsable, templateProblem, templateProblemText, templateVariantLabels } from "./template-library.ts";
+import { knownServerMessage } from "./server-failure.ts";
 import { validateExpected, type DraftIssue, type ValidationContext } from "./template-validation.ts";
 import { isDispatcherSilentAction, isKnownTriggerAction } from "./trigger-actions.ts";
 
@@ -30,6 +33,61 @@ function groupCodeOf(template: ScenarioTemplate): number | null {
       : undefined;
 
   return typeof code === "number" ? code : template.recordId === null ? null : Math.floor(template.recordId / 1_000_000);
+}
+
+function templateTitle(template: ScenarioTemplate): string {
+  return `«${template.name}», ${templateVariantLabels[template.variant]}, версия ${template.version}`;
+}
+
+function unusableTemplateMessage(
+  label: string,
+  template: ScenarioTemplate | undefined,
+  problem: NonNullable<ReturnType<typeof templateProblem>>,
+): string {
+  const title = template === undefined ? "" : ` — ${templateTitle(template)}`;
+
+  return `${label}${title}: ${templateProblemText(problem, template)}. Удалите элемент из состава или перейдите на актуальную версию шаблона.`;
+}
+
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const UNUSABLE_TEMPLATE = new RegExp(`^Inactive or missing (card|incoming call) template: (${UUID})`, "i");
+const TEMPLATE_MENTION = new RegExp(`template (${UUID})`, "i");
+const SCENARIO_ITEM_MENTION = /^scenario item ([A-Za-z0-9_.-]+)/;
+
+/**
+ * Привязывает текстовую ошибку 422 сервера к элементу состава. Сервер называет только идентификатор
+ * шаблона или ключ элемента, поэтому элемент находится по ним, а в сообщение подставляются
+ * название, вид и версия шаблона — иначе преподаватель не поймёт, какой из элементов не принят.
+ * Для недоступного шаблона причина берётся из свежего списка шаблонов, если он её знает.
+ */
+export function scenarioServerIssue(
+  message: string,
+  items: ScenarioItemDraft[],
+  templates: Map<string, ScenarioTemplate>,
+): DraftIssue | null {
+  const unusable = UNUSABLE_TEMPLATE.exec(message);
+  const templateId = unusable?.[2] ?? TEMPLATE_MENTION.exec(message)?.[1];
+  const itemKey = SCENARIO_ITEM_MENTION.exec(message)?.[1];
+  const index = items.findIndex((item) =>
+    templateId !== undefined
+      ? item.source.kind === "TEMPLATE" && item.source.templateId.toLowerCase() === templateId.toLowerCase()
+      : item.key === itemKey,
+  );
+
+  if (index < 0) return null;
+
+  const label = itemLabel(items, index);
+  const path = `items.${index}.source`;
+  const source = items[index]?.source;
+  const template = source?.kind === "TEMPLATE" ? templates.get(source.templateId) : undefined;
+
+  if (unusable) {
+    return error(path, unusableTemplateMessage(label, template, templateProblem(template) ?? "archived"));
+  }
+
+  const title = template === undefined ? "" : ` — ${templateTitle(template)}`;
+
+  return error(path, `${label}${title}: ${knownServerMessage(message) ?? `сервер не принял элемент: ${message}`}`);
 }
 
 export function itemLabel(items: ScenarioItemDraft[], index: number): string {
@@ -98,13 +156,21 @@ function itemIssues(items: ScenarioItemDraft[], index: number, context: Scenario
   if (item.source.kind === "TEMPLATE") {
     const template = context.templates.get(item.source.templateId);
     const expectedKind = item.itemType === "INCOMING_CALL" ? "call" : "card";
+    const problem = templateProblem(template);
     const sourceIssues = !template
-      ? [error(`${path}.source`, `${label}: шаблон не найден в библиотеке.`)]
+      ? [error(`${path}.source`, unusableTemplateMessage(label, template, "missing"))]
       : template.kind !== expectedKind
         ? [error(`${path}.source`, `${label}: шаблон другого вида.`)]
-        : !template.isActive
-          ? [error(`${path}.source`, `${label}: шаблон деактивирован — сервер не примет сценарий. Выберите другую версию.`)]
-          : [];
+        : problem !== null
+          ? [error(`${path}.source`, unusableTemplateMessage(label, template, problem))]
+          : violatesAmbulanceRule(template)
+              ? [
+                  error(
+                    `${path}.source`,
+                    `${label}: в эталоне шаблона служба 103 ставит «Не принята» или «Отказ от выполнения работ» — сервер это больше не принимает. Создайте новую версию шаблона без этих статусов и выберите её.`,
+                  ),
+                ]
+              : [];
 
     return [...keyIssues, ...triggerIssues, ...sourceIssues];
   }
@@ -122,12 +188,27 @@ function itemIssues(items: ScenarioItemDraft[], index: number, context: Scenario
   ];
 }
 
+function violatesAmbulanceRule(template: ScenarioTemplate): boolean {
+  const history = template.expectedResult.service_status_history;
+  const steps =
+    typeof history === "object" && history !== null && !Array.isArray(history) ? history[AMBULANCE_SERVICE_CODE] : undefined;
+
+  return (
+    Array.isArray(steps) &&
+    steps.some((step) => {
+      const status = typeof step === "object" && step !== null && !Array.isArray(step) ? step.status : undefined;
+
+      return typeof status === "string" && isResponseStatus(status) && !isStatusAllowedFor(AMBULANCE_SERVICE_CODE, status);
+    })
+  );
+}
+
 export function eligiblePoolSize(draft: ScenarioDraft, cardTemplates: ScenarioTemplate[]): number {
   const { poolKind, templateIds, groupCodes } = draft.procedural;
 
   return cardTemplates.filter(
     (template) =>
-      template.isActive &&
+      isTemplateUsable(template) &&
       template.difficulty <= draft.difficulty &&
       template.recordId !== null &&
       (poolKind !== "templates" || templateIds.includes(template.id)) &&

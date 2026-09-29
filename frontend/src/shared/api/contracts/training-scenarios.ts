@@ -62,6 +62,7 @@ export interface TrainingScenarioDto {
   revision: number;
   status: ScenarioStatus;
   created_by: string;
+  created_by_name: string | null;
   updated_by: string;
   created_at: string;
   updated_at: string;
@@ -141,6 +142,7 @@ export interface ScenarioListItem {
   requiredPositions: ParticipantPosition[] | null;
   status: ScenarioStatus;
   createdBy: string;
+  createdByName: string | null;
   updatedAt: string;
   itemsCount: number;
   composition: ScenarioComposition;
@@ -201,6 +203,7 @@ export interface ScenarioDetail {
   revision: number;
   status: ScenarioStatus;
   createdBy: string;
+  createdByName: string | null;
   createdAt: string;
   updatedAt: string;
   composition: ScenarioComposition;
@@ -236,6 +239,7 @@ export function toScenarioListItem(dto: TrainingScenarioDto): ScenarioListItem {
     requiredPositions: dto.required_participant_positions,
     status: dto.status,
     createdBy: dto.created_by,
+    createdByName: dto.created_by_name,
     updatedAt: dto.updated_at,
     itemsCount: dto.cards_count,
     composition: toComposition(dto.definition),
@@ -297,6 +301,7 @@ export function toScenarioDetail(dto: TrainingScenarioDetailDto): ScenarioDetail
     revision: dto.revision,
     status: dto.status,
     createdBy: dto.created_by,
+    createdByName: dto.created_by_name,
     createdAt: dto.created_at,
     updatedAt: dto.updated_at,
     composition: toComposition(dto.definition),

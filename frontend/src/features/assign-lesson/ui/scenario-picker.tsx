@@ -14,15 +14,16 @@ const roleOptions = Object.entries(scenarioRoleLabels).map(([value, label]) => (
 
 interface ScenarioPickerProps {
   scenarios: ScenarioListItem[];
+  initialDifficulty: string | null;
   value: string | null;
   error: string | undefined;
   onChange: (scenarioId: string | null) => void;
 }
 
-export function ScenarioPicker({ scenarios, value, error, onChange }: ScenarioPickerProps) {
+export function ScenarioPicker({ scenarios, initialDifficulty, value, error, onChange }: ScenarioPickerProps) {
   const [query, setQuery] = useState("");
   const [role, setRole] = useState<string | null>(null);
-  const [difficulty, setDifficulty] = useState<string | null>(null);
+  const [difficulty, setDifficulty] = useState<string | null>(initialDifficulty);
   const needle = query.trim().toLocaleLowerCase("ru");
   const options = scenarios
     .filter(

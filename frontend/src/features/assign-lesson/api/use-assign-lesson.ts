@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { assignmentKeys, createGroupAssignment } from "@/entities/assignment";
+import { assignmentKeys, createDirectAssignment, createGroupAssignment } from "@/entities/assignment";
 import { errorDetail, errorStatus } from "@/shared/api";
 import {
   assignmentFailureText,
@@ -24,15 +24,19 @@ export function useAssignLesson() {
         requests,
         async (request) => {
           const roles = rolesById.get(request.scenarioId);
+          const scenario = {
+            name: roles?.name ?? "",
+            revision: roles?.revision ?? 0,
+            passingScore: roles?.passingScore ?? 100,
+            workspaceMode: roles?.workspaceMode ?? "INDIVIDUAL",
+          };
+
+          if (request.groupId === null) return createDirectAssignment({ body: request.body, scenario });
+
           const created = await createGroupAssignment({
             group: { id: request.groupId, name: groupNames.get(request.groupId) ?? "" },
             body: request.body,
-            scenario: {
-              name: roles?.name ?? "",
-              revision: roles?.revision ?? 0,
-              passingScore: roles?.passingScore ?? 100,
-              workspaceMode: roles?.workspaceMode ?? "INDIVIDUAL",
-            },
+            scenario,
           });
 
           return created.batchId;

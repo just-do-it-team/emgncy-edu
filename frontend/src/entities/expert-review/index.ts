@@ -39,3 +39,7 @@ export {
   outgoingCallStageLabels,
   sessionStageLabels,
 } from "./model/action-type-labels";
+export { referenceTexts, typedTexts } from "./model/typed-texts";
+export type { TypedText } from "./model/typed-texts";
+export { misspellingCount, spellingFields, spellingWords } from "./model/attempt-spelling";
+export type { SpellingField } from "./model/attempt-spelling";

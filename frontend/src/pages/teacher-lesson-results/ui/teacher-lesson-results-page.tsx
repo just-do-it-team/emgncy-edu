@@ -4,7 +4,7 @@ import { notifications } from "@mantine/notifications";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { useEmergencyServices } from "@/entities/emergency-service";
-import { useTeacherSessions } from "@/entities/monitoring";
+import { useTeacherSessions, type AttemptMetrics } from "@/entities/monitoring";
 import { useSessionStore } from "@/entities/session";
 import { useStudentNames } from "@/entities/student";
 import {
@@ -16,6 +16,8 @@ import {
   participantsWithoutAttempts,
   scoreDistribution,
   useGenerateLessonReview,
+  lessonReportFileName,
+  useAttemptMetrics,
   useLessonFindings,
   useTeacherLessons,
   type Lesson,
@@ -95,12 +97,13 @@ function exportBlockReason(lesson: Lesson, findings: LessonFindingsState): strin
 
 interface ReportButtonProps {
   lesson: Lesson;
+  metrics: Map<string, AttemptMetrics>;
   findings: LessonFindingsState;
   services: Map<string, EmergencyService> | undefined;
   aiReview: LessonAiReview | null;
 }
 
-function ReportButton({ lesson, findings, services, aiReview }: ReportButtonProps) {
+function ReportButton({ lesson, metrics, findings, services, aiReview }: ReportButtonProps) {
   const theme = useMantineTheme();
   const [generating, setGenerating] = useState(false);
   const blockReason = exportBlockReason(lesson, findings);
@@ -123,7 +126,7 @@ function ReportButton({ lesson, findings, services, aiReview }: ReportButtonProp
           findingsTotal: findings.total,
           services,
           aiReview,
-          assessments: findings.assessments,
+          metrics,
           generatedAt: new Date(),
         },
         palette,
@@ -167,6 +170,7 @@ interface LessonDetailsProps {
 
 function LessonDetails({ lesson, teacherId, sessions }: LessonDetailsProps) {
   const findings = useLessonFindings(lesson, teacherId);
+  const metrics = useAttemptMetrics(lesson, teacherId);
   const aiGeneration = useGenerateLessonReview();
   const assignmentsById = new Map(lesson.assignments.map((item) => [item.id, item]));
   const services = useEmergencyServices();
@@ -208,7 +212,7 @@ function LessonDetails({ lesson, teacherId, sessions }: LessonDetailsProps) {
               </Button>
             )}
             <LessonScheduleActions lesson={lesson} />
-            <ReportButton lesson={lesson} findings={findings} services={services.data} aiReview={aiGeneration.data ?? null} />
+            <ReportButton lesson={lesson} metrics={metrics} findings={findings} services={services.data} aiReview={aiGeneration.data ?? null} />
           </Group>
         </Group>
       </Paper>
@@ -241,7 +245,8 @@ function LessonDetails({ lesson, teacherId, sessions }: LessonDetailsProps) {
         <TeacherAttemptsTable
           query={sessions}
           sessions={lesson.attempts}
-          assessments={findings.assessments}
+          metrics={metrics}
+          csvName={lessonReportFileName(lesson, new Date(), "csv")}
           assignments={assignmentsById}
           queryPrefix="attempts"
           showGroup={false}

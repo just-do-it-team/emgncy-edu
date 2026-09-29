@@ -1,6 +1,9 @@
 import { Group, Paper, Select, Stack, Text, TextInput } from "@mantine/core";
 import { responseStatusLabel } from "@/entities/expert-review";
 import {
+  AMBULANCE_SERVICE_CODE,
+  ambulanceStatusHint,
+  isStatusAllowedFor,
   nextStatuses,
   requiresComment,
   statusCommentComparison,
@@ -82,11 +85,18 @@ export function StatusHistoryEditor({ form, path, services, history, serviceName
                   w={260}
                   label="Следующий статус"
                   placeholder={next.length === 0 ? "Цепочка завершена" : "Выберите статус"}
-                  data={next.map((status) => ({ value: status, label: responseStatusLabel(status) }))}
+                  description={code === AMBULANCE_SERVICE_CODE ? ambulanceStatusHint : undefined}
+                  data={next.map((status) => ({
+                    value: status,
+                    label: isStatusAllowedFor(code, status)
+                      ? responseStatusLabel(status)
+                      : `${responseStatusLabel(status)} — недоступно для 103`,
+                    disabled: !isStatusAllowedFor(code, status),
+                  }))}
                   value={null}
                   disabled={next.length === 0}
                   onChange={(status) => {
-                    const chosen = next.find((candidate) => candidate === status);
+                    const chosen = next.find((candidate) => candidate === status && isStatusAllowedFor(code, candidate));
 
                     if (chosen) setSteps(code, [...steps, { status: chosen, comment: "", unitNumber: "" }]);
                   }}

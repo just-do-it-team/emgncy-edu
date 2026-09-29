@@ -1,5 +1,4 @@
 import { classifierRecords, resolveServices, type ClassifierRecord, type RoutingFlags } from "@/entities/incident";
-import { primaryServiceCode, restoredMainService, withMainService } from "@/entities/scenario";
 import type { OperatorClassificationDto } from "@/shared/api";
 
 const recordsById = new Map(classifierRecords.map((record) => [record.id, record]));
@@ -42,15 +41,7 @@ export function autoServices(recordId: number | null, flags: Record<string, bool
 
   if (!record) return [];
 
-  return withMainService(routedCodes(record, flags), primaryServiceCode(record.primaryService)).filter(
-    (code) => known === null || known.has(code),
-  );
-}
-
-export function restoredMainServiceOf(recordId: number | null, flags: Record<string, boolean>): string | null {
-  const record = classifierRecord(recordId);
-
-  return record ? restoredMainService(routedCodes(record, flags), primaryServiceCode(record.primaryService)) : null;
+  return routedCodes(record, flags).filter((code) => known === null || known.has(code));
 }
 
 export function recordChain(record: ClassifierRecord): string {

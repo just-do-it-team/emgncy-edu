@@ -9,7 +9,8 @@ import {
   templateCreateBody,
   type TemplateDraft,
 } from "./expected-draft.ts";
-import { invalidTransitionIndex, nextStatuses } from "./response-status.ts";
+import { invalidTransitionIndex, isStatusAllowedFor, nextStatuses } from "./response-status.ts";
+import { knownServerMessage } from "./server-failure.ts";
 import { rerouteServices, serviceDiff } from "./services-diff.ts";
 import { hasErrors, validateTemplateDraft, type ValidationContext } from "./template-validation.ts";
 
@@ -63,6 +64,66 @@ describe("formatAddress", () => {
     assert.equal(
       formatAddress({ ...emptyAddress, subject: "", descriptive: "напротив Большого Нижнего пруда" }),
       "напротив Большого Нижнего пруда",
+    );
+  });
+});
+
+describe("служба 103", () => {
+  it("«Не принята» и «Отказ от выполнения работ» недоступны только для 103", () => {
+    assert.equal(isStatusAllowedFor("103", "REJECTED"), false);
+    assert.equal(isStatusAllowedFor("103", "WORK_REFUSED"), false);
+    assert.equal(isStatusAllowedFor("103", "WORK_COMPLETED"), true);
+    assert.equal(isStatusAllowedFor("104", "REJECTED"), true);
+  });
+
+  it("такая цепочка в эталоне — ошибка, а не предупреждение", () => {
+    const draft = filledDraft("cardDds");
+    const withAmbulance: TemplateDraft = {
+      ...draft,
+      expected: {
+        ...draft.expected,
+        services: ["104", "103"],
+        history: {
+          ...draft.expected.history,
+          "103": [
+            { status: "RECEIVED", comment: "", unitNumber: "" },
+            { status: "REJECTED", comment: "Не по профилю", unitNumber: "" },
+          ],
+        },
+      },
+    };
+    const issues = validateTemplateDraft(withAmbulance, context);
+
+    assert.ok(issues.some((issue) => issue.path === "expected.history.103.1.status" && issue.severity === "error"));
+  });
+
+  it("422 сервера по правилу 103 и по неопубликованному шаблону — по-русски", () => {
+    const rule = "; use WORK_COMPLETED with the no-brigade result";
+
+    assert.match(
+      knownServerMessage(`card template.expected_result: service 103 cannot use REJECTED or WORK_REFUSED${rule}`) ?? "",
+      /^Эталон: служба 103/,
+    );
+    assert.match(
+      knownServerMessage(`scenario item card-2.expected_result: service 103 cannot use REJECTED or WORK_REFUSED${rule}`) ?? "",
+      /^Элемент card-2:/,
+    );
+    assert.match(
+      knownServerMessage(`template 5b0c.expected_result: service 103 cannot use REJECTED or WORK_REFUSED${rule}`) ?? "",
+      /Создайте новую версию шаблона/,
+    );
+    assert.match(knownServerMessage("Inactive or missing card template: 5b0c") ?? "", /черновик ИИ/);
+    assert.equal(knownServerMessage("Something else"), null);
+  });
+
+  it("409 публикации черновика ИИ — по-русски, с полями по-русски", () => {
+    assert.match(
+      knownServerMessage("Every AI-generated template section must be confirmed or edited before publication") ?? "",
+      /проверены не все секции/,
+    );
+    assert.equal(
+      knownServerMessage("Generated 112 and DDS templates differ in shared fields: incident_address, victims_count"),
+      "Звонок 112 и карточки ДДС из одной генерации должны совпадать в общих полях: адрес происшествия, пострадавшие. Исправьте черновики, чтобы значения совпали, и опубликуйте снова.",
     );
   });
 });

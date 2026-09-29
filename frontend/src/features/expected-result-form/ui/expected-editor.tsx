@@ -10,7 +10,7 @@ import {
 } from "@/entities/scenario";
 import type { ScenarioSourceType, TemplateVariant } from "@/shared/api";
 import { checkModeLegend } from "../model/check-mode-legend";
-import { autoServices, restoredMainServiceOf } from "../model/classification";
+import { autoServices } from "../model/classification";
 import type { ServiceOption } from "../model/use-active-services";
 import { CardFieldsEditor } from "./card-fields-editor";
 import { ClassificationField } from "./classification-field";
@@ -61,7 +61,6 @@ export function ExpectedEditor({ form, path, value, variant, source, services, e
         <ServicesField
           auto={auto}
           chosen={value.services}
-          restoredMain={restoredMainServiceOf(value.recordId, value.flags)}
           options={services}
           error={errors[`${path}.services`] ?? null}
           dataPath={`${path}.services`}

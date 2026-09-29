@@ -4,13 +4,15 @@ import type { JsonObject, MonitoredSession, TrainingActionDto } from "@/shared/a
 import {
   alarmFeed,
   byProblem,
+  fillTimes,
+  normCompliance,
   participantRow,
   pollingDelay,
   timerLevel,
   type MonitorNorms,
   type ParticipantInput,
   type ParticipantRow,
-} from "./monitor.ts";
+} from "./lesson-monitor.ts";
 
 const norms: MonitorNorms = { openMs: 30_000, firstEntryMs: 180_000, idleMs: 120_000, warningRatio: 0.7 };
 const start = Date.parse("2026-09-28T10:00:00+03:00");
@@ -35,6 +37,9 @@ function session(fields: Partial<MonitoredSession> = {}): MonitoredSession {
     completedAt: null,
     score: null,
     passed: null,
+    automaticScore: null,
+    automaticPassed: null,
+    teacherAssessed: false,
     lastActivityAt: null,
     participants: [{ userId, displayName: "Белова Ксения Андреевна", role: "DDS", positionCode: "101" }],
     ...fields,
@@ -315,5 +320,56 @@ describe("опрос", () => {
     assert.equal(pollingDelay(5000, { hidden: false, active: true }), 5000);
     assert.equal(pollingDelay(5000, { hidden: true, active: true }), false);
     assert.equal(pollingDelay(10_000, { hidden: false, active: false }), false);
+  });
+});
+
+describe("время заполнения карточки", () => {
+  it("карточка ДДС — от выпуска до первой записи с текстом, против норматива 3 мин", () => {
+    const times = fillTimes(
+      input([
+        released,
+        action(20, "CARD_OPENED", {}, { service_id: serviceId }),
+        action(40, "CARD_ACCEPTED", {}, { service_id: serviceId, comment: " " }),
+        action(250, "SERVICE_STATUS_CHANGED", {}, { service_id: serviceId, status: "RESPONSE_STARTED", comment: "Бригада выехала" }),
+      ]),
+      norms,
+    );
+
+    assert.deepEqual(times, [{ label: "Карточка 1", ms: 240_000, normMs: 180_000 }]);
+  });
+
+  it("звонок 112 — от ответа до создания карточки, норматива нет; без первой записи времени нет", () => {
+    const callId = "7c9e1a3b-5d7f-4b9a-8c2e-4f6a8c0e2b46";
+    const call = (seconds: number, actionType: string) =>
+      action(seconds, actionType, { incident_card_id: null, entity_type: "training_call", entity_id: callId });
+    const times = fillTimes(
+      input([call(0, "INCOMING_CALL_RINGING"), call(15, "INCOMING_CALL_ANSWERED"), call(135, "INCIDENT_CARD_CREATED_FROM_CALL"), released], {
+        participant: { userId, name: "Иванов Валентин", role: "OPERATOR_112", positionCode: null },
+        serviceId: null,
+      }),
+      norms,
+    );
+
+    assert.deepEqual(times, [{ label: "Звонок 1", ms: 120_000, normMs: null }]);
+  });
+});
+
+describe("соблюдение нормативов по попытке", () => {
+  it("по карточке две проверки; открыта вовремя, первая запись опоздала — одно нарушение", () => {
+    const finished = session({ status: "COMPLETED", completedAt: at(600) });
+    const result = normCompliance(
+      input(
+        [
+          released,
+          action(20, "CARD_OPENED", {}, { service_id: serviceId }),
+          action(250, "CARD_ACCEPTED", {}, { service_id: serviceId, comment: "Принято, выслана бригада" }),
+        ],
+        { session: finished },
+      ),
+      start + 900_000,
+      norms,
+    );
+
+    assert.deepEqual(result, { checks: 2, violations: 1 });
   });
 });

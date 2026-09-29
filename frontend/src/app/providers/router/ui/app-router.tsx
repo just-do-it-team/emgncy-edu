@@ -2,8 +2,9 @@ import { FC, Suspense } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { routes, RouteNames } from "../config/route-config";
 import { navigation, roleLabels, type NavItem } from "@/shared/config";
-import { SectionPlaceholder, Spinner } from "@/shared/ui";
+import { Spinner } from "@/shared/ui";
 import { Layout } from "../../../ui/layout";
+import { DocumentTitle } from "./document-title";
 import { WorkspacePage } from "@/pages/workspace-page";
 import { LoginPage } from "@/pages/login-page";
 import { AppShell } from "@/widgets/app-shell";
@@ -18,14 +19,15 @@ import { TeacherScenarioEditorPage } from "@/pages/teacher-scenario-editor";
 import { TeacherTemplatesPage } from "@/pages/teacher-templates";
 import { TeacherTemplateCardPage } from "@/pages/teacher-template-card";
 import { TeacherTemplateEditorPage } from "@/pages/teacher-template-editor";
-import { TeacherGroupsPage } from "@/pages/teacher-groups";
-import { TeacherAnalyticsPage } from "@/pages/teacher-analytics";
-import { TeacherMaterialsPage } from "@/pages/teacher-materials";
+import { TeacherTemplateGenerationPage } from "@/pages/teacher-template-generation";
+import { TeacherGroupPage, TeacherGroupsPage } from "@/pages/teacher-groups";
 import { TeacherAttemptReviewPage } from "@/pages/teacher-attempt-review";
 import { TeacherSessionReviewPage } from "@/pages/teacher-session-review";
 import { TeacherStudentResultsPage } from "@/pages/teacher-student-results";
+import { TeacherAnalyticsPage } from "@/pages/teacher-analytics";
 import { StudentOverviewPage } from "@/pages/student-overview";
 import { StudentResultsPage } from "@/pages/student-results";
+import { StudentHelpPage } from "@/pages/student-help";
 import { AdminOverviewPage, AdminMonitoringPage, AdminUsersPage, AdminReportsPage, AdminServicesPage, AdminBackupsPage, AdminUpdatesPage, AdminSecurityPage } from "@/pages/admin";
 import { useSessionExpiry, useSessionStore, type UserRole } from "@/entities/session";
 
@@ -49,6 +51,7 @@ const AppRouter: FC = () => {
 
   return (
     <Suspense fallback={<Spinner size={"large"} fullScreen />}>
+      <DocumentTitle />
       <Routes>
         <Route
           path={RouteNames.LOGIN}
@@ -97,10 +100,12 @@ const AppRouter: FC = () => {
           <Route path="scenarios/templates/new" element={<TeacherTemplateEditorPage />} />
           <Route path="scenarios/templates/:kind/:templateId" element={<TeacherTemplateCardPage />} />
           <Route path="scenarios/templates/:kind/:templateId/new-version" element={<TeacherTemplateEditorPage />} />
+          <Route path="scenarios/templates/:kind/:templateId/edit" element={<TeacherTemplateEditorPage />} />
+          <Route path="scenarios/templates/generate" element={<TeacherTemplateGenerationPage />} />
           <Route path="groups" element={<TeacherGroupsPage />} />
+          <Route path="groups/:groupId" element={<TeacherGroupPage />} />
           <Route path="students" element={<TeacherStudentResultsPage />} />
           <Route path="analytics" element={<TeacherAnalyticsPage />} />
-          <Route path="materials" element={<TeacherMaterialsPage />} />
           <Route path="attempts/:sessionId/review" element={<TeacherSessionReviewPage />} />
           <Route path="*" element={<Navigate replace to={RouteNames.TEACHER} />} />
         </Route>
@@ -114,8 +119,7 @@ const AppRouter: FC = () => {
         >
           <Route index element={<StudentOverviewPage />} />
           <Route path="results" element={<StudentResultsPage />} />
-          <Route path="progress" element={<SectionPlaceholder title="Прогресс" />} />
-          <Route path="materials" element={<SectionPlaceholder title="Материалы" />} />
+          <Route path="help" element={<StudentHelpPage />} />
           <Route path="*" element={<Navigate replace to={RouteNames.STUDENT} />} />
         </Route>
 

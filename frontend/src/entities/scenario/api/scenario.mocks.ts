@@ -7,6 +7,8 @@ import type {
 
 const teacherId = "6a8c0e2b-4d6f-4a1c-9e3b-5d7f9b1d3f28";
 const otherTeacherId = "9d1f3b5a-7c2e-4a8d-9b6f-2e4a6c8e0d17";
+const teacherName = "Алексеев Владимир Петрович";
+const otherTeacherName = "Соколова Ирина Павловна";
 
 const smokeCallTemplateId = "71a3c5e7-9b2d-4f46-8a1c-3e5a7c9e1b62";
 const chuteCallTemplateId = "82b4d6f8-0c3e-4a57-9b2d-4f6a8c0e2d73";
@@ -131,8 +133,13 @@ export const incomingCallTemplateMocks: IncomingCallTemplateDto[] = [
       automatic_phone_number: "+79161263471",
     },
     expected_result: { card: smokeExpectedCard, outbound_call: null, service_status_history: null },
+    status: "PUBLISHED",
+    generated_by_ai: false,
+    ai_review_state: null,
+    generation_id: null,
     is_active: true,
     created_by: teacherId,
+    created_by_name: teacherName,
     created_at: "2026-09-17T15:40:00+03:00",
   },
   {
@@ -147,8 +154,13 @@ export const incomingCallTemplateMocks: IncomingCallTemplateDto[] = [
       automatic_phone_number: "+79161263471",
     },
     expected_result: { card: chuteExpectedCard, outbound_call: null, service_status_history: null },
+    status: "PUBLISHED",
+    generated_by_ai: false,
+    ai_review_state: null,
+    generation_id: null,
     is_active: true,
     created_by: otherTeacherId,
+    created_by_name: otherTeacherName,
     created_at: "2026-09-15T10:05:00+03:00",
   },
 ];
@@ -203,8 +215,13 @@ export const cardTemplateMocks: CardTemplateDto[] = [
     difficulty: 1,
     initial_card: noiseCard,
     expected_result: { card: noiseExpectedCard, outbound_call: null, service_status_history: null },
+    status: "PUBLISHED",
+    generated_by_ai: false,
+    ai_review_state: null,
+    generation_id: null,
     is_active: true,
     created_by: teacherId,
+    created_by_name: teacherName,
     created_at: "2026-09-19T14:10:00+03:00",
   },
   {
@@ -216,8 +233,13 @@ export const cardTemplateMocks: CardTemplateDto[] = [
     difficulty: 2,
     initial_card: gasSmellCard,
     expected_result: { card: gasSmellExpectedCard, outbound_call: null, service_status_history: null },
+    status: "ARCHIVED",
+    generated_by_ai: false,
+    ai_review_state: null,
+    generation_id: null,
     is_active: false,
     created_by: teacherId,
+    created_by_name: teacherName,
     created_at: "2026-09-12T09:30:00+03:00",
   },
   {
@@ -238,8 +260,13 @@ export const cardTemplateMocks: CardTemplateDto[] = [
         ...gasSmellExpectedCard,
       },
     },
+    status: "PUBLISHED",
+    generated_by_ai: false,
+    ai_review_state: null,
+    generation_id: null,
     is_active: true,
     created_by: teacherId,
+    created_by_name: teacherName,
     created_at: "2026-09-20T10:45:00+03:00",
   },
 ];
@@ -288,6 +315,7 @@ export const scenarioDetailMocks: TrainingScenarioDetailDto[] = [
     revision: 2,
     status: "PUBLISHED",
     created_by: teacherId,
+    created_by_name: teacherName,
     updated_by: teacherId,
     created_at: "2026-09-18T11:20:00+03:00",
     updated_at: "2026-09-21T16:05:00+03:00",
@@ -350,6 +378,7 @@ export const scenarioDetailMocks: TrainingScenarioDetailDto[] = [
     revision: 1,
     status: "DRAFT",
     created_by: teacherId,
+    created_by_name: teacherName,
     updated_by: teacherId,
     created_at: "2026-09-24T09:40:00+03:00",
     updated_at: "2026-09-24T09:40:00+03:00",
@@ -385,6 +414,7 @@ export const scenarioDetailMocks: TrainingScenarioDetailDto[] = [
     revision: 3,
     status: "PUBLISHED",
     created_by: otherTeacherId,
+    created_by_name: otherTeacherName,
     updated_by: otherTeacherId,
     created_at: "2026-09-15T10:20:00+03:00",
     updated_at: "2026-09-16T09:12:00+03:00",
@@ -433,6 +463,7 @@ export const scenarioDetailMocks: TrainingScenarioDetailDto[] = [
     revision: 4,
     status: "ARCHIVED",
     created_by: teacherId,
+    created_by_name: teacherName,
     updated_by: teacherId,
     created_at: "2026-09-10T12:00:00+03:00",
     updated_at: "2026-09-18T11:25:00+03:00",

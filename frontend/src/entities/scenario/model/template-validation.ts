@@ -10,7 +10,7 @@ import {
   type OptionalCardField,
   type TemplateDraft,
 } from "./expected-draft.ts";
-import { invalidTransitionIndex, requiresComment } from "./response-status.ts";
+import { ambulanceStatusHint, invalidTransitionIndex, isStatusAllowedFor, requiresComment } from "./response-status.ts";
 
 export const MAX_NAME_LENGTH = 255;
 export const MAX_PHONE_LENGTH = 64;
@@ -117,8 +117,6 @@ function modeIssues(draft: ExpectedDraft, source: ScenarioSourceType, prefix: st
   });
 }
 
-const AMBULANCE_CODE = "103";
-const ARM_FORBIDDEN_FOR_AMBULANCE = new Set(["REJECTED", "WORK_REFUSED"]);
 
 function dispatcherIssues(draft: ExpectedDraft, prefix: string): DraftIssue[] {
   const historyIssues = draft.services.flatMap((code) => {
@@ -132,14 +130,7 @@ function dispatcherIssues(draft: ExpectedDraft, prefix: string): DraftIssue[] {
     return [
       ...(invalid === null ? [] : [error(`${path}.${invalid}.status`, "Недопустимый переход статуса реагирования.")]),
       ...steps.flatMap((step, index) => [
-        ...(code === AMBULANCE_CODE && ARM_FORBIDDEN_FOR_AMBULANCE.has(step.status)
-          ? [
-              warning(
-                `${path}.${index}.status`,
-                "АРМ обучаемого не даёт службе 103 ставить «Не принята» и «Отказ от выполнения работ»: обучаемый не сможет повторить эту цепочку.",
-              ),
-            ]
-          : []),
+        ...(isStatusAllowedFor(code, step.status) ? [] : [error(`${path}.${index}.status`, ambulanceStatusHint)]),
         ...(requiresComment(step.status) && step.comment.trim() === ""
           ? [error(`${path}.${index}.comment`, "Для этого статуса комментарий обязателен.")]
           : []),

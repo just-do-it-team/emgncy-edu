@@ -4,6 +4,7 @@ import {
   Group,
   NumberInput,
   Paper,
+  SegmentedControl,
   Select,
   Skeleton,
   Stack,
@@ -21,12 +22,18 @@ import {
   attemptDeadline,
   attemptResultKind,
   attemptResultLabel,
+  formatDeviation,
+  formatFillTime,
   participantRoleLabels,
   isReviewable,
   reviewAccessHint,
+  reviewQueueLabels,
+  reviewQueueState,
+  type AttemptMetrics,
+  type ReviewQueueState,
 } from "@/entities/monitoring";
-import type { ExpertAssessment, MonitoredSession, TeacherAssignment } from "@/shared/api";
-import { compareNullable, formatShortDateTime, sortRows, useTableQuery } from "@/shared/lib";
+import type { MonitoredSession, TeacherAssignment } from "@/shared/api";
+import { compareNullable, downloadCsv, formatShortDateTime, sortRows, useTableQuery } from "@/shared/lib";
 import {
   Button,
   FilteredEmpty,
@@ -41,7 +48,14 @@ import classes from "./teacher-attempts-table.module.scss";
 const SHARED_WORKSPACE = "SHARED";
 
 const SORT_KEYS = ["student", "lesson", "completed", "score"] as const;
-const FILTER_KEYS = ["result", "role", "group", "deadline", "scoreOp", "score"] as const;
+const FILTER_KEYS = ["review", "result", "role", "group", "deadline", "scoreOp", "score"] as const;
+
+const ALL_ATTEMPTS = "all";
+const reviewQueueOrder: ReviewQueueState[] = ["pending", "confirmed", "corrected"];
+
+function isReviewQueueState(value: string | null): value is ReviewQueueState {
+  return reviewQueueOrder.some((state) => state === value);
+}
 
 const SCORE_EPSILON = 0.005;
 
@@ -179,10 +193,12 @@ function passedText(passed: boolean | null): string {
   return passed === null ? "без решения о зачёте" : passed ? "зачтено" : "не зачтено";
 }
 
-function ScoreCell({ session, automatic }: { session: MonitoredSession; automatic: MonitoredSession | null }) {
-  if (automatic !== null && session.score !== null) {
+function ScoreCell({ session }: { session: MonitoredSession }) {
+  if (session.teacherAssessed && session.score !== null) {
     const automaticText =
-      automatic.score === null ? "не рассчитан" : `${scoreFormatter.format(automatic.score)}, ${passedText(automatic.passed)}`;
+      session.automaticScore === null
+        ? "не рассчитан"
+        : `${scoreFormatter.format(session.automaticScore)}, ${passedText(session.automaticPassed)}`;
 
     return (
       <Tooltip label={`Автоматически: ${automaticText}`} events={tooltipEvents} color="povDark.6" radius={0}>
@@ -269,10 +285,17 @@ function DeadlineCell({ session, assignment }: { session: MonitoredSession; assi
   );
 }
 
+const deadlineLabels = { on_time: "в срок", late: "с опозданием", none: "—" } as const;
+
+function metricText(value: number | null): string {
+  return value === null ? "—" : String(value);
+}
+
 interface TeacherAttemptsTableProps {
   query: UseQueryResult<MonitoredSession[], Error>;
+  metrics: Map<string, AttemptMetrics> | null;
+  csvName: string | null;
   sessions: MonitoredSession[];
-  assessments: ReadonlyMap<string, ExpertAssessment>;
   assignments: Map<string, TeacherAssignment> | undefined;
   showGroup: boolean;
   queryPrefix: string;
@@ -282,8 +305,9 @@ interface TeacherAttemptsTableProps {
 
 export function TeacherAttemptsTable({
   query,
-  sessions: loaded,
-  assessments,
+  metrics,
+  csvName,
+  sessions,
   assignments,
   showGroup,
   queryPrefix,
@@ -291,13 +315,12 @@ export function TeacherAttemptsTable({
   emptyHint,
 }: TeacherAttemptsTableProps) {
   const table = useTableQuery(queryPrefix, SORT_KEYS, FILTER_KEYS);
-  const automaticById = new Map(loaded.flatMap((session) => (assessments.has(session.sessionId) ? [[session.sessionId, session] as const] : [])));
-  const sessions = loaded.map((session) => {
-    const assessment = assessments.get(session.sessionId);
-
-    return assessment ? { ...session, score: assessment.score, passed: assessment.passed } : session;
-  });
   const assignmentOf = (session: MonitoredSession) => assignments?.get(session.assignmentId);
+  const reviewFilter = table.filter("review");
+  const review = isReviewQueueState(reviewFilter) ? reviewFilter : null;
+  const queueCounts = new Map(
+    reviewQueueOrder.map((state) => [state, sessions.filter((session) => reviewQueueState(session) === state).length]),
+  );
   const result = table.filter("result");
   const role = table.filter("role");
   const group = showGroup ? table.filter("group") : null;
@@ -308,6 +331,7 @@ export function TeacherAttemptsTable({
   const visible = sortRows(
     sessions.filter(
       (session) =>
+        (review === null || reviewQueueState(session) === review) &&
         (result === null || attemptResultKind(session) === result) &&
         (role === null || session.participants.some((participant) => participant.role === role)) &&
         (group === null || groupOf(session, assignmentOf(session)) === group) &&
@@ -324,6 +348,40 @@ export function TeacherAttemptsTable({
     (first, second) => compareNullable(newestFirst(first.completedAt), newestFirst(second.completedAt)),
   );
   const pagination = usePagination(visible);
+  const exportCsv = (fileName: string) =>
+    downloadCsv(
+      fileName,
+      [
+        "Обучаемый",
+        ...(showGroup ? ["Группа"] : []),
+        "Занятие",
+        "Роль",
+        "Завершена",
+        "Итоговый балл",
+        "Оценка",
+        "Результат",
+        "В срок",
+        ...(metrics ? ["Заполнение карточки", "Отклонение от норматива", "Орфографических ошибок"] : []),
+      ],
+      visible.map((session) => {
+        const metric = metrics?.get(session.sessionId);
+
+        return [
+          studentsLabel(session),
+          ...(showGroup ? [groupOf(session, assignmentOf(session)) ?? "Без группы"] : []),
+          session.scenarioName,
+          rolesOf(session),
+          session.completedAt ? formatShortDateTime(session.completedAt) : "—",
+          session.score === null ? "—" : scoreFormatter.format(session.score),
+          session.teacherAssessed ? "преподавателя" : "автоматическая",
+          attemptResultLabel(session),
+          deadlineLabels[attemptDeadline(session, assignmentOf(session))],
+          ...(metrics
+            ? [formatFillTime(metric?.fillMs ?? null), formatDeviation(metric?.deviationMs ?? null), metricText(metric?.misspellings ?? null)]
+            : []),
+        ];
+      }),
+    );
   const groupOptions = [
     ...new Set(sessions.flatMap((session) => groupOf(session, assignmentOf(session)) ?? [])),
   ].map((value) => ({ value, label: value }));
@@ -370,6 +428,20 @@ export function TeacherAttemptsTable({
 
   return (
     <Stack gap="xs">
+      <SegmentedControl
+        size="xs"
+        radius={2}
+        color="povDark2.6"
+        w="fit-content"
+        maw="100%"
+        aria-label="Очередь проверки"
+        data={[
+          { value: ALL_ATTEMPTS, label: `Все ${sessions.length}` },
+          ...reviewQueueOrder.map((state) => ({ value: state, label: `${reviewQueueLabels[state]} ${queueCounts.get(state) ?? 0}` })),
+        ]}
+        value={review ?? ALL_ATTEMPTS}
+        onChange={(value) => table.setFilter("review", value === ALL_ATTEMPTS ? null : value)}
+      />
       <Group gap="sm" wrap="wrap">
         <Select
           size="xs"
@@ -439,6 +511,18 @@ export function TeacherAttemptsTable({
             onChange={(value) => table.setFilter("score", value === "" ? null : String(value))}
           />
         </Group>
+        {csvName !== null && (
+          <Button
+            size="xs"
+            variant="outline"
+            color="povDark2.6"
+            disabled={visible.length === 0}
+            title="Попытки с текущими фильтрами, UTF-8, разделитель «;»"
+            onClick={() => exportCsv(csvName)}
+          >
+            Скачать CSV
+          </Button>
+        )}
       </Group>
 
       {visible.length === 0 ? (
@@ -474,6 +558,19 @@ export function TeacherAttemptsTable({
                 />
                 <Table.Th w={110}>Результат</Table.Th>
                 <Table.Th w={72}>В срок</Table.Th>
+                {metrics && (
+                  <>
+                    <Table.Th w={96} title="Карточка ДДС — от выпуска до первой записи; звонок 112 — от ответа до создания карточки">
+                      Заполнение
+                    </Table.Th>
+                    <Table.Th w={96} title="Отклонение от норматива 3 мин до первой записи; у звонков норматива нет">
+                      ± норматив
+                    </Table.Th>
+                    <Table.Th w={110} title="Автоматическая проверка орфографии, может ошибаться на названиях">
+                      Орфографических ошибок
+                    </Table.Th>
+                  </>
+                )}
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -512,7 +609,7 @@ export function TeacherAttemptsTable({
                       </Text>
                     </Table.Td>
                     <Table.Td>
-                      <ScoreCell session={session} automatic={automaticById.get(session.sessionId) ?? null} />
+                      <ScoreCell session={session} />
                     </Table.Td>
                     <Table.Td>
                       <ResultCell session={session} />
@@ -520,6 +617,15 @@ export function TeacherAttemptsTable({
                     <Table.Td>
                       <DeadlineCell session={session} assignment={assignment} />
                     </Table.Td>
+                    {metrics && (
+                      <>
+                        <Table.Td className={classes.numeric}>{formatFillTime(metrics.get(session.sessionId)?.fillMs ?? null)}</Table.Td>
+                        <Table.Td className={classes.numeric}>
+                          {formatDeviation(metrics.get(session.sessionId)?.deviationMs ?? null)}
+                        </Table.Td>
+                        <Table.Td className={classes.numeric}>{metricText(metrics.get(session.sessionId)?.misspellings ?? null)}</Table.Td>
+                      </>
+                    )}
                   </LinkRow>
                 );
               })}

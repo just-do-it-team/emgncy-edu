@@ -6,7 +6,6 @@ export { CriterionRow } from "./criterion-row";
 export { Form } from "./form";
 export { PasswordInput } from "./password-input";
 export type { PasswordInputProps } from "./password-input";
-export { SectionPlaceholder } from "./section-placeholder";
 export { ScoreBlock } from "./score-block";
 export { Spinner } from "./spinner";
 export { DEFAULT_PAGE_SIZE } from "./pagination-options";

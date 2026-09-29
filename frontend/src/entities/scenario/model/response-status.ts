@@ -27,6 +27,17 @@ export const responseTransitions: Record<ServiceResponseStatus, ServiceResponseS
 
 const commentRequired = new Set<ServiceResponseStatus>(["REJECTED", "WORK_REFUSED"]);
 
+export const AMBULANCE_SERVICE_CODE = "103";
+
+const forbiddenForAmbulance = new Set<ServiceResponseStatus>(["REJECTED", "WORK_REFUSED"]);
+
+export const ambulanceStatusHint =
+  "Служба 103 не отклоняет вызов и не отказывается от работ: завершите цепочку статусом «Работы завершены» с комментарием, например «бригада не потребовалась».";
+
+export function isStatusAllowedFor(serviceCode: string, status: ServiceResponseStatus): boolean {
+  return serviceCode !== AMBULANCE_SERVICE_CODE || !forbiddenForAmbulance.has(status);
+}
+
 export function isResponseStatus(value: string): value is ServiceResponseStatus {
   return value in responseTransitions;
 }
