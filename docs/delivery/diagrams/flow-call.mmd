@@ -1,0 +1,10 @@
+flowchart TB
+  A["1. АРМ-112 в браузере<br/>записывает реплику обучаемого<br/>и отправляет в card-api"] --> B["2. card-api<br/>сохраняет аудио в SeaweedFS,<br/>пишет команду распознавания в outbox"]
+  B --> C["3. outbox-worker → Kafka<br/>audio.stt.requested"]
+  C --> D["4. speech-request-worker → speech-api<br/>распознавание GigaAM на GPU"]
+  D --> E["5. speech-result-worker<br/>сохраняет текст реплики,<br/>ставит запрос dialogue.requested"]
+  E --> F["6. dialogue-worker → llama-server<br/>gpt-oss-20b, ответ заявителя потоком"]
+  F --> G["7. Ответ режется на фразы,<br/>каждая — audio.tts.requested"]
+  G --> H["8. speech-request-worker → speech-api<br/>синтез Qwen3-TTS, сегменты WAV в SeaweedFS"]
+  H --> I["9. Событие tts_segment_ready<br/>Kafka → realtime-gateway → SSE"]
+  I --> J["10. Браузер скачивает сегменты<br/>и проигрывает по порядку"]

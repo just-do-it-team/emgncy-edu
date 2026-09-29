@@ -1,0 +1,18 @@
+flowchart TB
+  FE["Браузер: фронтенд SPA<br/>React, Mantine, TanStack Query"] -->|HTTPS| NG["nginx: статика SPA,<br/>обратный прокси, TLS"]
+  NG --> CARD["card-api<br/>/student-api"]
+  NG --> AUTH["auth-api<br/>/auth-api, JWT"]
+  NG --> RT["realtime-gateway<br/>SSE"]
+  NG --> ADM["admin-api<br/>/admin-api"]
+  NG -->|по токену| SP["speech-api, GPU<br/>GigaAM, Qwen3-TTS"]
+  CARD --> PG[("PostgreSQL 17<br/>primary + replica")]
+  AUTH --> PG
+  ADM --> PG
+  CARD --> SW[("SeaweedFS<br/>аудио")]
+  PG -. outbox .-> K[["Kafka, 3 узла"]]
+  K --> RT
+  K <--> W["Фоновые обработчики:<br/>speech-request, speech-result,<br/>dialogue, template-generation,<br/>semantic-evaluation, scenario,<br/>call-recording, outbox"]
+  W --> PG
+  W --> SP
+  W --> LLM["llama-server на хосте<br/>gpt-oss-20b"]
+  ADM --> OBS["Prometheus, Loki, Grafana"]
