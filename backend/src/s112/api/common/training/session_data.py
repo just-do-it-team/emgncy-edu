@@ -1,10 +1,13 @@
 import uuid
 
+from s112.api.identity import header_user_id
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from s112.api.dependencies import get_read_session
+from s112.api.common.training.access import can_read_training_session
 from s112.api.simulation_schemas import (
     ScheduledCardResponse,
     TrainingActionResponse,
@@ -34,7 +37,7 @@ router = APIRouter(prefix="/api/v1", tags=["common/training"])
 async def list_training_actions(
     session_id: uuid.UUID,
     request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_read_session),
 ) -> list[TrainingAction]:
     if request.app.state.auth_settings.enabled:
@@ -74,8 +77,13 @@ async def list_training_actions(
 )
 async def list_scheduled_cards(
     session_id: uuid.UUID,
+    request: Request,
     session: AsyncSession = Depends(get_read_session),
 ) -> list[SessionScheduledCard]:
+    if request.app.state.auth_settings.enabled and not await can_read_training_session(
+        session, session_id, request.state.principal
+    ):
+        raise HTTPException(status_code=404, detail="Training session not found")
     return list(
         await session.scalars(
             select(SessionScheduledCard)
@@ -95,7 +103,7 @@ async def list_scheduled_cards(
 async def list_incoming_calls(
     session_id: uuid.UUID,
     request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_read_session),
 ) -> list[TrainingCall]:
     if request.app.state.auth_settings.enabled:

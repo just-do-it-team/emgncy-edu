@@ -1,12 +1,13 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from s112.api.common.dependencies import raise_http_error, simulation_service
 from s112.api.common.training.responses import teacher_monitoring_response
 from s112.api.dependencies import get_read_session, get_write_session
+from s112.api.identity import acting_user_id, with_acting_user
 from s112.api.service import DomainError
 from s112.api.simulation_schemas import (
     IndividualSessionAbortRequest,
@@ -46,16 +47,15 @@ router = APIRouter(prefix="/api/v1", tags=["teacher/active_sessions"])
 )
 async def abort_training_session(
     session_id: uuid.UUID,
-    body: SessionAbortRequest | IndividualSessionAbortRequest,
     request: Request,
+    body: SessionAbortRequest | IndividualSessionAbortRequest | None = Body(default=None),
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> TrainingSession:
-    actor_id = body.teacher_id if isinstance(body, SessionAbortRequest) else body.user_id
-    if request.app.state.auth_settings.enabled:
-        principal = getattr(request.state, "principal", None)
-        if principal is None or principal.user_id != actor_id:
-            raise HTTPException(status_code=403, detail="User does not match token")
+    body = body or IndividualSessionAbortRequest()
+    field = "teacher_id" if isinstance(body, SessionAbortRequest) else "user_id"
+    body = with_acting_user(request, body, field)
+    actor_id = getattr(body, field)
     try:
         async with session.begin():
             if isinstance(body, SessionAbortRequest):
@@ -72,10 +72,12 @@ async def abort_training_session(
     response_model=list[TeacherMonitoringSession],
 )
 async def list_teacher_monitoring_sessions(
-    teacher_id: uuid.UUID,
+    request: Request,
+    teacher_id: uuid.UUID | None = None,
     session_status: str | None = Query(default="RUNNING", alias="status"),
     session: AsyncSession = Depends(get_read_session),
 ) -> list[TeacherMonitoringSession]:
+    teacher_id = acting_user_id(request, teacher_id)
     teacher = await session.get(UserAccount, teacher_id)
     if teacher is None or teacher.is_blocked:
         raise HTTPException(status_code=404, detail="Teacher not found")
@@ -112,9 +114,16 @@ async def list_teacher_monitoring_sessions(
 )
 async def get_teacher_monitoring_session(
     session_id: uuid.UUID,
-    teacher_id: uuid.UUID,
+    request: Request,
+    teacher_id: uuid.UUID | None = None,
     session: AsyncSession = Depends(get_read_session),
 ) -> TeacherMonitoringSession:
+    teacher_id = acting_user_id(request, teacher_id)
+    if request.app.state.auth_settings.enabled and request.state.principal.role not in {
+        UserRole.TEACHER,
+        UserRole.ADMINISTRATOR,
+    }:
+        raise HTTPException(status_code=403, detail="Teacher access required")
     row = (
         await session.execute(
             select(TrainingSession, ScenarioAssignment, SimulationWorkspace)
@@ -147,10 +156,16 @@ async def get_teacher_monitoring_session(
 async def release_manual_scenario_card(
     session_id: uuid.UUID,
     scenario_card_key: str,
-    body: ManualCardReleaseRequest,
     request: Request,
+    body: ManualCardReleaseRequest | None = Body(default=None),
     session: AsyncSession = Depends(get_write_session),
 ) -> SessionScheduledCard:
+    body = with_acting_user(request, body or ManualCardReleaseRequest(), "user_id")
+    if request.app.state.auth_settings.enabled and request.state.principal.role not in {
+        UserRole.TEACHER,
+        UserRole.ADMINISTRATOR,
+    }:
+        raise HTTPException(status_code=403, detail="Teacher access required")
     try:
         async with session.begin():
             item = await session.scalar(
@@ -197,9 +212,16 @@ async def release_manual_scenario_card(
 async def release_manual_incoming_call(
     session_id: uuid.UUID,
     scenario_item_key: str,
-    body: ManualCardReleaseRequest,
+    request: Request,
+    body: ManualCardReleaseRequest | None = Body(default=None),
     session: AsyncSession = Depends(get_write_session),
 ) -> TrainingCall:
+    body = with_acting_user(request, body or ManualCardReleaseRequest(), "user_id")
+    if request.app.state.auth_settings.enabled and request.state.principal.role not in {
+        UserRole.TEACHER,
+        UserRole.ADMINISTRATOR,
+    }:
+        raise HTTPException(status_code=403, detail="Teacher access required")
     async with session.begin():
         item = await session.scalar(
             select(TrainingCall)

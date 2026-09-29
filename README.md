@@ -5,11 +5,14 @@
 `docker-compose.yaml` поднимает бэкенд и nginx с фронтендом. Фронтенд собирается
 в отдельном этапе Dockerfile: в конечный образ попадают только nginx и файлы `dist`.
 Порты бэкенда и инфраструктуры не публикуются на хосте; nginx занимает 80 и 443.
+Имя Compose-проекта задано как `backend`, поэтому при стандартном запуске
+`backend/compose.yaml` и корневой файл используют одни и те же volumes данных.
+Не запускайте два варианта стека одновременно.
 
 1. Заполните `backend/.env` по образцу `backend/.env.example`: задайте уникальные
    пароли и секрет JWT. Заполните `frontend/.env` по образцу `frontend/.env.example`:
-   для production установите `VITE_USE_MOCKS=false`, `VITE_DEMO=false` и адреса API
-   `/student-api`, `/auth-api`, `/realtime-gateway`. Переменные
+   для production оставьте `VITE_USE_MOCKS=false`, `VITE_DEMO=false` и адреса API
+   `/student-api`, `/auth-api`, `/admin-api`, `/realtime-gateway`. Переменные
    `VITE_*_PROXY_TARGET` используются только dev-сервером и в production-сборку
    не передаются. Скопируйте корневой `.env.example` в `.env` и задайте домен
    и почту Certbot. Домен должен указывать на сервер, а порты 80 и 443 должны быть

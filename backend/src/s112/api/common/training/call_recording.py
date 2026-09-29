@@ -1,6 +1,8 @@
 import hashlib
 import re
 import uuid
+
+from s112.api.identity import header_user_id
 from datetime import datetime
 from typing import Literal
 
@@ -58,7 +60,7 @@ async def get_call_recording(
     call_id: uuid.UUID,
     request: Request,
     response: Response,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_read_session),
 ) -> CallRecordingResponse:
     recording = await _get_recording(call_id, request, user_id, session)
@@ -82,7 +84,7 @@ async def get_call_recording(
 async def get_call_recording_content(
     call_id: uuid.UUID,
     request: Request,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     byte_range: str | None = Header(default=None, alias="Range"),
     session: AsyncSession = Depends(get_read_session),
 ) -> Response:

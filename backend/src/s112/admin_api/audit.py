@@ -10,6 +10,8 @@ from s112.domain.models import AuditEvent
 
 
 def actor_id_from_request(request: Request) -> uuid.UUID | None:
+    if request.app.state.auth_settings.enabled:
+        return request.state.principal.user_id
     raw_value = request.headers.get("X-Admin-Actor-Id")
     if not raw_value:
         return None
@@ -31,7 +33,11 @@ def add_audit_event(
 ) -> AuditEvent:
     event = AuditEvent(
         actor_id=actor_id_from_request(request),
-        actor_username=(request.headers.get("X-Admin-Actor-Username") or "")[:64] or None,
+        actor_username=(
+            request.state.principal.username[:64]
+            if request.app.state.auth_settings.enabled
+            else (request.headers.get("X-Admin-Actor-Username") or "")[:64] or None
+        ),
         action=action,
         target_type=target_type,
         target_id=target_id,

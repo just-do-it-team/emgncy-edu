@@ -68,4 +68,5 @@ POST принимает `multipart/form-data` с файлом `audio` и нео�
 `training.dialogue_finished` либо события ошибки; готовый сегмент доступен
 через `GET /api/v1/audio-messages/{messageId}/tts-segments`.
 
-При включённой авторизации `user_id` или `X-User-Id` должен совпадать с JWT.
+При включённой авторизации `user_id` и `X-User-Id` действующего оператора
+не нужны: сервер берёт ID из JWT.

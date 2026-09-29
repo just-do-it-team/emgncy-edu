@@ -18,7 +18,7 @@ from s112.admin_api.services.api import router as services_router
 from s112.admin_api.settings import AdminSettings, get_admin_settings
 from s112.admin_api.updates.api import router as updates_router
 from s112.admin_api.users.api import router as users_router
-from s112.auth.dependencies import require_auth_if_enabled
+from s112.auth.dependencies import require_admin_if_enabled
 from s112.auth.settings import AuthSettings, get_auth_settings
 from s112.common.database import Database
 
@@ -55,7 +55,7 @@ def create_app(
         ),
         version="0.2.0",
         lifespan=lifespan,
-        dependencies=[Depends(require_auth_if_enabled)],
+        dependencies=[Depends(require_admin_if_enabled)],
     )
     app.add_middleware(
         CORSMiddleware,

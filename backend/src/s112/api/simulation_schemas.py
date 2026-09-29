@@ -442,7 +442,7 @@ class CardTemplateCreate(BaseModel):
     voice_id: str | None = Field(default=None, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*\.(?:wav|mp3)$")
     initial_card: CardCreate
     expected_result: ExpectedResult
-    created_by: uuid.UUID
+    created_by: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def require_final_card(self) -> "CardTemplateCreate":
@@ -471,11 +471,11 @@ class CardTemplateResponse(OrmModel):
 
 
 class CardTemplateDeleteRequest(BaseModel):
-    deleted_by: uuid.UUID
+    deleted_by: uuid.UUID | None = None
 
 
 class CardTemplateUpdate(BaseModel):
-    updated_by: uuid.UUID
+    updated_by: uuid.UUID | None = None
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     difficulty: int | None = Field(default=None, ge=1, le=4)
@@ -503,7 +503,7 @@ class IncomingCallTemplateCreate(BaseModel):
     voice_id: str | None = Field(default=None, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*\.(?:wav|mp3)$")
     initial_call: InitialIncomingCall
     expected_result: ExpectedResult
-    created_by: uuid.UUID
+    created_by: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def require_final_card(self) -> "IncomingCallTemplateCreate":
@@ -536,11 +536,11 @@ class IncomingCallTemplateResponse(OrmModel):
 
 
 class IncomingCallTemplateDeleteRequest(BaseModel):
-    deleted_by: uuid.UUID
+    deleted_by: uuid.UUID | None = None
 
 
 class IncomingCallTemplateUpdate(BaseModel):
-    updated_by: uuid.UUID
+    updated_by: uuid.UUID | None = None
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     difficulty: int | None = Field(default=None, ge=1, le=4)
@@ -569,7 +569,7 @@ class CardTemplateGenerationCreate(BaseModel):
     dds_service_codes: list[Literal["101", "102", "103", "104"]] = Field(
         min_length=1, max_length=4
     )
-    created_by: uuid.UUID
+    created_by: uuid.UUID | None = None
 
     @field_validator("dds_service_codes")
     @classmethod
@@ -610,7 +610,7 @@ class TrainingScenarioCreate(BaseModel):
     )
     definition: ScenarioDefinition
     status: ScenarioStatus = ScenarioStatus.DRAFT
-    created_by: uuid.UUID
+    created_by: uuid.UUID | None = None
 
     @field_validator("required_participant_positions")
     @classmethod
@@ -663,7 +663,7 @@ class TrainingScenarioCreate(BaseModel):
 
 class TrainingScenarioUpdate(BaseModel):
     expected_revision: int = Field(ge=1)
-    updated_by: uuid.UUID
+    updated_by: uuid.UUID | None = None
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     difficulty: int | None = Field(default=None, ge=1, le=4)
@@ -703,7 +703,7 @@ class TrainingScenarioUpdate(BaseModel):
 
 
 class ScenarioDeleteRequest(BaseModel):
-    deleted_by: uuid.UUID
+    deleted_by: uuid.UUID | None = None
     expected_revision: int = Field(ge=1)
 
 
@@ -765,7 +765,7 @@ class ScenarioRevisionTarget(BaseModel):
 
 
 class TemplateScenarioUpgradeRequest(BaseModel):
-    updated_by: uuid.UUID
+    updated_by: uuid.UUID | None = None
     scenarios: list[ScenarioRevisionTarget] = Field(min_length=1, max_length=100)
 
     @field_validator("scenarios")
@@ -784,7 +784,7 @@ class ScenarioAssignmentCreate(BaseModel):
     participant_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
     participant_positions: dict[uuid.UUID, str | None] = Field(default_factory=dict)
     incoming_call_operators: dict[str, uuid.UUID] = Field(default_factory=dict)
-    assigned_by: uuid.UUID
+    assigned_by: uuid.UUID | None = None
     launch_policy: LaunchPolicy = LaunchPolicy.STUDENT_SELF_START
     max_attempts: int = Field(default=1, ge=1, le=100)
     available_from: datetime | None = None
@@ -895,11 +895,11 @@ class StudentScenarioAssignmentResponse(BaseModel):
 
 
 class StartAssignmentRequest(BaseModel):
-    user_id: uuid.UUID
+    user_id: uuid.UUID | None = None
 
 
 class ReadyAssignmentRequest(BaseModel):
-    user_id: uuid.UUID
+    user_id: uuid.UUID | None = None
 
 
 class StartAssignmentResponse(BaseModel):
@@ -913,16 +913,16 @@ class StartAssignmentResponse(BaseModel):
 
 
 class SessionCompleteRequest(BaseModel):
-    user_id: uuid.UUID
+    user_id: uuid.UUID | None = None
 
 
 class SessionAbortRequest(BaseModel):
-    teacher_id: uuid.UUID
+    teacher_id: uuid.UUID | None = None
     reason: str = Field(min_length=1, max_length=2000)
 
 
 class IndividualSessionAbortRequest(BaseModel):
-    user_id: uuid.UUID
+    user_id: uuid.UUID | None = None
 
 
 class TrainingDiscrepancy(BaseModel):
@@ -1084,7 +1084,7 @@ class SessionCompletionReadinessResponse(BaseModel):
 class LearningGroupCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
-    teacher_id: uuid.UUID
+    teacher_id: uuid.UUID | None = None
     student_ids: list[uuid.UUID] = Field(default_factory=list, max_length=1000)
 
     @field_validator("student_ids")
@@ -1096,14 +1096,14 @@ class LearningGroupCreate(BaseModel):
 
 
 class LearningGroupUpdate(BaseModel):
-    actor_id: uuid.UUID
+    actor_id: uuid.UUID | None = None
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     is_active: bool | None = None
 
 
 class LearningGroupMembersUpdate(BaseModel):
-    actor_id: uuid.UUID
+    actor_id: uuid.UUID | None = None
     student_ids: list[uuid.UUID] = Field(min_length=1, max_length=1000)
 
     @field_validator("student_ids")
@@ -1134,7 +1134,7 @@ class LearningGroupResponse(OrmModel):
 
 class GroupScenarioAssignmentCreate(BaseModel):
     scenario_id: uuid.UUID
-    assigned_by: uuid.UUID
+    assigned_by: uuid.UUID | None = None
     participant_ids: list[uuid.UUID] | None = Field(default=None, min_length=1, max_length=100)
     participant_positions: dict[uuid.UUID, str | None] = Field(default_factory=dict)
     incoming_call_operators: dict[str, uuid.UUID] = Field(default_factory=dict)
@@ -1176,7 +1176,7 @@ class AssignmentBatchResponse(OrmModel):
 
 
 class ExpertAssessmentUpdate(BaseModel):
-    teacher_id: uuid.UUID
+    teacher_id: uuid.UUID | None = None
     score: Decimal = Field(ge=0, le=100, max_digits=5, decimal_places=2)
     passed: bool
     comment: str | None = Field(default=None, max_length=10000)
@@ -1325,7 +1325,7 @@ class TeacherMonitoringSession(BaseModel):
 
 
 class ManualCardReleaseRequest(BaseModel):
-    user_id: uuid.UUID
+    user_id: uuid.UUID | None = None
 
 
 class ScheduledCardResponse(OrmModel):
@@ -1400,9 +1400,9 @@ class CallTranscriptResponse(BaseModel):
 
 
 class TrainingCallActionRequest(BaseModel):
-    user_id: uuid.UUID
+    user_id: uuid.UUID | None = None
 
 
 class TrainingCallCardLinkRequest(BaseModel):
-    user_id: uuid.UUID
+    user_id: uuid.UUID | None = None
     incident_card_id: uuid.UUID

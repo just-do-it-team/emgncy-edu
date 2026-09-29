@@ -1,6 +1,8 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from s112.api.identity import header_user_id, with_acting_user
+
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -147,7 +149,7 @@ def _student_assignments_statement(student_id: uuid.UUID):
 )
 async def list_own_scenario_assignments(
     http_request: Request,
-    student_id: uuid.UUID = Header(alias="X-User-Id"),
+    student_id: uuid.UUID = Depends(header_user_id),
     assignment_status: str | None = Query(default=None, alias="status"),
     session: AsyncSession = Depends(get_read_session),
 ) -> list[StudentScenarioAssignmentResponse]:
@@ -179,7 +181,7 @@ async def list_own_scenario_assignments(
 async def get_own_scenario_assignment(
     assignment_id: uuid.UUID,
     http_request: Request,
-    student_id: uuid.UUID = Header(alias="X-User-Id"),
+    student_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_read_session),
 ) -> StudentScenarioAssignmentResponse:
     _assert_request_identity(http_request, student_id)
@@ -203,12 +205,12 @@ async def get_own_scenario_assignment(
 )
 async def mark_scenario_participant_ready(
     assignment_id: uuid.UUID,
-    body: ReadyAssignmentRequest,
     http_request: Request,
+    body: ReadyAssignmentRequest | None = Body(default=None),
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> AssignmentParticipant:
-    _assert_request_identity(http_request, body.user_id)
+    body = with_acting_user(http_request, body or ReadyAssignmentRequest(), "user_id")
     try:
         async with session.begin():
             return await service.mark_participant_ready(session, assignment_id, body.user_id)
@@ -222,13 +224,13 @@ async def mark_scenario_participant_ready(
 )
 async def start_scenario_assignment(
     assignment_id: uuid.UUID,
-    request: StartAssignmentRequest,
     http_request: Request,
+    request: StartAssignmentRequest | None = Body(default=None),
     idempotency_key: str = Header(min_length=1, max_length=128, alias="Idempotency-Key"),
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> StartAssignmentResponse:
-    _assert_request_identity(http_request, request.user_id)
+    request = with_acting_user(http_request, request or StartAssignmentRequest(), "user_id")
     try:
         async with session.begin():
             training_session, workspace, replay = await service.start_individual_assignment(

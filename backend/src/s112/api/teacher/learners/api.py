@@ -1,5 +1,7 @@
 import uuid
 
+from s112.api.identity import header_user_id
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +13,7 @@ from s112.api.common.training.responses import (
     learning_group_response,
 )
 from s112.api.dependencies import get_read_session, get_write_session
+from s112.api.identity import acting_user_id, with_acting_user
 from s112.api.service import DomainError
 from s112.api.simulation_schemas import (
     AssignmentBatchResponse,
@@ -51,7 +54,8 @@ def _assert_teacher_identity(request: Request, teacher_id: uuid.UUID) -> None:
 
 @router.get("/students", response_model=TeacherStudentPage)
 async def list_students(
-    teacher_id: uuid.UUID,
+    http_request: Request,
+    teacher_id: uuid.UUID | None = None,
     group_id: uuid.UUID | None = None,
     search: str | None = Query(default=None, min_length=1, max_length=100),
     include_blocked: bool = False,
@@ -59,6 +63,7 @@ async def list_students(
     offset: int = Query(default=0, ge=0),
     session: AsyncSession = Depends(get_read_session),
 ) -> TeacherStudentPage:
+    teacher_id = acting_user_id(http_request, teacher_id)
     teacher = await session.get(UserAccount, teacher_id)
     if teacher is None or teacher.is_blocked:
         raise HTTPException(status_code=404, detail="Teacher not found")
@@ -178,9 +183,11 @@ async def list_students(
 )
 async def create_learning_group(
     request: LearningGroupCreate,
+    http_request: Request,
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> LearningGroupResponse:
+    request = with_acting_user(http_request, request, "teacher_id")
     try:
         async with session.begin():
             group = await service.create_learning_group(session, request)
@@ -191,10 +198,12 @@ async def create_learning_group(
 
 @router.get("/learning-groups", response_model=list[LearningGroupResponse])
 async def list_learning_groups(
-    teacher_id: uuid.UUID,
+    http_request: Request,
+    teacher_id: uuid.UUID | None = None,
     active_only: bool = True,
     session: AsyncSession = Depends(get_read_session),
 ) -> list[LearningGroupResponse]:
+    teacher_id = acting_user_id(http_request, teacher_id)
     statement = select(LearningGroup).where(LearningGroup.teacher_id == teacher_id)
     if active_only:
         statement = statement.where(LearningGroup.is_active.is_(True))
@@ -205,11 +214,15 @@ async def list_learning_groups(
 @router.get("/learning-groups/{group_id}", response_model=LearningGroupResponse)
 async def get_learning_group(
     group_id: uuid.UUID,
+    http_request: Request,
     session: AsyncSession = Depends(get_read_session),
 ) -> LearningGroupResponse:
     group = await session.get(LearningGroup, group_id)
     if group is None:
         raise HTTPException(status_code=404, detail="Learning group not found")
+    if http_request.app.state.auth_settings.enabled:
+        if group.teacher_id != acting_user_id(http_request, None):
+            raise HTTPException(status_code=404, detail="Learning group not found")
     return await learning_group_response(session, group)
 
 
@@ -217,9 +230,11 @@ async def get_learning_group(
 async def update_learning_group(
     group_id: uuid.UUID,
     request: LearningGroupUpdate,
+    http_request: Request,
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> LearningGroupResponse:
+    request = with_acting_user(http_request, request, "actor_id")
     try:
         async with session.begin():
             group = await service.update_learning_group(session, group_id, request)
@@ -235,9 +250,11 @@ async def update_learning_group(
 async def add_learning_group_members(
     group_id: uuid.UUID,
     request: LearningGroupMembersUpdate,
+    http_request: Request,
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> LearningGroupResponse:
+    request = with_acting_user(http_request, request, "actor_id")
     try:
         async with session.begin():
             group = await service.add_learning_group_members(session, group_id, request)
@@ -253,10 +270,12 @@ async def add_learning_group_members(
 async def remove_learning_group_member(
     group_id: uuid.UUID,
     student_id: uuid.UUID,
-    actor_id: uuid.UUID,
+    http_request: Request,
+    actor_id: uuid.UUID | None = None,
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> None:
+    actor_id = acting_user_id(http_request, actor_id)
     try:
         async with session.begin():
             await service.remove_learning_group_member(
@@ -278,10 +297,7 @@ async def create_learning_group_assignment(
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> AssignmentBatchResponse:
-    if http_request.app.state.auth_settings.enabled:
-        principal = getattr(http_request.state, "principal", None)
-        if principal is None or principal.user_id != request.assigned_by:
-            raise HTTPException(status_code=403, detail="Teacher does not match token")
+    request = with_acting_user(http_request, request, "assigned_by")
     try:
         async with session.begin():
             batch, assignments = await service.create_group_assignment(
@@ -303,10 +319,7 @@ async def create_scenario_assignment(
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> ScenarioAssignmentResponse:
-    if http_request.app.state.auth_settings.enabled:
-        principal = getattr(http_request.state, "principal", None)
-        if principal is None or principal.user_id != request.assigned_by:
-            raise HTTPException(status_code=403, detail="Teacher does not match token")
+    request = with_acting_user(http_request, request, "assigned_by")
     try:
         async with session.begin():
             assignment = await service.create_assignment(session, request)
@@ -323,7 +336,7 @@ async def update_scenario_assignment_schedule(
     assignment_id: uuid.UUID,
     schedule: ScenarioAssignmentScheduleUpdate,
     http_request: Request,
-    teacher_id: uuid.UUID = Header(alias="X-User-Id"),
+    teacher_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> ScenarioAssignmentResponse:
@@ -345,7 +358,7 @@ async def update_scenario_assignment_schedule(
 async def cancel_scenario_assignment(
     assignment_id: uuid.UUID,
     http_request: Request,
-    teacher_id: uuid.UUID = Header(alias="X-User-Id"),
+    teacher_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> None:
@@ -365,7 +378,7 @@ async def update_assignment_batch_schedule(
     batch_id: uuid.UUID,
     schedule: ScenarioAssignmentScheduleUpdate,
     http_request: Request,
-    teacher_id: uuid.UUID = Header(alias="X-User-Id"),
+    teacher_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> AssignmentBatchResponse:
@@ -387,7 +400,7 @@ async def update_assignment_batch_schedule(
 async def cancel_assignment_batch(
     batch_id: uuid.UUID,
     http_request: Request,
-    teacher_id: uuid.UUID = Header(alias="X-User-Id"),
+    teacher_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_write_session),
     service: SimulationApplicationService = Depends(simulation_service),
 ) -> None:
@@ -406,7 +419,7 @@ async def cancel_assignment_batch(
 async def get_teacher_scenario_assignment(
     assignment_id: uuid.UUID,
     http_request: Request,
-    teacher_id: uuid.UUID = Header(alias="X-User-Id"),
+    teacher_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_read_session),
 ) -> ScenarioAssignmentResponse:
     if http_request.app.state.auth_settings.enabled:

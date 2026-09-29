@@ -1,6 +1,8 @@
 import asyncio
 import io
 import uuid
+
+from s112.api.identity import header_user_id
 import wave
 from collections import defaultdict
 
@@ -41,7 +43,7 @@ async def get_call_transcript(
     call_id: uuid.UUID,
     request: Request,
     response: Response,
-    user_id: uuid.UUID = Header(alias="X-User-Id"),
+    user_id: uuid.UUID = Depends(header_user_id),
     session: AsyncSession = Depends(get_read_session),
 ) -> CallTranscriptResponse:
     if request.app.state.auth_settings.enabled:
