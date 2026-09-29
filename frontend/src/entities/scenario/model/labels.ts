@@ -7,12 +7,19 @@ import type {
   ScenarioStatus,
   ScenarioWorkspaceMode,
 } from "@/shared/api";
+import type { PillTone } from "@/shared/ui";
 import type { ScenarioRole } from "./scenario-role";
 
 export const scenarioStatusLabels: Record<ScenarioStatus, string> = {
   DRAFT: "Черновик",
   PUBLISHED: "Утверждён",
   ARCHIVED: "Архив",
+};
+
+export const scenarioStatusTones: Record<ScenarioStatus, PillTone> = {
+  DRAFT: "orange",
+  PUBLISHED: "blue",
+  ARCHIVED: "gray",
 };
 
 export const scenarioRoleLabels: Record<ScenarioRole, string> = {

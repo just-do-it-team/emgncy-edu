@@ -6,26 +6,19 @@ import classes from "./analytics.module.scss";
 
 const decimal = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 });
 
-interface SpellingBlockProps {
-  summary: SpellingSummary | null;
-  failed: boolean;
-}
-
-export function SpellingBlock({ summary, failed }: SpellingBlockProps) {
+export function SpellingBlock({ summary }: { summary: SpellingSummary | null }) {
   const perAttempt = (errors: number, attempts: number) => (attempts === 0 ? 0 : errors / attempts);
   const scale = Math.max(1, ...(summary?.students ?? []).map((student) => perAttempt(student.errors, student.attempts)));
 
   return (
     <AnalyticsCard
       title="Грамотность ввода"
-      conclusion={
-        failed ? "Словарь проверки орфографии не загрузился." : summary === null ? "Проверяем орфографию…" : spellingConclusion(summary)
-      }
+      conclusion={summary === null ? "Проверяем орфографию…" : spellingConclusion(summary)}
       actions={null}
       legend={`${SPELLING_CAPTION} Проверяется только текст, который обучаемый ввёл сам: описание и адреса карточки из звонка, комментарии ДДС. В балл не входит.`}
       wide={false}
     >
-      {failed ? null : summary === null ? (
+      {summary === null ? (
         <Skeleton height={120} radius={2} />
       ) : summary.students.length === 0 ? (
         <Text size="sm" c="povDark2.6">

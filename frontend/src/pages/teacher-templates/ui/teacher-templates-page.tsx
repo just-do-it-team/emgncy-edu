@@ -10,6 +10,7 @@ import {
   templateSourceLabel,
   templateState,
   templateStateLabels,
+  templateStateTones,
   templateUsages,
   templateVariantHints,
   templateVariantLabels,
@@ -23,7 +24,7 @@ import {
 import { useSessionStore } from "@/entities/session";
 import type { ScenarioListItem, TemplateVariant } from "@/shared/api";
 import { formatShortDateTime, sortRows, useTableQuery } from "@/shared/lib";
-import { Button, FilteredEmpty, LinkRow, SortableTh, TablePagination, usePagination } from "@/shared/ui";
+import { Button, FilteredEmpty, LinkRow, SortableTh, StatusPill, TablePagination, usePagination } from "@/shared/ui";
 import { serviceName, useServiceNames } from "@/widgets/expected-result-view";
 import { ScenarioLibraryTabs } from "@/widgets/scenario-library-tabs";
 import { CreateTemplateMenu } from "./create-template-menu";
@@ -303,13 +304,9 @@ function TemplatesTable({ rows, serviceNames }: { rows: TemplateRow[]; serviceNa
                     </Text>
                   </Table.Td>
                   <Table.Td>
-                    <Text
-                      size="sm"
-                      fw={templateState(entry.latest) === "aiDraft" ? 600 : undefined}
-                      c={templateState(entry.latest) === "archived" ? "povDark2.6" : undefined}
-                    >
+                    <StatusPill tone={templateStateTones[templateState(entry.latest)]}>
                       {templateStateLabels[templateState(entry.latest)]}
-                    </Text>
+                    </StatusPill>
                   </Table.Td>
                   <Table.Td>
                     <Text size="sm" lineClamp={2} c={own ? undefined : "povDark2.6"}>

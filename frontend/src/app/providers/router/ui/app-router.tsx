@@ -91,7 +91,7 @@ const GuardedRoutes: FC = () => {
           path={RouteNames.TEACHER}
           element={guarded(
             "teacher",
-            <AppShell items={roleNavigation.teacher} roleLabel={roleLabels.teacher} />,
+            <AppShell items={roleNavigation.teacher} roleLabel={roleLabels.teacher} look="cov" />,
           )}
         >
           <Route index element={<TeacherOverviewPage />} />
@@ -121,7 +121,7 @@ const GuardedRoutes: FC = () => {
           path={RouteNames.STUDENT}
           element={guarded(
             "student",
-            <AppShell items={roleNavigation.student} roleLabel={roleLabels.student} />,
+            <AppShell items={roleNavigation.student} roleLabel={roleLabels.student} look="plain" />,
           )}
         >
           <Route index element={<StudentOverviewPage />} />
@@ -134,7 +134,7 @@ const GuardedRoutes: FC = () => {
           path={RouteNames.ADMIN}
           element={guarded(
             "admin",
-            <AppShell items={roleNavigation.admin} roleLabel={roleLabels.admin} />,
+            <AppShell items={roleNavigation.admin} roleLabel={roleLabels.admin} look="cov" />,
           )}
         >
           <Route index element={<AdminOverviewPage />} />

@@ -11,6 +11,7 @@ import {
   scenarioRoleHint,
   scenarioRoleLabels,
   scenarioStatusLabels,
+  scenarioStatusTones,
   useScenarios,
   type ScenarioRole,
 } from "@/entities/scenario";
@@ -25,6 +26,7 @@ import {
   TablePagination,
   tooltipEvents,
   usePagination,
+  StatusPill,
 } from "@/shared/ui";
 import { ScenarioLibraryTabs } from "@/widgets/scenario-library-tabs";
 import { ProceduralScenarioModal } from "./procedural-scenario-modal";
@@ -274,7 +276,7 @@ function ScenariosTable({ rows }: { rows: ScenarioRow[] }) {
                     <Text size="sm">{difficultyLabel(scenario.difficulty)}</Text>
                   </Table.Td>
                   <Table.Td>
-                    <Text size="sm">{scenarioStatusLabels[scenario.status]}</Text>
+                    <StatusPill tone={scenarioStatusTones[scenario.status]}>{scenarioStatusLabels[scenario.status]}</StatusPill>
                   </Table.Td>
                   <Table.Td>
                     <Text size="sm" lineClamp={2} c={own ? undefined : "povDark2.6"}>

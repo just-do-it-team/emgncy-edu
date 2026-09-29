@@ -7,6 +7,7 @@ import {
   compareByNearestDue,
   completedAttemptsPhrase,
   lessonStatusLabels,
+  lessonStatusTones,
   lessonStatusOrder,
   useTeacherLessons,
   WindowCell,
@@ -21,6 +22,7 @@ import {
   TablePagination,
   tooltipEvents,
   usePagination,
+  StatusPill,
 } from "@/shared/ui";
 import classes from "./teacher-lessons.module.scss";
 
@@ -252,7 +254,7 @@ function LessonsTable({ lessons }: { lessons: Lesson[] }) {
                     <AverageCell lesson={lesson} />
                   </Table.Td>
                   <Table.Td>
-                    <Text size="sm">{lessonStatusLabels[lesson.status]}</Text>
+                    <StatusPill tone={lessonStatusTones[lesson.status]}>{lessonStatusLabels[lesson.status]}</StatusPill>
                   </Table.Td>
                 </LinkRow>
               ))}

@@ -42,3 +42,118 @@
 .linkIconCollapsed {
   margin-inline-end: 0;
 }
+
+// Оформление кабинетов преподавателя и администратора в стиле ЦОВ-112. Палитра задаётся переменными
+// только внутри этой области: АРМ, ДДС и страница входа рендерятся вне оболочки и её не наследуют.
+.cov {
+  --cov-blue: #0070e0;
+  --cov-blue-light: #78b0e8;
+  --cov-blue-pale: #d8e8f8;
+  --cov-orange: #f88020;
+  --cov-page: #f2f4f7;
+  --cov-card: #fff;
+  --cov-card-border: #e3e8ee;
+  --cov-line: #edf0f3;
+  --cov-muted: #6b7785;
+  --cov-head: #f7f9fb;
+  --cov-radius: 8px;
+  --cov-bar-radius: 3px;
+  --cov-shadow: 0 1px 2px rgb(16 24 40 / 5%), 0 1px 4px rgb(16 24 40 / 6%);
+  --cov-pill-blue-fg: #0058b0;
+  --cov-pill-blue-bg: #e3effb;
+  --cov-pill-orange-fg: #a24e00;
+  --cov-pill-orange-bg: #fdefe2;
+  --cov-pill-red-fg: #b3261e;
+  --cov-pill-red-bg: #fde8e7;
+  --cov-pill-green-fg: #2b6e31;
+  --cov-pill-green-bg: #e5f3e6;
+  --cov-pill-gray-fg: #4b5563;
+  --cov-pill-gray-bg: #eef0f3;
+
+  // Цвета оболочки заданы пропсами Mantine прямо в style, поэтому здесь нужен !important.
+  :global(.mantine-AppShell-header) {
+    background: var(--cov-card) !important;
+    border-bottom: 1px solid var(--cov-card-border);
+  }
+
+  :global(.mantine-AppShell-navbar) {
+    background: var(--cov-card) !important;
+    border-right: 1px solid var(--cov-card-border);
+  }
+
+  :global(.mantine-AppShell-main) {
+    background: var(--cov-page);
+  }
+
+  :global(.mantine-NavLink-root) {
+    border-radius: 6px;
+  }
+
+  :global(.mantine-NavLink-root[data-active]) {
+    --nl-bg: var(--cov-blue-pale) !important;
+    --nl-hover: var(--cov-blue-pale) !important;
+    --nl-color: var(--cov-blue) !important;
+
+    font-weight: 600;
+  }
+
+  :global(.mantine-AppShell-main .mantine-Paper-root) {
+    background: var(--cov-card);
+    border-color: var(--cov-card-border);
+    border-radius: var(--cov-radius);
+    box-shadow: var(--cov-shadow);
+  }
+
+  :global(.mantine-AppShell-main .mantine-Alert-root) {
+    border-color: var(--cov-card-border);
+    border-radius: var(--cov-radius);
+    background: var(--cov-card);
+  }
+
+  :global(.mantine-Table-table) {
+    --table-border-color: var(--cov-line);
+  }
+
+  :global(.mantine-Table-thead) {
+    background: var(--cov-head);
+  }
+
+  :global(.mantine-Table-th) {
+    color: var(--cov-muted);
+    font-weight: 600;
+  }
+
+  // Основной цвет приходит либо явным color="povOrange", либо по умолчанию из темы — тогда в style переменной нет.
+  :global(.mantine-Button-root[data-variant="filled"][style*="povOrange"]),
+  :global(.mantine-Button-root[data-variant="filled"]:not([style*="--button-bg"])),
+  :global(.mantine-Button-root:not([data-variant]):not([style*="--button-bg"])) {
+    --button-bg: var(--cov-blue) !important;
+    --button-hover: color-mix(in srgb, var(--cov-blue) 85%, black) !important;
+    --button-color: var(--cov-card) !important;
+
+    border-radius: 6px;
+  }
+
+  :global(.mantine-Button-root[data-variant="outline"][style*="povDark2"]) {
+    --button-color: var(--cov-blue) !important;
+    --button-bd: 1px solid var(--cov-blue-light) !important;
+    --button-hover: var(--cov-blue-pale) !important;
+
+    border-radius: 6px;
+  }
+
+  :global(.mantine-SegmentedControl-root) {
+    --sc-color: var(--cov-blue) !important;
+
+    border-radius: 6px;
+  }
+
+  :global(.mantine-Input-input) {
+    border-radius: 6px;
+  }
+
+  :global(.mantine-Badge-root) {
+    border-radius: 999px;
+    text-transform: none;
+  }
+}

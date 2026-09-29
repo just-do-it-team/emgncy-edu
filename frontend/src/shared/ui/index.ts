@@ -20,3 +20,5 @@ export { FilteredEmpty } from "./filtered-empty";
 export { IssuesList } from "./issues-list";
 export { LeaveConfirmModal } from "./leave-confirm-modal";
 export { LinkRow } from "./link-row";
+export { StatusPill } from "./status-pill";
+export type { PillTone } from "./status-pill";

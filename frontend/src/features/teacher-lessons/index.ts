@@ -1,6 +1,6 @@
 export { useTeacherLessons } from "./api/use-teacher-lessons";
 export type { TeacherLessonsState } from "./api/use-teacher-lessons";
-export { buildLessons, compareByNearestDue, lessonStatusLabels, lessonStatusOrder } from "./model/build-lessons";
+export { buildLessons, compareByNearestDue, lessonStatusLabels, lessonStatusOrder, lessonStatusTones } from "./model/build-lessons";
 export type { Lesson, LessonAverage, LessonStatus } from "./model/build-lessons";
 export { completedAttemptsPhrase, participantsPhrase } from "./model/plurals";
 export { useLessonFindings } from "./api/use-lesson-findings";

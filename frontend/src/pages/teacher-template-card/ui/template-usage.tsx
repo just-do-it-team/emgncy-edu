@@ -2,14 +2,16 @@ import { Anchor, Paper, Stack, Table, Text, Title } from "@mantine/core";
 import { Link } from "react-router-dom";
 import {
   scenarioStatusLabels,
+  scenarioStatusTones,
   templateState,
   templateStateLabels,
+  templateStateTones,
   type TemplateEntry,
   type TemplateUsage,
 } from "@/entities/scenario";
 import type { ScenarioTemplate } from "@/shared/api";
 import { formatDateTime } from "@/shared/lib";
-import { LinkRow } from "@/shared/ui";
+import { LinkRow, StatusPill } from "@/shared/ui";
 import classes from "./template-card.module.scss";
 
 interface TemplateVersionsProps {
@@ -70,9 +72,9 @@ export function TemplateVersions({ entry, currentId, teacherId }: TemplateVersio
                   </Text>
                 </Table.Td>
                 <Table.Td>
-                  <Text size="sm" c={templateState(version) === "archived" ? "povDark2.6" : undefined}>
+                  <StatusPill tone={templateStateTones[templateState(version)]}>
                     {templateStateLabels[templateState(version)]}
-                  </Text>
+                  </StatusPill>
                 </Table.Td>
                 <Table.Td>
                   <Text size="sm" c={version.createdBy === teacherId ? undefined : "povDark2.6"}>
@@ -143,7 +145,7 @@ export function TemplateUsageTable({ usages, latestVersion }: TemplateUsageTable
                     </Anchor>
                   </Table.Td>
                   <Table.Td>
-                    <Text size="sm">{scenarioStatusLabels[usage.scenarioStatus]}</Text>
+                    <StatusPill tone={scenarioStatusTones[usage.scenarioStatus]}>{scenarioStatusLabels[usage.scenarioStatus]}</StatusPill>
                   </Table.Td>
                   <Table.Td>
                     <Text size="sm" c={usage.outdated ? "povDark2.6" : undefined}>

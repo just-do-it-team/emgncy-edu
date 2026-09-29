@@ -4,7 +4,10 @@
   height: calc(100dvh - var(--app-shell-header-height, 0px) - 2 * var(--mantine-spacing-md));
   min-height: 560px;
   background: var(--mantine-color-white);
-  border: 1px solid var(--mantine-color-povLine-6);
+  border: 1px solid var(--cov-card-border, var(--mantine-color-povLine-6));
+  border-radius: var(--cov-radius, 0);
+  box-shadow: var(--cov-shadow, none);
+  overflow: hidden;
 }
 
 .meta {

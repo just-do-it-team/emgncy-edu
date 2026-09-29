@@ -14,25 +14,18 @@ interface MissedServicesProps {
 
 export function MissedServices({ facts, serviceName }: MissedServicesProps) {
   const rows = missedServices(facts);
-  const checked = facts.some((attempt) => attempt.serviceChecks.length > 0);
-  const operators = facts.some((attempt) => attempt.role === "OPERATOR_112");
-  const unchecked = operators
-    ? "В эталонах звонков периода не задан список служб — сравнивать не с чем."
-    : "Службы оповещает оператор 112 — таких разобранных попыток в периоде нет.";
 
   return (
     <AnalyticsCard
       title="Какие службы забывают оповестить"
-      conclusion={checked ? servicesConclusion(rows, serviceName) : unchecked}
+      conclusion={servicesConclusion(rows, serviceName)}
       actions={null}
       legend="Строка — служба из эталона при этом типе происшествия: сколько раз её не оказалось в итоговой карточке оператора. Пропуск главной службы — критическая ошибка."
       wide={false}
     >
       {rows.length === 0 ? (
         <Text size="sm" c="povDark2.6">
-          {checked
-            ? "Все службы из эталона оповещены."
-            : "Блок заполнится, когда в эталоне звонка будет задан список служб и попытку оператора 112 разберёт сервер."}
+          Все службы из эталона оповещены.
         </Text>
       ) : (
         <Table.ScrollContainer minWidth={460} type="native">

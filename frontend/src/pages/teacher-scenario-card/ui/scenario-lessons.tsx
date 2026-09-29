@@ -12,10 +12,11 @@ import { Link } from "react-router-dom";
 import {
   AssignedCell,
   lessonStatusLabels,
+  lessonStatusTones,
   useTeacherLessons,
   WindowCell,
 } from "@/features/teacher-lessons";
-import { Button, LinkRow } from "@/shared/ui";
+import { Button, LinkRow, StatusPill } from "@/shared/ui";
 import classes from "./scenario-card.module.scss";
 
 interface ScenarioLessonsProps {
@@ -114,7 +115,7 @@ export function ScenarioLessons({
                     <WindowCell prefix="до" value={lesson.dueAt} />
                   </Table.Td>
                   <Table.Td>
-                    <Text size="sm">{lessonStatusLabels[lesson.status]}</Text>
+                    <StatusPill tone={lessonStatusTones[lesson.status]}>{lessonStatusLabels[lesson.status]}</StatusPill>
                   </Table.Td>
                 </LinkRow>
               ))}
