@@ -40,11 +40,19 @@ function session(
     rejected_actions: 1,
     last_activity_at: rest.completed_at ?? rest.started_at,
     participants: [participant],
+    expert_score: null,
+    expert_passed: null,
+    final_score: rest.score,
+    final_passed: rest.passed,
     ...rest,
   };
 }
 
-export const monitoringSessionsMock: TeacherMonitoringSessionDto[] = [
+const teacherAssessedSessionId = "7b9d1f3a-5c7e-4a9b-8d1f-3a5c7e9b1d42";
+
+const teacherAssessment = { expert_score: "85.71", expert_passed: true, final_score: "85.71", final_passed: true };
+
+const sessionsMock: TeacherMonitoringSessionDto[] = [
   session({
     session_id: "3e5a7c9b-1d3f-4b5a-8c7e-9f1b3d5a7c20",
     status: "RUNNING",
@@ -126,3 +134,7 @@ export const monitoringSessionsMock: TeacherMonitoringSessionDto[] = [
     },
   }),
 ];
+
+export const monitoringSessionsMock: TeacherMonitoringSessionDto[] = sessionsMock.map((item) =>
+  item.session_id === teacherAssessedSessionId ? { ...item, ...teacherAssessment } : item,
+);

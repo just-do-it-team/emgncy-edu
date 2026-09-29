@@ -47,7 +47,7 @@ export interface TrainingSessionDto {
   result: {
     cards: CardOutcomeDto[];
     incoming_calls: CallOutcomeDto[];
-    passing_score?: number;
+    passing_score?: string | null;
     abort_reason?: string | null;
   };
   expert_score: string | null;
@@ -268,7 +268,7 @@ export function toReviewSession(dto: TrainingSessionDto): ReviewSession {
     completedAt: dto.completed_at,
     score: decimal(dto.score),
     passed: dto.passed,
-    passingScore: dto.result.passing_score ?? null,
+    passingScore: decimal(dto.result.passing_score ?? null),
     abortReason: dto.result.abort_reason ?? null,
     expertAssessment:
       expertScore === null || dto.expert_passed === null

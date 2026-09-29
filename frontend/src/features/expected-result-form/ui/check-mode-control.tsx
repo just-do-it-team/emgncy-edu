@@ -1,4 +1,5 @@
 import { SegmentedControl, Stack, Text } from "@mantine/core";
+import classes from "./expected-form.module.scss";
 import type { CheckMode } from "@/entities/scenario";
 import type { ScenarioSourceType } from "@/shared/api";
 
@@ -24,10 +25,11 @@ export function CheckModeControl({ label, source, value, onChange }: CheckModeCo
   const disabled = unavailable[source];
 
   return (
-    <Stack gap={2}>
+    <Stack gap={2} className={classes.checkModeField}>
       <SegmentedControl
         size="xs"
         radius={2}
+        className={classes.checkModes}
         value={value}
         onChange={(next) => {
           if (next === "checked" || next === "not_checked" || next === "must_be_empty") onChange(next);

@@ -21,6 +21,7 @@ import {
   type OperatorCardDraft,
   type OperatorCardEntry,
 } from "../model/operator-cards";
+import { ReplyWaiting } from "./reply-waiting";
 import classes from "./workspace-page.module.scss";
 
 function formatCallDuration(seconds: number) {
@@ -355,9 +356,13 @@ export function IncomingCalls({
             <div className={classes.callControlMessage}>
               <Text size="sm" fw={600} className={classes.callStatus}>
                 <span className={classes.callStatusDot} aria-hidden="true" />
-                {callEnded || currentCall.status === "COMPLETED"
-                  ? "Разговор завершён"
-                  : callAudio.status}
+                {callEnded || currentCall.status === "COMPLETED" ? (
+                  "Разговор завершён"
+                ) : callAudio.awaitingReply ? (
+                  <ReplyWaiting />
+                ) : (
+                  callAudio.status
+                )}
               </Text>
               {callAudio.error && !callEnded && (
                 <Text size="xs" className={classes.callError} role="alert">

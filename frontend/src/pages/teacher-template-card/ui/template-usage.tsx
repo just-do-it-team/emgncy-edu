@@ -1,6 +1,12 @@
 import { Anchor, Paper, Stack, Table, Text, Title } from "@mantine/core";
 import { Link } from "react-router-dom";
-import { scenarioStatusLabels, type TemplateEntry, type TemplateUsage } from "@/entities/scenario";
+import {
+  scenarioStatusLabels,
+  templateState,
+  templateStateLabels,
+  type TemplateEntry,
+  type TemplateUsage,
+} from "@/entities/scenario";
 import type { ScenarioTemplate } from "@/shared/api";
 import { formatDateTime } from "@/shared/lib";
 import { LinkRow } from "@/shared/ui";
@@ -32,7 +38,7 @@ export function TemplateVersions({ entry, currentId, teacherId }: TemplateVersio
               <Table.Th>Версия</Table.Th>
               <Table.Th>Название</Table.Th>
               <Table.Th>Создана</Table.Th>
-              <Table.Th>Активна</Table.Th>
+              <Table.Th>Статус</Table.Th>
               <Table.Th>Автор</Table.Th>
             </Table.Tr>
           </Table.Thead>
@@ -64,13 +70,13 @@ export function TemplateVersions({ entry, currentId, teacherId }: TemplateVersio
                   </Text>
                 </Table.Td>
                 <Table.Td>
-                  <Text size="sm" c={version.isActive ? undefined : "povDark2.6"}>
-                    {version.isActive ? "да" : "нет"}
+                  <Text size="sm" c={templateState(version) === "archived" ? "povDark2.6" : undefined}>
+                    {templateStateLabels[templateState(version)]}
                   </Text>
                 </Table.Td>
                 <Table.Td>
                   <Text size="sm" c={version.createdBy === teacherId ? undefined : "povDark2.6"}>
-                    {version.createdBy === teacherId ? "Вы" : "Другой преподаватель"}
+                    {version.createdBy === teacherId ? "Вы" : (version.createdByName ?? "Другой преподаватель")}
                   </Text>
                 </Table.Td>
               </LinkRow>

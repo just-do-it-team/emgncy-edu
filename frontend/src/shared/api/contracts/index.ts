@@ -53,7 +53,16 @@ export type {
   TrainingSessionDto,
 } from "./expert-review";
 export { toGroup } from "./groups";
-export type { Group, GroupDto, GroupMemberDto, GroupStudent } from "./groups";
+export type {
+  Group,
+  GroupActivityDto,
+  GroupCreateDto,
+  GroupDto,
+  GroupMemberDto,
+  GroupMembersDto,
+  GroupRenameDto,
+  GroupStudent,
+} from "./groups";
 export type { EmergencyService, EmergencyServiceDto } from "./emergency-services";
 export { toTeacherStudent } from "./students";
 export type {
@@ -106,6 +115,16 @@ export type {
   TrainingScenarioDto,
 } from "./training-scenarios";
 export type {
+  CardTemplateUpdateDto,
+  DispatcherServiceCode,
+  IncomingCallTemplateUpdateDto,
+  TemplateContentUpdate,
+  TemplateGenerationCreateDto,
+  TemplateGenerationDto,
+  TemplateGenerationStatus,
+  TemplateUpdateRequest,
+} from "./template-generation";
+export type {
   LessonReviewDto,
   LessonReviewRequestDto,
   LessonReviewStudentNoteDto,
@@ -120,7 +139,7 @@ export { toTeacherAssignment } from "./assignments";
 export type {
   AssignmentBatchDto,
   AssignmentParticipantStatus,
-  GroupAssignmentCreateDto,
+  AssignmentCreateDto,
   LaunchPolicy,
   TeacherAssignment,
   TeacherAssignmentParticipant,
@@ -134,5 +153,7 @@ export type {
   ScenarioTemplate,
   ScenarioTemplateKind,
   TemplateCreateRequest,
+  TemplateReviewDecision,
+  TemplateStatus,
   TemplateVariant,
 } from "./scenario-templates";

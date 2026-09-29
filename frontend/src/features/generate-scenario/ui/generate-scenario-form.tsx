@@ -36,6 +36,7 @@ import {
   type GenerationFailure,
   type GenerationParams,
 } from "../model/generation-params";
+import { serviceWithCode } from "@/shared/config";
 
 const TICK_MS = 1000;
 const SECOND_MS = 1000;
@@ -80,7 +81,7 @@ export function GenerateScenarioForm({ teacherId, onGenerated }: GenerateScenari
   const params = form.values;
   const serviceOptions = [...(services.data?.values() ?? [])].map((service) => ({
     value: service.code,
-    label: `${service.code} ${service.name}`,
+    label: serviceWithCode(service.code, service.name),
   }));
   const typeOptions =
     params.group === null

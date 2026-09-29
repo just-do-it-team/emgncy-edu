@@ -15,6 +15,8 @@ export {
 export {
   useCreateTemplate,
   useDeactivateTemplate,
+  useFreshTemplates,
+  useRefreshTemplates,
   useScenarioTemplates,
   useTemplate,
   useTemplates,
@@ -53,13 +55,24 @@ export type { ResolvedRole, ScenarioRole } from "./model/scenario-role";
 export { triggerText } from "./model/trigger-text";
 export {
   activeUsages,
+  actualVersionOf,
   groupTemplates,
+  isAiDraft,
+  isTemplateUsable,
+  templateProblem,
+  templateProblemText,
+  templateAuthorLabel,
+  templateSourceLabel,
+  templateState,
+  templateStateLabels,
   templateUsages,
+  templateVariantHints,
   templateVariantLabels,
+  templateVariantOrder,
   upgradeCandidates,
   upgradeScenariosBody,
 } from "./model/template-library";
-export type { TemplateEntry, TemplateUpgradeBody, TemplateUsage } from "./model/template-library";
+export type { TemplateEntry, TemplateProblem, TemplateState, TemplateUpgradeBody, TemplateUsage } from "./model/template-library";
 export { emptyAddress, formatAddress } from "./model/address";
 export type { AddressDraft } from "./model/address";
 export {
@@ -86,10 +99,12 @@ export type {
   TemplateDraft,
 } from "./model/expected-draft";
 export {
+  AMBULANCE_SERVICE_CODE,
+  ambulanceStatusHint,
+  isStatusAllowedFor,
   nextStatuses,
   requiresComment,
 } from "./model/response-status";
-export { primaryServiceCode, restoredMainService, withMainService } from "./model/main-service";
 export { rerouteServices, serviceDiff } from "./model/services-diff";
 export { hasErrors, validateTemplateDraft } from "./model/template-validation";
 export type { DraftIssue } from "./model/template-validation";
@@ -100,6 +115,7 @@ export {
   emptyScenarioDraft,
   moveItem,
   nextItemKey,
+  removeItem,
   scenarioCreateBody,
   scenarioDraftFromDetail,
   scenarioDraftFromGenerated,
@@ -113,13 +129,35 @@ export type {
   ScenarioItemDraft,
   TriggerDraft,
 } from "./model/scenario-draft";
-export { eligiblePoolSize, itemLabel, validateScenarioDraft } from "./model/scenario-validation";
+export { eligiblePoolSize, itemLabel, scenarioServerIssue, validateScenarioDraft } from "./model/scenario-validation";
 export { triggerActions } from "./model/trigger-actions";
-export { estimateDurationSeconds } from "./model/duration";
+export { scenarioDurationSeconds } from "./model/scenario-duration";
+export { categoryOf, poolSizesAbove, proceduralPool, proceduralScenarioDraft } from "./model/procedural-scenario";
+export type { ProceduralSetup } from "./model/procedural-scenario";
 export { strictnessOf } from "./model/strictness";
 export type { ExpectedSource } from "./model/strictness";
-export { expectedPathOf, failureOf, forbiddenMessage, scenarioPathOf } from "./model/server-failure";
+export { expectedPathOf, failureOf, forbiddenMessage, knownServerMessage, scenarioPathOf } from "./model/server-failure";
 export type { LocMapper, ServerFailure } from "./model/server-failure";
 export { aiApprovalBlock, aiReviewProgress, withItemChecked } from "./model/ai-review";
 export type { AiReview, AiReviewProgress } from "./model/ai-review";
 export { loadAiReview, saveAiReview } from "./model/ai-review-storage";
+export {
+  draftUpdateRequest,
+  isReviewSection,
+  publishBlock,
+  reviewSectionLabels,
+  reviewSectionsOf,
+  sectionState,
+  sectionStateLabels,
+  templateReviewProgress,
+} from "./model/template-review";
+export type { ReviewSection, SectionState, TemplateReviewProgress } from "./model/template-review";
+export { CALL_ITEM_KEY, scenarioDraftFromTemplates } from "./model/generated-scenario";
+export {
+  isGenerationFinished,
+  usePendingGenerations,
+  useStartTemplateGeneration,
+  useTemplateGeneration,
+  useUpdateTemplate,
+} from "./api/use-template-generation";
+export { rememberedGenerations, rememberGeneration } from "./model/generation-storage";

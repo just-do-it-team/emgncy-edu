@@ -33,6 +33,7 @@ import {
 } from "@/entities/training";
 import viewerClasses from "./incident-viewer.module.scss";
 import classes from "./dds-services.module.scss";
+import { serviceDisplayName } from "@/shared/config";
 
 type Props = {
   ctx: LaunchContext;
@@ -177,7 +178,7 @@ function DdsService({
     latest?.status_code === service.current_status
       ? time(latest.occurred_at)
       : time(currentStatusTime);
-  const name = info?.name ?? "Служба";
+  const name = info ? serviceDisplayName(info.code, info.name) : "Служба";
 
   function startEditing() {
     setOpened(false);

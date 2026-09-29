@@ -68,6 +68,12 @@ function callOffsetMs(answeredAt: string | null, createdAt: string): number | nu
   return Number.isFinite(offset) ? offset : null;
 }
 
+/**
+ * Вторая ось разбора — ось аудиозаписи. Сервер склеивает запись из фрагментов реплик подряд,
+ * без пауз между ними, поэтому позиция реплики в записи — это сумма длительностей предыдущих.
+ * Если хоть у одной реплики нет длительности, позиции не вычислить и синхронизация плеера
+ * с журналом отключается.
+ */
 function recordingAxis(utterances: CallUtterance[]): RecordingAxis {
   const positions: RecordingPosition[] = [];
   let recordingOffsetMs = 0;
@@ -107,6 +113,11 @@ export function toCallTranscript(dto: CallTranscriptDto): CallTranscript {
   };
 }
 
+/**
+ * Проверяет ось записи против фактической длины аудиофайла. Расхождение больше допуска значит,
+ * что склейка на сервере не совпала с суммой длительностей реплик, — подсветка текущей реплики
+ * тогда была бы неверной, поэтому ось помечается недоступной.
+ */
 export function alignRecordingAxis(axis: RecordingAxis, recordingMs: number): RecordingAxis {
   if (axis.status !== "available") return axis;
   if (Math.abs(axis.totalMs - recordingMs) <= RECORDING_SYNC_TOLERANCE_MS) return axis;

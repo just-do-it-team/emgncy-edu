@@ -1,5 +1,6 @@
 import {
   api,
+  mayHaveBeenApplied,
   RequestError,
   toScenarioCopy,
   toScenarioDetail,
@@ -12,6 +13,7 @@ import {
   type TrainingScenarioCreateDto,
   type TrainingScenarioDetailDto,
   type TrainingScenarioDto,
+  type ScenarioStatus,
   type TrainingScenarioUpdateDto,
 } from "@/shared/api";
 import { CARD_API_URL, mocks } from "@/shared/config";
@@ -52,6 +54,41 @@ function copyName(name: string): string {
   return `${name.slice(0, MAX_NAME_LENGTH - COPY_SUFFIX.length)}${COPY_SUFFIX}`;
 }
 
+interface ScenarioStatusPatch {
+  expected_revision: number;
+  updated_by: string;
+  status: ScenarioStatus;
+}
+
+type ScenarioPatch = ScenarioStatusPatch | TrainingScenarioUpdateDto;
+
+/**
+ * PATCH сценария. Сервер применяет правку, но может ответить 500: ответ собирается уже после
+ * коммита и падает на чтении обновлённой отметки времени. Повтор такого запроса получил бы 409,
+ * поэтому при 5xx или потерянном ответе сценарий перечитывается: ревизия ровно на единицу выше
+ * ожидаемой, автор правки — этот пользователь и статус тот, что запрошен, — значит правка применена
+ * и дальше работаем с ревизией сервера.
+ */
+async function patchScenario(scenarioId: string, body: ScenarioPatch, status: ScenarioStatus): Promise<SavedScenario> {
+  const url = `${CARD_API_URL}/training-scenarios/${scenarioId}`;
+
+  try {
+    const { data } = await api.patch<TrainingScenarioDto>(url, body);
+
+    return { id: data.id, revision: data.revision };
+  } catch (error) {
+    if (!mayHaveBeenApplied(error)) throw error;
+
+    const { data } = await api.get<TrainingScenarioDto>(url);
+    const applied =
+      data.revision === body.expected_revision + 1 && data.updated_by === body.updated_by && data.status === status;
+
+    if (!applied) throw error;
+
+    return { id: data.id, revision: data.revision };
+  }
+}
+
 export async function fetchScenarios(signal?: AbortSignal): Promise<ScenarioListItem[]> {
   if (mocks.scenarios) return scenarioDetailMocks.map(toScenarioListItem);
 
@@ -88,11 +125,7 @@ export async function publishScenario({ scenarioId, revision, userId }: Scenario
     return;
   }
 
-  await api.patch(`${CARD_API_URL}/training-scenarios/${scenarioId}`, {
-    expected_revision: revision,
-    updated_by: userId,
-    status: "PUBLISHED",
-  });
+  await patchScenario(scenarioId, { expected_revision: revision, updated_by: userId, status: "PUBLISHED" }, "PUBLISHED");
 }
 
 export async function unpublishScenario({ scenarioId, revision, userId }: ScenarioRevisionRequest): Promise<void> {
@@ -115,11 +148,7 @@ export async function unpublishScenario({ scenarioId, revision, userId }: Scenar
     return;
   }
 
-  await api.patch(`${CARD_API_URL}/training-scenarios/${scenarioId}`, {
-    expected_revision: revision,
-    updated_by: userId,
-    status: "DRAFT",
-  });
+  await patchScenario(scenarioId, { expected_revision: revision, updated_by: userId, status: "DRAFT" }, "DRAFT");
 }
 
 export async function archiveScenario({ scenarioId, revision, userId }: ScenarioRevisionRequest): Promise<void> {
@@ -236,6 +265,7 @@ export async function createScenario(body: TrainingScenarioCreateDto): Promise<S
       id: crypto.randomUUID(),
       cards_count: cardsCount(body.definition),
       revision: 1,
+      created_by_name: null,
       updated_by: body.created_by,
       created_at: now,
       updated_at: now,
@@ -274,7 +304,5 @@ export async function updateScenario({ scenarioId, body }: ScenarioUpdateRequest
     return { id: scenario.id, revision: scenario.revision };
   }
 
-  const { data } = await api.patch<TrainingScenarioDto>(`${CARD_API_URL}/training-scenarios/${scenarioId}`, body);
-
-  return { id: data.id, revision: data.revision };
+  return patchScenario(scenarioId, body, "DRAFT");
 }

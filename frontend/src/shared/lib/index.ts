@@ -16,3 +16,24 @@ export {
 export { errorMessages, focusFormField, issueMessages } from "./form-issues";
 export type { FormIssue } from "./form-issues";
 export { useLeaveGuard } from "./use-leave-guard";
+export { knownWords, splitByMisspelled, spellingCandidates } from "./spelling/spelling-tokens";
+export type { SpellingToken, TextPart } from "./spelling/spelling-tokens";
+export { spellingKeys, useSpelling } from "./spelling/use-spelling";
+export { SPELLING_CAPTION } from "./spelling/spelling-caption";
+export { downloadCsv, toCsv } from "./csv";
+export {
+  downloadPdf,
+  PDF_NOTE_MARGIN,
+  pdfFacts,
+  pdfGrid,
+  pdfNote,
+  pdfNumber,
+  pdfSection,
+  pdfShareBar,
+  pdfSubheading,
+  pdfText,
+  pdfTitle,
+  reportDocument,
+  reportFileName,
+} from "./pdf-report";
+export type { PdfTextStyle, ReportPalette } from "./pdf-report";

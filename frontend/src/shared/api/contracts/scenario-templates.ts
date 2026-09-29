@@ -4,6 +4,10 @@ export type ScenarioTemplateKind = "card" | "call";
 
 export type TemplateVariant = "card112" | "cardDds" | "call";
 
+export type TemplateStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
+
+export type TemplateReviewDecision = "CONFIRMED" | "EDITED" | "REJECTED";
+
 export interface CardTemplateDto {
   id: string;
   template_key: string;
@@ -13,8 +17,13 @@ export interface CardTemplateDto {
   difficulty: number;
   initial_card: JsonObject;
   expected_result: JsonObject;
+  status: TemplateStatus;
+  generated_by_ai: boolean;
+  ai_review_state: Record<string, string> | null;
+  generation_id: string | null;
   is_active: boolean;
   created_by: string;
+  created_by_name: string | null;
   created_at: string;
 }
 
@@ -53,8 +62,13 @@ export interface ScenarioTemplate {
   name: string;
   description: string | null;
   difficulty: number;
+  status: TemplateStatus;
+  generatedByAi: boolean;
+  aiReviewState: Record<string, string> | null;
+  generationId: string | null;
   isActive: boolean;
   createdBy: string;
+  createdByName: string | null;
   createdAt: string;
   initialCard: JsonObject | null;
   initialCall: JsonObject | null;
@@ -103,8 +117,13 @@ export function toCardTemplate(dto: CardTemplateDto): ScenarioTemplate {
     name: dto.name,
     description: dto.description,
     difficulty: dto.difficulty,
+    status: dto.status,
+    generatedByAi: dto.generated_by_ai,
+    aiReviewState: dto.ai_review_state,
+    generationId: dto.generation_id,
     isActive: dto.is_active,
     createdBy: dto.created_by,
+    createdByName: dto.created_by_name,
     createdAt: dto.created_at,
     initialCard: dto.initial_card,
     initialCall: null,
@@ -124,8 +143,13 @@ export function toIncomingCallTemplate(dto: IncomingCallTemplateDto): ScenarioTe
     name: dto.name,
     description: dto.description,
     difficulty: dto.difficulty,
+    status: dto.status,
+    generatedByAi: dto.generated_by_ai,
+    aiReviewState: dto.ai_review_state,
+    generationId: dto.generation_id,
     isActive: dto.is_active,
     createdBy: dto.created_by,
+    createdByName: dto.created_by_name,
     createdAt: dto.created_at,
     initialCard: null,
     initialCall: dto.initial_call,

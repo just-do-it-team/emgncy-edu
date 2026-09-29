@@ -1,7 +1,7 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { fetchSessionActions, fetchTeacherSessions, monitoringKeys } from "@/entities/monitoring";
 import type { MonitoredSession, TrainingActionDto } from "@/shared/api";
-import { pollingDelay } from "../model/monitor";
+import { pollingDelay } from "@/entities/monitoring";
 
 const SESSIONS_POLL_MS = 5_000;
 const ACTIONS_POLL_MS = 10_000;

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Anchor, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import { formatClockTime } from "@/shared/lib";
 import { Button } from "@/shared/ui";
-import type { AlarmSeverity, MonitorAlarm } from "../model/monitor";
+import type { AlarmSeverity, MonitorAlarm } from "@/entities/monitoring";
 import classes from "./lesson-monitor.module.scss";
 
 const severityClass: Record<AlarmSeverity, string> = {

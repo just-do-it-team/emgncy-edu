@@ -8,9 +8,10 @@ import {
   Title,
   Tooltip,
 } from "@mantine/core";
+import { useMediaQuery } from "@mantine/hooks";
 import { LogOut, PanelLeftClose, PanelLeftOpen, UserRound } from "lucide-react";
-import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useSessionStore } from "@/entities/session";
+import { Link, Outlet, useLocation } from "react-router-dom";
+import { useSignOut } from "@/features/auth";
 import { ActionIcon, Spinner } from "@/shared/ui";
 import { matchRouteTitle, type NavItem } from "@/shared/config";
 import { useSidebarCollapsed } from "../model/sidebar";
@@ -25,6 +26,7 @@ interface AppShellProps {
 const HEADER_HEIGHT = 56;
 const SIDEBAR_WIDTH_EXPANDED = 240;
 const SIDEBAR_WIDTH_COLLAPSED = 56;
+const COMPACT_QUERY = "(max-width: 48em)";
 
 interface CollapsibleProps {
   collapsed: boolean;
@@ -73,15 +75,11 @@ function SidebarLink({
 
 export function AppShell({ items, roleLabel }: AppShellProps) {
   const { pathname } = useLocation();
-  const navigate = useNavigate();
-  const logout = useSessionStore((state) => state.logout);
-  const { collapsed, toggle } = useSidebarCollapsed();
+  const handleLogout = useSignOut();
+  const sidebar = useSidebarCollapsed();
+  const compact = useMediaQuery(COMPACT_QUERY) ?? false;
+  const collapsed = compact || sidebar.collapsed;
   const activeTitle = matchRouteTitle(pathname);
-
-  const handleLogout = () => {
-    logout();
-    navigate("/login", { replace: true });
-  };
 
   return (
     <MantineAppShell
@@ -105,14 +103,16 @@ export function AppShell({ items, roleLabel }: AppShellProps) {
 
       <MantineAppShell.Navbar bg="povLight.6">
         <div className={classes.navbarInner}>
-          <Group justify={collapsed ? "center" : "flex-end"} p={4}>
-            <ActionIcon
-              onClick={toggle}
-              aria-label={collapsed ? "Развернуть меню" : "Свернуть меню"}
-            >
-              {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-            </ActionIcon>
-          </Group>
+          {!compact && (
+            <Group justify={collapsed ? "center" : "flex-end"} p={4}>
+              <ActionIcon
+                onClick={sidebar.toggle}
+                aria-label={collapsed ? "Развернуть меню" : "Свернуть меню"}
+              >
+                {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+              </ActionIcon>
+            </Group>
+          )}
 
           {items.map((item) => (
             <SidebarLink

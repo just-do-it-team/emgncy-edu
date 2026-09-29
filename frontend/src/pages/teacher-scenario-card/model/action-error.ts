@@ -1,4 +1,4 @@
-import { forbiddenMessage } from "@/entities/scenario";
+import { forbiddenMessage, knownServerMessage } from "@/entities/scenario";
 import { errorDetail, errorStatus } from "@/shared/api";
 
 const FORBIDDEN = 403;
@@ -69,7 +69,9 @@ export function scenarioActionError(error: unknown, itemLabels: string[]): Scena
     return { kind: "validation", issues: detail.filter(isValidationIssue).map((issue) => issueText(issue, itemLabels)) };
   }
   if (typeof detail === "string" && detail.trim()) {
-    return status === VALIDATION ? { kind: "validation", issues: [detail] } : { kind: "other", message: detail };
+    const text = knownServerMessage(detail) ?? detail;
+
+    return status === VALIDATION ? { kind: "validation", issues: [text] } : { kind: "other", message: text };
   }
 
   return { kind: "other", message: "Сервер не выполнил действие. Повторите попытку позже." };

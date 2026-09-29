@@ -1,14 +1,14 @@
-import { useRef, useState } from "react";
-import { SegmentedControl, Skeleton } from "@mantine/core";
+import { useState, type RefObject } from "react";
+import { SegmentedControl, Skeleton, Tooltip } from "@mantine/core";
 import type { UseQueryResult } from "@tanstack/react-query";
-import { Pause, Play } from "lucide-react";
+import { Info, Pause, Play } from "lucide-react";
 import {
   recordingErrorKind,
   recordingErrorMessages,
   useCallRecordingAudio,
 } from "@/entities/call-recording";
 import type { CallRecording } from "@/shared/api";
-import { ActionIcon } from "@/shared/ui";
+import { ActionIcon, tooltipEvents } from "@/shared/ui";
 import { formatOffset } from "../model/replay";
 import classes from "./session-review.module.scss";
 
@@ -18,14 +18,14 @@ const playbackRates = [
 ];
 
 interface ReadyPlayerProps {
+  audioRef: RefObject<HTMLAudioElement>;
   callId: string;
   durationMs: number;
   syncNotice: string | null;
   onPlaybackChange: (ms: number | null) => void;
 }
 
-function ReadyPlayer({ callId, durationMs, syncNotice, onPlaybackChange }: ReadyPlayerProps) {
-  const audioRef = useRef<HTMLAudioElement>(null);
+function ReadyPlayer({ audioRef, callId, durationMs, syncNotice, onPlaybackChange }: ReadyPlayerProps) {
   const [playing, setPlaying] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const [rate, setRate] = useState("1");
@@ -96,19 +96,33 @@ function ReadyPlayer({ callId, durationMs, syncNotice, onPlaybackChange }: Ready
         data={playbackRates}
         aria-label="Скорость воспроизведения"
       />
-      {syncNotice && <span className={classes.playerHint}>{syncNotice}</span>}
+      {syncNotice && (
+        <Tooltip
+          label={`Точная привязка реплик к записи недоступна для этой попытки. ${syncNotice}`}
+          events={tooltipEvents}
+          multiline
+          w={300}
+          color="povDark.6"
+          radius={0}
+        >
+          <span className={classes.syncInfo} tabIndex={0} aria-label="Точная привязка реплик к записи недоступна для этой попытки">
+            <Info size={14} aria-hidden="true" />
+          </span>
+        </Tooltip>
+      )}
     </>
   );
 }
 
 interface RecordingPlayerProps {
+  audioRef: RefObject<HTMLAudioElement>;
   callId: string;
   recording: UseQueryResult<CallRecording, Error>;
   syncNotice: string | null;
   onPlaybackChange: (ms: number | null) => void;
 }
 
-export function RecordingPlayer({ callId, recording, syncNotice, onPlaybackChange }: RecordingPlayerProps) {
+export function RecordingPlayer({ audioRef, callId, recording, syncNotice, onPlaybackChange }: RecordingPlayerProps) {
   if (recording.isPending) {
     return (
       <div className={classes.player}>
@@ -133,6 +147,7 @@ export function RecordingPlayer({ callId, recording, syncNotice, onPlaybackChang
     <div className={classes.player}>
       {data.status === "READY" && (
         <ReadyPlayer
+          audioRef={audioRef}
           callId={callId}
           durationMs={data.durationMs}
           syncNotice={syncNotice}

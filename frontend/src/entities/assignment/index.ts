@@ -1,4 +1,4 @@
-export { createGroupAssignment, fetchAssignments } from "./api/assignment-api";
+export { createDirectAssignment, createGroupAssignment, fetchAssignments } from "./api/assignment-api";
 export { assignmentKeys } from "./api/assignment.keys";
 export type { AssignmentFilters } from "./api/assignment.keys";
 export { useAssignments, useCancelLesson, useRescheduleLesson } from "./api/use-assignments";

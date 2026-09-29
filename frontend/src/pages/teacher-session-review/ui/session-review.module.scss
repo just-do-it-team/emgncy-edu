@@ -54,26 +54,33 @@
 
 .body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 432px;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    "timeline timeline"
+    "findings dialog";
   flex: 1;
   min-height: 0;
 }
 
-.leftColumn {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  border-right: 1px solid var(--mantine-color-povLine-6);
-}
-
-.rightColumn {
+.findingsColumn {
+  grid-area: findings;
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
+  border-right: 1px solid var(--mantine-color-povLine-6);
+}
+
+.dialogColumn {
+  display: flex;
+  flex-direction: column;
+  grid-area: dialog;
+  min-width: 0;
+  min-height: 0;
 }
 
 .timeline {
+  grid-area: timeline;
   flex: none;
   padding: 6px 12px;
   border-bottom: 1px solid var(--mantine-color-povLine-6);
@@ -203,10 +210,61 @@
 
 .item {
   display: grid;
-  grid-template-columns: 52px 96px minmax(0, 1fr);
+  grid-template-columns: 52px minmax(0, 1fr);
   column-gap: 10px;
   padding: 6px 12px;
-  border-bottom: 1px solid var(--mantine-color-povLine-6);
+}
+
+.item:has(.bubble) {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.itemOwn:has(.bubble) {
+  justify-content: flex-end;
+}
+
+.bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 85%;
+  padding: 6px 10px;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+  border: 1px solid var(--mantine-color-povLine-6);
+  border-radius: 2px;
+}
+
+button.bubble {
+  cursor: pointer;
+}
+
+button.bubble:focus-visible {
+  outline: 2px solid var(--mantine-color-povDark-6);
+  outline-offset: 1px;
+}
+
+.bubbleOther {
+  background: var(--mantine-color-povLight-6);
+}
+
+.bubbleOwn {
+  background: var(--pov-section);
+}
+
+button.bubbleOther:hover,
+button.bubbleOwn:hover {
+  border-color: var(--mantine-color-povDark2-6);
+}
+
+.bubbleMeta {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 14px;
+  letter-spacing: 0.04em;
+  color: var(--mantine-color-povDark2-6);
 }
 
 .itemActive {
@@ -250,7 +308,6 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-  grid-column: 2 / 4;
   min-width: 0;
   padding-left: 10px;
   border-left: 1px solid var(--mantine-color-povDark2-6);
@@ -313,8 +370,9 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  height: 26px;
-  padding: 0 10px;
+  min-height: 26px;
+  padding: 3px 10px;
+  line-height: 18px;
   font-size: 13px;
   border-bottom: 1px solid var(--mantine-color-povLine-6);
 }
@@ -332,6 +390,67 @@
   padding: 6px 10px 2px;
   font-size: 12px;
   font-weight: 500;
+}
+
+.groupBar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 18px;
+  background: var(--pov-section);
+  border-left: 3px solid transparent;
+}
+
+.groupSelected .groupBar {
+  border-left-color: var(--mantine-color-povDark-6);
+}
+
+.verdict {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.verdictRow {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.verdictValue {
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.assessment {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border-bottom: 1px solid var(--mantine-color-povLine-6);
+  border-left: 3px solid var(--mantine-color-povDark2-6);
+}
+
+.assessmentPending {
+  border-left-color: var(--mantine-color-povOrange-6);
+}
+
+.assessmentTitle {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.assessmentHint {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--mantine-color-povDark2-6);
 }
 
 .finding {
@@ -434,12 +553,13 @@ button.finding:focus-visible {
 .player {
   display: flex;
   align-items: center;
-  gap: 14px;
+  flex-wrap: wrap;
+  gap: 8px 14px;
   flex: none;
   min-height: 44px;
   padding: 6px 12px;
   background: var(--mantine-color-povLight2-6);
-  border-top: 1px solid var(--mantine-color-povLine-6);
+  border-bottom: 1px solid var(--mantine-color-povLine-6);
 }
 
 .playerTime {
@@ -489,4 +609,57 @@ button.finding:focus-visible {
 
 .findingGroup .finding {
   border-bottom: 0;
+}
+
+@media (max-width: 48em) {
+  .screen {
+    height: auto;
+  }
+
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "findings"
+      "timeline"
+      "dialog";
+  }
+
+  .findingsColumn {
+    border-right: 0;
+  }
+
+  .summarySwitch {
+    max-width: 100%;
+    margin-left: 0;
+    overflow-x: auto;
+  }
+
+  .verdictRow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+}
+
+.spellingText {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.misspelled {
+  background: transparent;
+  color: inherit;
+  text-decoration: underline wavy var(--mantine-color-povDark-6);
+  text-underline-offset: 3px;
+}
+
+.syncInfo {
+  display: inline-flex;
+  align-items: center;
+  color: var(--mantine-color-povDark2-6);
+  cursor: help;
+}
+
+.syncInfo:focus-visible {
+  outline: 2px solid var(--mantine-color-povDark-6);
+  outline-offset: 2px;
 }

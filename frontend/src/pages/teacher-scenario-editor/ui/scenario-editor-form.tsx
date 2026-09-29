@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Alert, Group, Modal, Stack, Text, Title, Tooltip } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { notifications } from "@mantine/notifications";
@@ -6,16 +6,18 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   aiApprovalBlock,
   aiReviewProgress,
-  estimateDurationSeconds,
   groupTemplates,
   hasErrors,
   itemLabel,
   saveAiReview,
   scenarioCreateBody,
+  scenarioDurationSeconds,
   scenarioPathOf,
+  scenarioServerIssue,
   scenarioUpdateBody,
   useCreateScenario,
   usePublishScenario,
+  useRefreshTemplates,
   useUpdateScenario,
   validateScenarioDraft,
   withItemChecked,
@@ -30,8 +32,7 @@ import {
   serverFailure,
   useActiveServices,
 } from "@/features/expected-result-form";
-import type { ScenarioTemplate } from "@/shared/api";
-import { CARD_OPEN_NORM_SECONDS, FIRST_ENTRY_NORM_SECONDS, PROCEDURAL_PACE_BY_DIFFICULTY } from "@/shared/config";
+import { errorDetail, type ScenarioTemplate } from "@/shared/api";
 import { errorMessages, focusFormField, formatDateTime, useLeaveGuard } from "@/shared/lib";
 import { Button, IssuesList, LeaveConfirmModal, tooltipEvents } from "@/shared/ui";
 import { useServiceNames } from "@/widgets/expected-result-view";
@@ -60,16 +61,6 @@ interface ScenarioEditorFormProps {
   onReload: () => void;
 }
 
-function durationOf(draft: ScenarioDraft): number {
-  const pace = PROCEDURAL_PACE_BY_DIFFICULTY.get(draft.difficulty);
-
-  return estimateDurationSeconds(draft, {
-    cardReactionSeconds: CARD_OPEN_NORM_SECONDS + FIRST_ENTRY_NORM_SECONDS,
-    proceduralInitialDelaySeconds: pace?.initialDelaySeconds ?? 0,
-    proceduralIntervalSeconds: pace?.releaseIntervalSeconds ?? 0,
-  });
-}
-
 export function ScenarioEditorForm({
   initial,
   aiReview,
@@ -86,7 +77,10 @@ export function ScenarioEditorForm({
   const create = useCreateScenario();
   const update = useUpdateScenario();
   const publish = usePublishScenario();
-  const [baseRevision] = useState(target?.revision ?? null);
+  const refreshTemplates = useRefreshTemplates();
+  const [checking, setChecking] = useState(false);
+  const revision = useRef(target?.revision ?? null);
+  const saving = useRef(false);
   const [issues, setIssues] = useState<DraftIssue[] | null>(null);
   const [conflict, setConflict] = useState(false);
   const [confirmPublish, setConfirmPublish] = useState(false);
@@ -95,14 +89,24 @@ export function ScenarioEditorForm({
   const form = useForm<ScenarioDraft>({ initialValues: initial });
   const guard = useLeaveGuard(form.isDirty() && !saved);
   const draft = form.values;
-  const templatesById = new Map(templates.map((template) => [template.id, template]));
-  const entries = groupTemplates(templates);
-  const cardTemplates = templates.filter((template) => template.kind === "card");
   const activeServices = services.data ? new Set(services.data.map((service) => service.code)) : null;
-  const context = { recordExists, activeServices, templates: templatesById, cardTemplates };
+  const contextOf = (list: ScenarioTemplate[]) => ({
+    recordExists,
+    activeServices,
+    templates: new Map(list.map((template) => [template.id, template])),
+    cardTemplates: list.filter((template) => template.kind === "card"),
+  });
+  const context = contextOf(templates);
+  const { templates: templatesById, cardTemplates } = context;
+  const entries = groupTemplates(templates);
   const liveIssues = issues === null ? null : validateScenarioDraft(draft, context);
-  const durationSeconds = durationOf(draft);
-  const busy = create.isPending || update.isPending || publish.isPending;
+  const durationSeconds = scenarioDurationSeconds(draft);
+  const busy = checking || create.isPending || update.isPending || publish.isPending;
+  const itemIssueOf = (error: unknown) => {
+    const detail = errorDetail(error);
+
+    return typeof detail === "string" ? scenarioServerIssue(detail, draft.items, templatesById) : null;
+  };
   const itemKeys = draft.items.map((item) => item.key);
   const labelOf = (key: string) => itemLabel(draft.items, itemKeys.indexOf(key));
   const approvalBlock = aiApprovalBlock(review, itemKeys, labelOf);
@@ -142,15 +146,18 @@ export function ScenarioEditorForm({
         onSuccess: () => finish(scenario, "Сценарий сохранён и утверждён"),
         onError: (error) => {
           const failure = serverFailure(error, scenarioPathOf);
+          const itemIssue = itemIssueOf(error);
 
           setSaved(true);
           if (review !== null) saveAiReview(scenario.id, review);
           notifications.show({
             title: "Черновик сохранён, но не утверждён",
             message:
-              failure.kind === "validation"
-                ? failure.issues.map((issue) => issue.message).join(" ")
-                : failure.message,
+              itemIssue !== null
+                ? itemIssue.message
+                : failure.kind === "validation"
+                  ? failure.issues.map((issue) => issue.message).join(" ")
+                  : failure.message,
             color: "orange",
           });
           navigate(`${SCENARIOS_PATH}/${scenario.id}`);
@@ -166,7 +173,10 @@ export function ScenarioEditorForm({
       return;
     }
     if (failure.kind === "validation") {
-      report([...found.filter((issue) => issue.severity === "warning"), ...failure.issues]);
+      const itemIssue = itemIssueOf(error);
+
+      report([...found.filter((issue) => issue.severity === "warning"), ...(itemIssue ? [itemIssue] : failure.issues)]);
+      if (itemIssue) void refreshTemplates();
       return;
     }
     if (failure.kind === "forbidden") {
@@ -178,12 +188,21 @@ export function ScenarioEditorForm({
     notifications.show({ title: "Сценарий не сохранён", message: failure.message, color: "red" });
   };
 
-  const save = (andPublish: boolean) => {
+  const save = async (andPublish: boolean) => {
     if (andPublish && approvalBlock !== null) return;
+    // Кнопка блокируется только после перерисовки, а проверка шаблонов асинхронная: без флага второй
+    // клик успевает отправить тот же PATCH с той же ревизией и получает 409.
+    if (saving.current) return;
+    saving.current = true;
 
-    const found = validateScenarioDraft(draft, context);
+    setChecking(true);
+    const fresh = await refreshTemplates().catch(() => templates);
+    setChecking(false);
+
+    const found = validateScenarioDraft(draft, contextOf(fresh));
 
     if (hasErrors(found)) {
+      saving.current = false;
       report(found);
       return;
     }
@@ -191,11 +210,18 @@ export function ScenarioEditorForm({
     setIssues(found);
     form.clearErrors();
 
-    const onSuccess = (scenario: SavedScenario) =>
-      andPublish ? publishSaved(scenario) : finish(scenario, target === null ? "Сценарий создан" : "Черновик сохранён");
-    const onError = (error: unknown) => fail(error, found);
+    const onSuccess = (scenario: SavedScenario) => {
+      revision.current = scenario.revision;
+      saving.current = false;
+      if (andPublish) publishSaved(scenario);
+      else finish(scenario, target === null ? "Сценарий создан" : "Черновик сохранён");
+    };
+    const onError = (error: unknown) => {
+      saving.current = false;
+      fail(error, found);
+    };
 
-    if (target === null || baseRevision === null) {
+    if (target === null || revision.current === null) {
       create.mutate(scenarioCreateBody(draft, classificationFor, durationSeconds, userId), { onSuccess, onError });
       return;
     }
@@ -203,7 +229,7 @@ export function ScenarioEditorForm({
     update.mutate(
       {
         scenarioId: target.scenarioId,
-        body: scenarioUpdateBody(draft, classificationFor, durationSeconds, userId, baseRevision),
+        body: scenarioUpdateBody(draft, classificationFor, durationSeconds, userId, revision.current),
       },
       { onSuccess, onError },
     );
@@ -289,7 +315,7 @@ export function ScenarioEditorForm({
             Сохранить и утвердить
           </Button>
         </Tooltip>
-        <Button size="sm" loading={busy} onClick={() => save(false)}>
+        <Button size="sm" loading={busy} onClick={() => void save(false)}>
           Сохранить черновик
         </Button>
       </Group>
@@ -315,7 +341,7 @@ export function ScenarioEditorForm({
               size="sm"
               onClick={() => {
                 setConfirmPublish(false);
-                save(true);
+                void save(true);
               }}
             >
               Утвердить

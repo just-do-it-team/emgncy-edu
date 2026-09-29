@@ -69,7 +69,7 @@ function OccurrenceRow({
         </span>
       </div>
       <div>
-        <span className={classes.occurrenceLabel}>получено</span>
+        <span className={classes.occurrenceLabel}>указано</span>
         <span className={classes.occurrenceValue}>
           {discrepancyValue(occurrence.path, occurrence.actual)}
         </span>
@@ -254,7 +254,7 @@ export function LessonFindings({ state, interrupted, withoutAttempts, services }
                 <Table.Tr>
                   <Table.Th>Поле</Table.Th>
                   <Table.Th>Ожидалось</Table.Th>
-                  <Table.Th>Получено</Table.Th>
+                  <Table.Th>Указано</Table.Th>
                   <Table.Th w={130}>Обучаемых</Table.Th>
                   <Table.Th w={140} />
                 </Table.Tr>

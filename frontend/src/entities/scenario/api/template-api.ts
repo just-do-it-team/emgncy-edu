@@ -10,7 +10,7 @@ import {
   type TemplateCreateRequest,
 } from "@/shared/api";
 import { CARD_API_URL, mocks } from "@/shared/config";
-import type { TemplateUpgradeBody } from "../model/template-library";
+import { isTemplateUsable, type TemplateUpgradeBody } from "../model/template-library";
 import { cardTemplateMocks, incomingCallTemplateMocks, scenarioDetailMocks } from "./scenario.mocks";
 
 const NOT_FOUND = 404;
@@ -88,8 +88,13 @@ export async function createTemplate(request: TemplateCreateRequest): Promise<Sc
       description: request.body.description,
       difficulty: request.body.difficulty,
       expected_result: request.body.expected_result,
+      status: "PUBLISHED" as const,
+      generated_by_ai: false,
+      ai_review_state: null,
+      generation_id: null,
       is_active: true,
       created_by: request.body.created_by,
+      created_by_name: null,
       created_at: new Date().toISOString(),
     };
 
@@ -128,12 +133,14 @@ export async function deactivateTemplate({ kind, templateId, userId }: TemplateD
 
     if (used) throw new RequestError(CONFLICT, "Template is referenced by an active training scenario");
 
-    const list: { id: string; is_active: boolean }[] = kind === "call" ? incomingCallTemplateMocks : cardTemplateMocks;
+    const list: { id: string; is_active: boolean; status: string }[] =
+      kind === "call" ? incomingCallTemplateMocks : cardTemplateMocks;
     const found = list.find((item) => item.id === templateId);
 
     if (!found) throw new RequestError(NOT_FOUND, "Шаблон не найден");
 
     found.is_active = false;
+    found.status = "ARCHIVED";
     return;
   }
 
@@ -150,7 +157,7 @@ function mockUpgrade({ templateId, body }: TemplateUpgradeRequest): string[] {
   const templates = mockTemplates();
   const target = templates.find((item) => item.id === templateId);
 
-  if (!target || !target.isActive) throw new RequestError(NOT_FOUND, "Active template not found");
+  if (!target || !isTemplateUsable(target)) throw new RequestError(NOT_FOUND, "Active template not found");
 
   const sameKey = new Set(
     templates.filter((item) => item.kind === target.kind && item.templateKey === target.templateKey).map((item) => item.id),

@@ -1,8 +1,11 @@
 import { useState } from "react";
-import { Group, List, Modal, NumberInput, SegmentedControl, Stack, Text, Textarea, Tooltip } from "@mantine/core";
+import { Anchor, Group, List, Modal, NumberInput, SegmentedControl, Stack, Text, Textarea, Tooltip } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { notifications } from "@mantine/notifications";
+import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { useUpdateExpertAssessment } from "@/entities/expert-review";
+import { monitoringKeys, nextPendingAttempt, useTeacherSessions } from "@/entities/monitoring";
 import { errorStatus, type ReviewSession } from "@/shared/api";
 import { formatDateTime } from "@/shared/lib";
 import { Button, tooltipEvents } from "@/shared/ui";
@@ -23,6 +26,7 @@ const VALIDATION = 422;
 const PASSED = "passed";
 const FAILED = "failed";
 const ABORTED_HINT = "Прерванную попытку оценить нельзя: сервер принимает оценку только у завершённой";
+const NO_AUTOMATIC_HINT = "Автоматическая оценка не рассчитана — подтверждать нечего, выставьте оценку через «Исправить»";
 
 function failureText(error: unknown): string {
   const status = errorStatus(error);
@@ -37,15 +41,19 @@ function passedText(passed: boolean | null): string {
   return passed === null ? "—" : passed ? "зачтено" : "не зачтено";
 }
 
-interface ExpertAssessmentCellProps {
+interface ExpertAssessmentBlockProps {
   session: ReviewSession;
   teacherId: string;
   aborted: boolean;
   dismissed: string[];
 }
 
-export function ExpertAssessmentCell({ session, teacherId, aborted, dismissed }: ExpertAssessmentCellProps) {
+export function ExpertAssessmentBlock({ session, teacherId, aborted, dismissed }: ExpertAssessmentBlockProps) {
   const update = useUpdateExpertAssessment(session.id, teacherId);
+  const queryClient = useQueryClient();
+  const sessions = useTeacherSessions(teacherId, "ANY");
+  const current = sessions.data?.find((candidate) => candidate.sessionId === session.id);
+  const next = current === undefined ? null : nextPendingAttempt(sessions.data ?? [], current);
   const [opened, setOpened] = useState(false);
   const saved = session.expertAssessment;
   const automatic = { score: session.score, passed: session.passed };
@@ -72,21 +80,36 @@ export function ExpertAssessmentCell({ session, teacherId, aborted, dismissed }:
     setOpened(true);
   };
 
-  const submit = form.onSubmit((values) =>
-    update.mutate(assessmentBody(values, dismissed), {
+  const save = (values: AssessmentValues, withDismissed: string[], message: string) =>
+    update.mutate(assessmentBody(values, withDismissed), {
       onSuccess: () => {
         setOpened(false);
-        notifications.show({ title: "Оценка сохранена", message: "Итог попытки — по оценке преподавателя", color: "gray" });
+        void queryClient.invalidateQueries({ queryKey: monitoringKeys.lists() });
+        notifications.show({ title: "Оценка сохранена", message, color: "gray" });
       },
       onError: (error) => notifications.show({ title: "Оценка не сохранена", message: failureText(error), color: "red" }),
-    }),
-  );
+    });
+
+  const submit = form.onSubmit((values) => save(values, dismissed, "Итог попытки — по оценке преподавателя"));
+
+  const confirmAutomatic = () => {
+    if (automatic.score === null || automatic.passed === null) return;
+
+    save({ score: automatic.score, passed: automatic.passed, comment: "" }, [], "Автоматическая оценка подтверждена");
+  };
+  const confirmBlock = aborted ? ABORTED_HINT : automatic.score === null || automatic.passed === null ? NO_AUTOMATIC_HINT : null;
 
   return (
     <>
-      <div className={classes.cell}>
-        <span className={classes.cellLabel}>Оценка преподавателя</span>
-        <Group gap={8} wrap="nowrap">
+      <div className={`${classes.assessment} ${saved ? "" : classes.assessmentPending}`}>
+        <span className={classes.assessmentTitle}>
+          {saved ? "Оценка преподавателя" : "Проверьте оценку системы: подтвердите или исправьте"}
+        </span>
+        <span className={classes.assessmentHint}>
+          Автоматическая оценка:{" "}
+          {session.score === null ? "не рассчитана" : `${scoreFormatter.format(session.score)}, ${passedText(session.passed)}`}
+        </span>
+        <Group gap={8} wrap="wrap">
           {saved ? (
             <Tooltip
               label={[`Оценил: ${savedLine}`, saved.comment ?? "Без комментария"].join("\n")}
@@ -101,12 +124,26 @@ export function ExpertAssessmentCell({ session, teacherId, aborted, dismissed }:
                 {`${scoreFormatter.format(saved.score)}, ${passedText(saved.passed)}`}
               </span>
             </Tooltip>
-          ) : (
-            <span className={classes.cellValue}>нет</span>
+          ) : null}
+          {!saved && (
+            <Tooltip label={confirmBlock} disabled={confirmBlock === null} events={tooltipEvents} multiline w={260} color="povDark.6" radius={0}>
+              <Button
+                size="xs"
+                loading={update.isPending && !opened}
+                data-disabled={confirmBlock !== null || undefined}
+                aria-disabled={confirmBlock !== null}
+                onClick={(event) => {
+                  if (confirmBlock !== null) event.preventDefault();
+                  else confirmAutomatic();
+                }}
+              >
+                Верно — подтвердить
+              </Button>
+            </Tooltip>
           )}
           <Tooltip label={ABORTED_HINT} disabled={!aborted} events={tooltipEvents} multiline w={260} color="povDark.6" radius={0}>
             <Button
-              size="compact-xs"
+              size="xs"
               variant="outline"
               color="povDark2.6"
               data-disabled={aborted || undefined}
@@ -116,9 +153,21 @@ export function ExpertAssessmentCell({ session, teacherId, aborted, dismissed }:
                 else open();
               }}
             >
-              {saved ? "Изменить" : "Оценить"}
+              {saved ? "Изменить" : "Исправить"}
             </Button>
           </Tooltip>
+          {saved &&
+            (next ? (
+              <Anchor component={Link} to={`/teacher/attempts/${next.sessionId}/review`} size="xs" c="povDark2.6" underline="always">
+                Следующая на проверке →
+              </Anchor>
+            ) : (
+              current !== undefined && (
+                <Text size="xs" c="povDark2.6">
+                  Все попытки занятия проверены
+                </Text>
+              )
+            ))}
         </Group>
       </div>
 

@@ -34,8 +34,23 @@ export {
   serviceLabel,
 } from "./model/discrepancy-labels";
 export {
+  cardTitle,
+  expectedReportText,
+  findingGroups,
+  OUTBOUND_CALL_PATH,
+  outboundVerdict,
+  outboundVerdictLines,
+  outboundVerdictRows,
+  readableDiscrepancies,
+} from "./model/readable-findings";
+export type { ClassifierEntry, ClassifierNames, FindingGroup, FindingSource, OutboundVerdict, VerdictRow } from "./model/readable-findings";
+export {
   actionTypeLabel,
   callStageLabels,
   outgoingCallStageLabels,
   sessionStageLabels,
 } from "./model/action-type-labels";
+export { referenceTexts, typedTexts } from "./model/typed-texts";
+export type { TypedText } from "./model/typed-texts";
+export { misspellingCount, spellingFields, spellingWords } from "./model/attempt-spelling";
+export type { SpellingField } from "./model/attempt-spelling";

@@ -1,4 +1,11 @@
-import { buildReviewBreakdown, reviewCriterionCodes, roleCriteria } from "@/entities/expert-review";
+import {
+  buildReviewBreakdown,
+  readableDiscrepancies,
+  reviewCriterionCodes,
+  roleCriteria,
+  type ClassifierNames,
+} from "@/entities/expert-review";
+import { classifierRecordById, routingFlagLabel } from "@/entities/incident";
 import { COMPLETED_SESSION_STATUS } from "@/entities/monitoring";
 import type {
   Discrepancy,
@@ -91,6 +98,8 @@ function roleOf(session: MonitoredSession): ParticipantRole | null {
   return roles.size === 1 && role !== undefined ? role : null;
 }
 
+const classifierNames: ClassifierNames = { recordOf: classifierRecordById, flagLabel: routingFlagLabel };
+
 function elementsOf(context: ExpertReviewContext): ReviewedElement[] {
   const calls = [...context.incomingCalls]
     .sort(
@@ -102,13 +111,13 @@ function elementsOf(context: ExpertReviewContext): ReviewedElement[] {
       key: `call:${call.trainingCallId}`,
       label: `Звонок ${index + 1}`,
       incidentCardId: call.incidentCardId,
-      discrepancies: call.automaticResult?.discrepancies ?? [],
+      discrepancies: readableDiscrepancies(call.automaticResult?.discrepancies ?? [], classifierNames),
     }));
   const cards = context.cards.map((card, index) => ({
     key: `card:${card.scenarioCardKey}`,
     label: `Карточка ${index + 1}`,
     incidentCardId: card.incidentCardId,
-    discrepancies: card.automaticResult?.discrepancies ?? [],
+    discrepancies: readableDiscrepancies(card.automaticResult?.discrepancies ?? [], classifierNames),
   }));
 
   return [...calls, ...cards];

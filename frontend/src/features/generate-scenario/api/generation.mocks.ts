@@ -5,9 +5,7 @@ import {
   emptyCardFields,
   emptyExpected,
   emptyScenarioDraft,
-  primaryServiceCode,
   scenarioCreateBody,
-  withMainService,
   workspaceDefaults,
   type AddressDraft,
   type ScenarioDraft,
@@ -82,7 +80,7 @@ function servicesFor(record: ClassifierRecord, positions: (string | null)[]): st
   const routed = resolveServices(record, {}).map((service) => service.code).filter((code) => code !== "");
   const dispatchers = positions.filter((position): position is string => position !== null);
 
-  return [...new Set([...withMainService(routed, primaryServiceCode(record.primaryService)), ...dispatchers])].filter(
+  return [...new Set([...routed, ...dispatchers])].filter(
     (code) => MOCK_SERVICE_CODES.has(code),
   );
 }

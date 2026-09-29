@@ -5,6 +5,7 @@ import {
   Alert,
   Badge,
   Button,
+  Drawer,
   Group,
   Loader,
   Modal,
@@ -20,8 +21,9 @@ import {
   useQueries,
 } from "@tanstack/react-query";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
-import { CircleHelp, Lightbulb } from "lucide-react";
+import { BookOpen, CircleHelp, Lightbulb } from "lucide-react";
 import { useSessionStore } from "@/entities/session";
+import { ArmMemo } from "@/widgets/arm-memo";
 import { WorkspaceHeader } from "@/widgets/workspace-header";
 import {
   apiError,
@@ -180,6 +182,7 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
   const [opening, setOpening] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [finishOpen, setFinishOpen] = useState(false);
+  const [memoOpen, setMemoOpen] = useState(false);
   const [callBusy, setCallBusy] = useState(false);
   const [callDraft, setCallDraft] = useState<OperatorCardEntry | null>(null);
   const [cardOpen, setCardOpen] = useState(false);
@@ -266,6 +269,13 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
   const selectedCardItem = visibleCards.find(
     (card) => card.card_id === selectedId,
   );
+  const tabIncident =
+    selectedCardItem?.card_number ?? (cardOpen ? callDraft?.incident.id : undefined) ?? null;
+
+  useEffect(() => {
+    document.title = tabIncident === null ? "АРМ-112 — Тренажёр Системы-112" : `Происшествие ${tabIncident} — АРМ-112`;
+  }, [tabIncident]);
+
   const selectedSummary =
     ctx.mode === "DDS" && selectedCardItem
       ? listIncident(
@@ -689,6 +699,28 @@ function LiveWorkspace({ ctx }: { ctx: LaunchContext }) {
                 <CircleHelp size={22} />
               </Button>
             </Tooltip>
+            <Tooltip {...headerTooltipProps} label="Справка: памятка «Работа на АРМ-112». Открывается поверх рабочего места, попытка продолжается.">
+              <Button
+                className={classes.onboardingButton}
+                variant="subtle"
+                color="povBlue"
+                size="compact-md"
+                aria-label="Открыть справку по АРМ-112"
+                onClick={() => setMemoOpen(true)}
+              >
+                <BookOpen size={22} />
+              </Button>
+            </Tooltip>
+            <Drawer
+              opened={memoOpen}
+              onClose={() => setMemoOpen(false)}
+              position="right"
+              size="xl"
+              title="Справка: работа на АРМ-112"
+              transitionProps={{ duration: 0 }}
+            >
+              <ArmMemo />
+            </Drawer>
           </Group>
         </Group>
         {ctx.mode !== "DDS" && activeCardSyncState?.message && (

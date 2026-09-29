@@ -1,7 +1,7 @@
 import { MultiSelect, NumberInput, Paper, SegmentedControl, Stack, Switch, Text, Title } from "@mantine/core";
 import type { UseFormReturnType } from "@mantine/form";
 import { classifierRecords } from "@/entities/incident";
-import { eligiblePoolSize, type PoolKind, type ScenarioDraft } from "@/entities/scenario";
+import { eligiblePoolSize, isTemplateUsable, type PoolKind, type ScenarioDraft } from "@/entities/scenario";
 import type { ScenarioTemplate } from "@/shared/api";
 import { PROCEDURAL_PACE_BY_DIFFICULTY } from "@/shared/config";
 
@@ -40,7 +40,7 @@ export function ProceduralEditor({ form, cardTemplates }: ProceduralEditorProps)
   const eligible = eligiblePoolSize(draft, cardTemplates);
   const pace = paceText(draft.difficulty);
   const templateOptions = cardTemplates
-    .filter((template) => template.isActive && template.recordId !== null)
+    .filter((template) => isTemplateUsable(template) && template.recordId !== null)
     .map((template) => ({ value: template.id, label: `${template.name}, версия ${template.version}` }))
     .sort((first, second) => first.label.localeCompare(second.label, "ru"));
 

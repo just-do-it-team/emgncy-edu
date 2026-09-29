@@ -3,3 +3,11 @@ body,
 #root {
   min-height: 100%;
 }
+
+@media (max-width: 48em) {
+  .mantine-Table-table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}

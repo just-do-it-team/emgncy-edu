@@ -102,6 +102,12 @@ export function offsetFrom(originAt: string, at: string): number {
   return Date.parse(at) - Date.parse(originAt);
 }
 
+/**
+ * Сколько миллисекунд речи прошло до момента, которым сервер пометил реплику.
+ * Голосовую реплику оператора сервер записывает по окончании загрузки аудио, то есть
+ * после того как фраза уже произнесена; её начало — раньше на длительность фразы.
+ * Реплики заявителя и текстовый ввод помечены началом, сдвига нет.
+ */
 function speechBeforeUploadMs(utterance: CallUtterance): number {
   const uploadedAfterSpeech = utterance.speaker === "OPERATOR" && utterance.inputMode === "VOICE";
 
@@ -121,6 +127,19 @@ export const utteranceStartNotes: Record<UtteranceStartNote, { label: string; hi
   },
 };
 
+/**
+ * Сводит реплики разговора и действия обучаемого в один журнал на оси «от начала элемента».
+ *
+ * Ось журнала строится по серверным временам (`created_at`, `occurred_at`) — это не ось
+ * аудиозаписи: запись склеена из фрагментов подряд, без пауз (см. `recordingAxis`).
+ * Поэтому курсор журнала и позиция плеера синхронизируются только через идентификатор
+ * реплики, а не через миллисекунды.
+ *
+ * Начало голосовой реплики оператора восстанавливается вычитанием её длительности. Если
+ * оценка уходит левее ответа на звонок, реплика прижимается к нулю и помечается
+ * `estimate_clamped`; если левее нуля уже само серверное время — это расхождение данных
+ * сервера, пометка `before_answer`.
+ */
 export function buildStream(
   originAt: string,
   utterances: CallUtterance[],
@@ -157,6 +176,11 @@ export function buildStream(
   return items.sort((first, second) => first.offsetMs - second.offsetMs);
 }
 
+/**
+ * Шкала журнала: от самого раннего события (может быть до ответа на звонок) до позднего из
+ * конца последнего события и завершения попытки, но не короче трёх минут — чтобы короткие
+ * элементы не растягивались на всю ширину.
+ */
 export function buildAxis(items: StreamItem[], completedOffsetMs: number | null): TimelineAxis {
   const ends = items.map((item) =>
     item.kind === "utterance" ? item.offsetMs + (item.spanMs ?? 0) : item.offsetMs,
@@ -203,6 +227,12 @@ function serviceCodeOf(
   return serviceId === null ? null : (services?.get(serviceId)?.code ?? null);
 }
 
+/**
+ * Связывает путь расхождения сервера (`card.services`, `service_status_history.104.2.status`,
+ * `service_handling.101.open_deadline` …) с видом действия в журнале, которое могло его вызвать.
+ * Службы в действиях приходят идентификатором, а в путях — кодом, поэтому сравнение идёт
+ * через справочник служб.
+ */
 function matchesPath(
   event: ActionEvent,
   path: string,
@@ -241,6 +271,10 @@ function matchesPath(
   return false;
 }
 
+/**
+ * Действие, к которому ведёт клик по расхождению: последнее подходящее по пути, потому что
+ * итоговое значение поля определило именно последнее изменение.
+ */
 export function actionForPath(
   path: string,
   items: StreamItem[],

@@ -1,19 +1,13 @@
-import { useEffect, useState } from "react";
-import { Alert, Anchor, Group, Paper, Skeleton, Stack, Text, Title } from "@mantine/core";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Alert, Anchor, Group, Paper, SegmentedControl, Skeleton, Stack, Text, Title } from "@mantine/core";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useAssignments } from "@/entities/assignment";
 import { useEmergencyServices } from "@/entities/emergency-service";
 import { useSessionStore } from "@/entities/session";
 import { useStudentNames } from "@/entities/student";
 import { buildLessons, lessonStatusLabels, type Lesson } from "@/features/teacher-lessons";
 import type { EmergencyService, MonitoredSession, TrainingActionDto } from "@/shared/api";
-import {
-  CARD_OPEN_NORM_SECONDS,
-  FIRST_ENTRY_NORM_SECONDS,
-  IDLE_ALERT_MINUTES,
-  REACTION_NORMS_TEXT,
-  TIMER_WARNING_RATIO,
-} from "@/shared/config";
+import { REACTION_NORMS_TEXT } from "@/shared/config";
 import { formatClockTime, formatDayMonthTime } from "@/shared/lib";
 import { Button, Fact } from "@/shared/ui";
 import { useLiveActions, useLiveSessions } from "../api/use-live-monitor";
@@ -23,27 +17,50 @@ import {
   byProblem,
   latestSessionOf,
   monitorCounts,
+  monitorNorms,
   participantRow,
+  serviceIdOf,
   type MonitorCounts,
-  type MonitorNorms,
   type MonitorParticipant,
   type ParticipantRow,
-} from "../model/monitor";
+} from "@/entities/monitoring";
 import { AlarmFeed } from "./alarm-feed";
+import { ParticipantTiles } from "./participant-tiles";
 import { ParticipantsTable } from "./participants-table";
 import classes from "./lesson-monitor.module.scss";
 
 const CLOCK_STEP_MS = 1000;
-const SECOND_MS = 1000;
-const MINUTE_MS = 60 * SECOND_MS;
 const SHARED_WORKSPACE = "SHARED";
+const VIEW_PARAM = "view";
+const TILES_VIEW = "tiles";
+const FEED_VIEW = "feed";
 
-const norms: MonitorNorms = {
-  openMs: CARD_OPEN_NORM_SECONDS * SECOND_MS,
-  firstEntryMs: FIRST_ENTRY_NORM_SECONDS * SECOND_MS,
-  idleMs: IDLE_ALERT_MINUTES * MINUTE_MS,
-  warningRatio: TIMER_WARNING_RATIO,
-};
+const viewOptions = [
+  { value: FEED_VIEW, label: "Лента" },
+  { value: TILES_VIEW, label: "Плитки" },
+];
+
+/** Полноэкранный режим через Fullscreen API: выход по Esc обрабатывает браузер, состояние читается из события. */
+function useFullscreen() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [active, setActive] = useState(false);
+
+  useEffect(() => {
+    const sync = () => setActive(document.fullscreenElement !== null && document.fullscreenElement === ref.current);
+
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
+  return {
+    ref,
+    active,
+    supported: document.fullscreenEnabled,
+    enter: () => void ref.current?.requestFullscreen().catch(() => undefined),
+  };
+}
+
+const norms = monitorNorms;
 
 function useNow(): number {
   const [now, setNow] = useState(() => Date.now());
@@ -76,12 +93,6 @@ function lessonParticipants(lesson: Lesson, names: Map<string, string> | undefin
   }
 
   return [...byUser.values()];
-}
-
-function serviceIdOf(positionCode: string | null, services: Map<string, EmergencyService> | undefined): string | null {
-  if (positionCode === null || services === undefined) return null;
-
-  return [...services.entries()].find(([, service]) => service.code === positionCode)?.[0] ?? null;
 }
 
 function buildRows(
@@ -244,6 +255,9 @@ function MonitorBody({ lesson, teacherId, updatedAt, sessionsFailed }: MonitorBo
   const [seen, setSeen] = useState<ReadonlySet<string>>(new Set());
   const [expanded, setExpanded] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = searchParams.get(VIEW_PARAM) === TILES_VIEW ? TILES_VIEW : FEED_VIEW;
+  const fullscreen = useFullscreen();
 
   const participants = lessonParticipants(lesson, students.data);
   const latest = new Map(participants.map((item) => [item.userId, latestSessionOf(item.userId, lesson.sessions)]));
@@ -257,6 +271,7 @@ function MonitorBody({ lesson, teacherId, updatedAt, sessionsFailed }: MonitorBo
   const actions = useLiveActions(watched);
   const rows = buildRows(participants, latest, actions.bySession, services.data, now);
   const counts = monitorCounts(rows);
+  const lateNow = rows.filter((row) => row.status === "running" && row.timer?.level === "overdue").length;
   const alarms = alarmFeed(rows);
   const names = new Map(rows.map((row) => [row.userId, row.name]));
   const sharedAssignments = new Set(
@@ -286,30 +301,86 @@ function MonitorBody({ lesson, teacherId, updatedAt, sessionsFailed }: MonitorBo
 
       <LessonNotice lesson={lesson} counts={counts} now={now} />
 
-      <div className={classes.layout}>
-        <AlarmFeed
-          alarms={alarms}
-          names={names}
-          seen={seen}
-          onSeen={(alarmId) => setSeen((current) => new Set(current).add(alarmId))}
-          onOpen={openRow}
+      <Group justify="space-between" gap="sm" wrap="wrap">
+        <SegmentedControl
+          size="xs"
+          radius={2}
+          color="povDark2.6"
+          data={viewOptions}
+          value={view}
+          aria-label="Вид монитора"
+          onChange={(value) =>
+            setSearchParams(
+              (current) => {
+                const next = new URLSearchParams(current);
+
+                if (value === TILES_VIEW) next.set(VIEW_PARAM, TILES_VIEW);
+                else next.delete(VIEW_PARAM);
+                return next;
+              },
+              { replace: true },
+            )
+          }
         />
-        <ParticipantsTable
-          rows={rows}
-          now={now}
-          teacherId={teacherId}
-          sharedSessions={sharedSessions}
-          names={names}
-          services={services.data}
-          actionsBySession={actions.bySession}
-          expanded={expanded}
-          highlighted={highlighted}
-          onToggle={(userId) => {
-            setHighlighted(null);
-            setExpanded((current) => (current === userId ? null : userId));
-          }}
-        />
+        {fullscreen.supported && (
+          <Button size="xs" variant="outline" color="povDark2.6" onClick={fullscreen.enter}>
+            Режим проектора
+          </Button>
+        )}
+      </Group>
+
+      <div ref={fullscreen.ref} className={fullscreen.active ? classes.projector : undefined} hidden={!fullscreen.active}>
+        {fullscreen.active && (
+          <Stack gap="md">
+            <Group justify="space-between" wrap="wrap" gap="md">
+              <Title order={2} size="h3" fw={600}>
+                {lesson.scenarioName}
+              </Title>
+              <Text fw={700} className={classes.lateNow}>
+                Опаздывают сейчас: {lateNow}
+              </Text>
+              <Text size="sm" c="povDark2.6">
+                Выход — Esc
+              </Text>
+            </Group>
+            <ParticipantTiles rows={rows} services={services.data} />
+          </Stack>
+        )}
       </div>
+
+      {view === TILES_VIEW ? (
+        <Stack gap="sm">
+          <Text fw={600} className={classes.lateNow} role="status">
+            Опаздывают сейчас: {lateNow}
+          </Text>
+          <ParticipantTiles rows={rows} services={services.data} />
+        </Stack>
+      ) : (
+        <div className={classes.layout}>
+          <AlarmFeed
+            alarms={alarms}
+            names={names}
+            seen={seen}
+            onSeen={(alarmId) => setSeen((current) => new Set(current).add(alarmId))}
+            onOpen={openRow}
+          />
+          <ParticipantsTable
+            rows={rows}
+            now={now}
+            teacherId={teacherId}
+            sharedSessions={sharedSessions}
+            names={names}
+            services={services.data}
+            actionsBySession={actions.bySession}
+            expanded={expanded}
+            highlighted={highlighted}
+            onToggle={(userId) => {
+              setHighlighted(null);
+              setExpanded((current) => (current === userId ? null : userId));
+            }}
+          />
+        </div>
+      )}
     </Stack>
   );
 }

@@ -1,8 +1,11 @@
 import { Alert, Anchor, Skeleton, Stack, Text } from "@mantine/core";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useMatch, useParams, useSearchParams } from "react-router-dom";
 import {
   emptyTemplateDraft,
   groupTemplates,
+  isAiDraft,
+  isReviewSection,
+  reviewSectionsOf,
   templateDraftFromTemplate,
   useTemplate,
   useTemplates,
@@ -10,10 +13,12 @@ import {
 } from "@/entities/scenario";
 import { useSessionStore } from "@/entities/session";
 import type { ScenarioTemplateKind, TemplateVariant } from "@/shared/api";
+import { safeReturnPath } from "@/shared/config";
 import { Button } from "@/shared/ui";
 import { TemplateEditorForm } from "./template-editor-form";
 
 const TEMPLATES_PATH = "/teacher/scenarios/templates";
+const DRAFT_EDIT_PATTERN = `${TEMPLATES_PATH}/:kind/:templateId/edit`;
 const COPY_SUFFIX = " (копия)";
 
 function isVariant(value: string | null): value is TemplateVariant {
@@ -55,6 +60,7 @@ function CopyEditor({ source, userId }: { source: { kind: ScenarioTemplateKind; 
     <TemplateEditorForm
       initial={draft}
       target={{ templateKey: null, version: 1, previousVersion: null }}
+      draftOf={null}
       userId={userId}
       cancelPath={`${TEMPLATES_PATH}/${source.kind}/${source.templateId}`}
     />
@@ -90,6 +96,19 @@ function NewVersionEditor({ kind, templateId, userId }: { kind: ScenarioTemplate
     );
   }
 
+  if (isAiDraft(template.data)) {
+    return (
+      <Alert variant="outline" color="povDark2.6" title="Черновик ИИ правится на месте">
+        <Stack gap="xs" align="flex-start">
+          <Text size="sm">Новая версия создаётся от опубликованного шаблона. Черновик исправьте и опубликуйте.</Text>
+          <Anchor component={Link} to={`${cardPath}/edit`} size="sm" c="povDark2.6" underline="always">
+            Исправить черновик
+          </Anchor>
+        </Stack>
+      </Alert>
+    );
+  }
+
   const entry = groupTemplates(templates.data).find(
     (candidate) => candidate.latest.kind === kind && candidate.templateKey === template.data.templateKey,
   );
@@ -99,8 +118,54 @@ function NewVersionEditor({ kind, templateId, userId }: { kind: ScenarioTemplate
     <TemplateEditorForm
       initial={templateDraftFromTemplate(template.data)}
       target={{ templateKey: template.data.templateKey, version: latestVersion + 1, previousVersion: latestVersion }}
+      draftOf={null}
       userId={userId}
       cancelPath={cardPath}
+    />
+  );
+}
+
+interface DraftEditorProps {
+  kind: ScenarioTemplateKind;
+  templateId: string;
+  userId: string;
+  sectionsParam: string | null;
+  returnPath: string | null;
+}
+
+function DraftEditor({ kind, templateId, userId, sectionsParam, returnPath }: DraftEditorProps) {
+  const template = useTemplate({ kind, templateId });
+
+  if (template.isPending) return <Skeleton height={320} radius={2} />;
+  if (template.isError) return <LoadError onRetry={() => template.refetch()} />;
+
+  const cardPath = `${TEMPLATES_PATH}/${kind}/${templateId}`;
+
+  if (template.data.createdBy !== userId || !isAiDraft(template.data)) {
+    return (
+      <Alert variant="outline" color="povDark2.6" title="Черновик не редактируется">
+        <Stack gap="xs" align="flex-start">
+          <Text size="sm">
+            На месте правится только свой черновик ИИ. Опубликованный шаблон меняется новой версией, чужой — через копию.
+          </Text>
+          <Anchor component={Link} to={cardPath} size="sm" c="povDark2.6" underline="always">
+            Открыть карточку шаблона
+          </Anchor>
+        </Stack>
+      </Alert>
+    );
+  }
+
+  const allowed = new Set(reviewSectionsOf(template.data));
+  const sections = (sectionsParam ?? "").split(",").filter(isReviewSection).filter((section) => allowed.has(section));
+
+  return (
+    <TemplateEditorForm
+      initial={templateDraftFromTemplate(template.data)}
+      target={{ templateKey: template.data.templateKey, version: template.data.version, previousVersion: null }}
+      draftOf={{ template: template.data, sections, returnPath }}
+      userId={userId}
+      cancelPath={returnPath ?? cardPath}
     />
   );
 }
@@ -109,8 +174,26 @@ const TeacherTemplateEditorPage = () => {
   const { kind, templateId } = useParams();
   const [searchParams] = useSearchParams();
   const userId = useSessionStore((state) => state.profile?.userId ?? null);
+  const draftEdit = useMatch(DRAFT_EDIT_PATTERN) !== null;
 
   if (userId === null) return null;
+
+  if (templateId !== undefined && draftEdit) {
+    return isKind(kind) ? (
+      <DraftEditor
+        key={templateId}
+        kind={kind}
+        templateId={templateId}
+        userId={userId}
+        sectionsParam={searchParams.get("sections")}
+        returnPath={safeReturnPath(searchParams.get("returnTo"), "teacher")}
+      />
+    ) : (
+      <Alert variant="outline" color="povDark2.6" title="Шаблон не найден">
+        <Text size="sm">Адрес шаблона неверный.</Text>
+      </Alert>
+    );
+  }
 
   if (templateId !== undefined) {
     return isKind(kind) ? (
@@ -134,6 +217,7 @@ const TeacherTemplateEditorPage = () => {
       key={variant}
       initial={emptyTemplateDraft(variant)}
       target={{ templateKey: null, version: 1, previousVersion: null }}
+      draftOf={null}
       userId={userId}
       cancelPath={TEMPLATES_PATH}
     />

@@ -29,6 +29,11 @@ export function roleFromPositions(positions: ParticipantPosition[]): ScenarioRol
   return null;
 }
 
+/**
+ * Роль сценария для списков и назначения. Если преподаватель задал обязательные позиции, роль
+ * берётся из них; иначе выводится по составу (звонки — оператор 112, карточки и процедурная
+ * подача — ДДС) и помечается как выведенная, чтобы интерфейс мог это подписать.
+ */
 export function resolvedScenarioRole(
   requiredPositions: ParticipantPosition[] | null,
   composition: ScenarioComposition,
@@ -45,6 +50,11 @@ export interface PositionSuggestionInput {
   minParticipants: number;
 }
 
+/**
+ * Предлагаемые обязательные позиции: оператор 112 при наличии звонков и главные службы карточек,
+ * но не больше минимального числа участников — иначе сценарий нельзя будет назначить маленькой
+ * группе.
+ */
 export function suggestedPositions({
   workspaceMode,
   hasCalls,

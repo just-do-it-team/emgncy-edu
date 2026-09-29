@@ -53,7 +53,7 @@ export function apiError(error: unknown): string {
         "Занятие завершено или рабочее место неактивно. Обновите состояние занятия.",
       "Training session is not running":
         "Занятие уже не активно. Обновите его состояние.",
-      "Only an active incoming call can be linked to a card":
+      "Only an answered incoming call can be linked to a card":
         "Привязать карточку можно только к принятому звонку.",
       "Only a card created by the answering student can be linked":
         "Выберите карточку, созданную вами в этом занятии.",
@@ -63,8 +63,6 @@ export function apiError(error: unknown): string {
         "К звонку уже привязана другая карточка. Обновите данные занятия.",
       "Incident card is already linked to another incoming call":
         "Эта карточка уже привязана к другому звонку.",
-      "Create and link an incident card before completing the call":
-        "Перед завершением звонка создайте и привяжите карточку.",
       "Actor role is not allowed for this workspace operation":
         "Эта операция недоступна обучаемому на бэкенде.",
     };

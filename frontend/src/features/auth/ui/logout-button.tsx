@@ -1,24 +1,12 @@
-import { useNavigate } from "react-router-dom";
 import { MdDirectionsRun } from "react-icons/md";
-import { useSessionStore } from "@/entities/session";
 import { ActionIcon } from "@/shared/ui";
+import { useSignOut } from "../model/use-sign-out";
 
 export function LogoutButton({ className }: { className?: string }) {
-  const logout = useSessionStore((state) => state.logout);
-  const navigate = useNavigate();
-
-  const handleLogout = () => {
-    logout();
-    navigate("/login", { replace: true });
-  };
+  const signOut = useSignOut();
 
   return (
-    <ActionIcon
-      className={className}
-      aria-label="Выйти из профиля"
-      title="Выйти из профиля"
-      onClick={handleLogout}
-    >
+    <ActionIcon className={className} aria-label="Выйти из профиля" title="Выйти из профиля" onClick={signOut}>
       <MdDirectionsRun size={14} aria-hidden="true" />
     </ActionIcon>
   );

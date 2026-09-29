@@ -1,4 +1,4 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryOptions, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ScenarioTemplateKind } from "@/shared/api";
 import { scenarioKeys } from "./scenario.keys";
 import {
@@ -28,8 +28,8 @@ function templateQuery({ kind, templateId }: TemplateReference) {
   };
 }
 
-export function useTemplates() {
-  return useQuery({
+function templateListQuery() {
+  return queryOptions({
     queryKey: scenarioKeys.templateList(),
     queryFn: ({ signal }) => fetchTemplates(signal),
     staleTime: STALE_MS,
@@ -37,6 +37,25 @@ export function useTemplates() {
     retry: false,
     meta: { showGlobalError: false },
   });
+}
+
+export function useTemplates() {
+  return useQuery(templateListQuery());
+}
+
+/**
+ * Список для выбора шаблонов в состав: перезапрашивается при каждом открытии. Шаблоны выпускают
+ * и деактивируют вне этой вкладки, и из кэша можно предложить версию, которую сервер уже не примет.
+ */
+export function useFreshTemplates() {
+  return useQuery({ ...templateListQuery(), refetchOnMount: "always" });
+}
+
+/** Свежий список шаблонов перед сохранением сценария: проверка состава идёт по актуальным данным. */
+export function useRefreshTemplates() {
+  const queryClient = useQueryClient();
+
+  return () => queryClient.fetchQuery({ ...templateListQuery(), staleTime: 0 });
 }
 
 export function useTemplate(reference: TemplateReference) {

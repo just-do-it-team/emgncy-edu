@@ -3,7 +3,7 @@ import {
   RequestError,
   toTeacherAssignment,
   type AssignmentBatchDto,
-  type GroupAssignmentCreateDto,
+  type AssignmentCreateDto,
   type ScenarioAssignmentDto,
   type ScenarioWorkspaceMode,
   type TeacherAssignment,
@@ -28,10 +28,22 @@ export async function fetchAssignments(
   return data.map(toTeacherAssignment);
 }
 
+interface AssignedScenario {
+  name: string;
+  revision: number;
+  passingScore: number;
+  workspaceMode: ScenarioWorkspaceMode;
+}
+
 export interface GroupAssignmentRequest {
   group: { id: string; name: string };
-  body: GroupAssignmentCreateDto;
-  scenario: { name: string; revision: number; passingScore: number; workspaceMode: ScenarioWorkspaceMode };
+  body: AssignmentCreateDto;
+  scenario: AssignedScenario;
+}
+
+export interface DirectAssignmentRequest {
+  body: AssignmentCreateDto;
+  scenario: AssignedScenario;
 }
 
 export interface CreatedBatch {
@@ -41,16 +53,18 @@ export interface CreatedBatch {
 
 const VALIDATION = 422;
 
-function mockBatch({ group, body, scenario }: GroupAssignmentRequest): CreatedBatch {
-  const participantSets =
-    scenario.workspaceMode === "INDIVIDUAL" ? body.participant_ids.map((id) => [id]) : [body.participant_ids];
+function mockAssignments(
+  body: AssignmentCreateDto,
+  scenario: AssignedScenario,
+  batch: { id: string; group: { id: string; name: string } } | null,
+  participantSets: string[][],
+): ScenarioAssignmentDto[] {
   const positions = body.participant_ids.map((id) => body.participant_positions[id] ?? null).filter(Boolean);
 
   if (new Set(positions).size !== positions.length) {
     throw new RequestError(VALIDATION, "Only one participant may occupy each DDS position");
   }
 
-  const batchId = crypto.randomUUID();
   const createdAt = new Date().toISOString();
   const span = assignmentWindow(body.available_from, body.due_at, Date.parse(createdAt));
   const created = participantSets.map(
@@ -60,9 +74,9 @@ function mockBatch({ group, body, scenario }: GroupAssignmentRequest): CreatedBa
       scenario_name: scenario.name,
       scenario_revision: scenario.revision,
       passing_score: scenario.passingScore.toFixed(2),
-      assignment_batch_id: batchId,
-      group_id: group.id,
-      group_name: group.name,
+      assignment_batch_id: batch?.id ?? null,
+      group_id: batch?.group.id ?? null,
+      group_name: batch?.group.name ?? null,
       assigned_by: body.assigned_by,
       workspace_mode: scenario.workspaceMode,
       launch_policy: body.launch_policy,
@@ -88,6 +102,15 @@ function mockBatch({ group, body, scenario }: GroupAssignmentRequest): CreatedBa
 
   assignmentMocks.push(...created);
 
+  return created;
+}
+
+function mockBatch({ group, body, scenario }: GroupAssignmentRequest): CreatedBatch {
+  const participantSets =
+    scenario.workspaceMode === "INDIVIDUAL" ? body.participant_ids.map((id) => [id]) : [body.participant_ids];
+  const batchId = crypto.randomUUID();
+  const created = mockAssignments(body, scenario, { id: batchId, group }, participantSets);
+
   return { batchId, assignmentIds: created.map((assignment) => assignment.id) };
 }
 
@@ -100,6 +123,19 @@ export async function createGroupAssignment(request: GroupAssignmentRequest): Pr
   );
 
   return { batchId: data.id, assignmentIds: data.assignments.map((assignment) => assignment.id) };
+}
+
+/** Назначение без группы: сервер создаёт одно занятие без партии, перенос и отмена идут по его идентификатору. */
+export async function createDirectAssignment({ body, scenario }: DirectAssignmentRequest): Promise<string> {
+  if (mocks.assignments) {
+    const [created] = mockAssignments(body, scenario, null, [body.participant_ids]);
+
+    return created?.id ?? "";
+  }
+
+  const { data } = await api.post<ScenarioAssignmentDto>(`${CARD_API_URL}/scenario-assignments`, body);
+
+  return data.id;
 }
 
 export interface RescheduleRequest {

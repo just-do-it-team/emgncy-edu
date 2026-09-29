@@ -24,6 +24,11 @@ const LoginPage = () => {
             hd-112@mos.ru
           </a>
         </div>
+
+        <div className={classes.support}>
+          <div>Образовательная платформа · by&nbsp;Just&nbsp;Do&nbsp;It</div>
+          <div>Тренажёр оператора 112 и диспетчера ДДС</div>
+        </div>
       </section>
     </div>
   );

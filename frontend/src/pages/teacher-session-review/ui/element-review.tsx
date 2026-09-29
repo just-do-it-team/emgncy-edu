@@ -6,7 +6,6 @@ import { useCallTranscript } from "@/entities/call-transcript";
 import {
   alignRecordingAxis,
   type ActionEvent,
-  type AutomaticResult,
   type EmergencyService,
   type RecordingAxis,
   type ReviewCall,
@@ -25,8 +24,12 @@ import {
 import { CallStream } from "./call-stream";
 import { CallTimeline } from "./call-timeline";
 import { RecordingPlayer } from "./recording-player";
-import { ReviewFindings, type FindingDismissal, type RoleState } from "./review-findings";
 import classes from "./session-review.module.scss";
+
+export interface FindingLocator {
+  locate: (path: string) => StreamItem | null;
+  show: (item: StreamItem) => void;
+}
 
 interface LayoutProps {
   originAt: string;
@@ -37,14 +40,11 @@ interface LayoutProps {
   emptyText: string;
   timelineCaption: string | null;
   activeId: string | null;
-  result: AutomaticResult | null;
-  roleState: RoleState;
   services: Map<string, EmergencyService> | undefined;
   player: ReactNode;
   focusPath: string | null;
-  scopeNote: string | null;
-  limitedNote: string | null;
-  dismissal: FindingDismissal | null;
+  findings: (locator: FindingLocator) => ReactNode;
+  onUtterance: ((item: StreamItem) => void) | null;
 }
 
 function ElementLayout({
@@ -56,14 +56,11 @@ function ElementLayout({
   emptyText,
   timelineCaption,
   activeId,
-  result,
-  roleState,
   services,
   player,
   focusPath,
-  scopeNote,
-  limitedNote,
-  dismissal,
+  findings,
+  onUtterance,
 }: LayoutProps) {
   const [manualCursorMs, setCursorMs] = useState<number | null>(null);
   const [manualSelectedId, setSelectedId] = useState<string | null>(null);
@@ -96,50 +93,45 @@ function ElementLayout({
     if (nearest) focus(nearest);
   };
 
-  const locateFinding = (item: StreamItem) => {
+  const show = (item: StreamItem) => {
     setCursorMs(item.offsetMs);
     focus(item);
   };
 
+  const pick = (item: StreamItem) => {
+    show(item);
+    onUtterance?.(item);
+  };
+
   return (
-    <>
-      <div className={classes.body}>
-        <div className={classes.leftColumn}>
-          <div className={classes.timeline}>
-            <CallTimeline
-              axis={axis}
-              items={items}
-              durationsAvailable={durationsAvailable}
-              cursorMs={cursorMs}
-              onSeek={seek}
-            />
-            {timelineCaption && <div className={classes.caption}>{timelineCaption}</div>}
-          </div>
-          <CallStream
-            items={items}
-            notice={streamNotice}
-            emptyText={emptyText}
-            services={services}
-            activeId={activeId}
-            selectedId={selectedId}
-            registerItem={registerItem}
-          />
-        </div>
-        <div className={classes.rightColumn}>
-          <ReviewFindings
-            result={result}
-            roleState={roleState}
-            services={services}
-            locate={(path) => actionForPath(path, items, services)}
-            onLocate={locateFinding}
-            scopeNote={scopeNote}
-            limitedNote={limitedNote}
-            dismissal={dismissal}
-          />
-        </div>
+    <div className={classes.body}>
+      <div className={classes.timeline}>
+        <CallTimeline
+          axis={axis}
+          items={items}
+          durationsAvailable={durationsAvailable}
+          cursorMs={cursorMs}
+          onSeek={seek}
+        />
+        {timelineCaption && <div className={classes.caption}>{timelineCaption}</div>}
       </div>
-      {player}
-    </>
+      <div className={classes.findingsColumn}>
+        {findings({ locate: (path) => actionForPath(path, items, services), show })}
+      </div>
+      <div className={classes.dialogColumn}>
+        {player}
+        <CallStream
+          items={items}
+          notice={streamNotice}
+          emptyText={emptyText}
+          services={services}
+          activeId={activeId}
+          selectedId={selectedId}
+          registerItem={registerItem}
+          onPick={onUtterance === null ? null : pick}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -154,17 +146,13 @@ const callStatusLabels: Record<string, string> = {
 };
 
 function syncNotice(axis: RecordingAxis | null): string | null {
-  if (axis === null) {
-    return "Синхронизация недоступна: расшифровка не загружена, подсветка реплик отключена.";
-  }
+  if (axis === null) return "Расшифровка не загружена.";
   if (axis.status === "available") return null;
-  if (axis.reason === "missing_duration") {
-    return "Синхронизация недоступна: у части реплик нет длительности, подсветка реплик отключена.";
-  }
+  if (axis.reason === "missing_duration") return "У части реплик нет длительности.";
 
-  return `Синхронизация недоступна: запись и сумма реплик расходятся на ${(
+  return `Запись и сумма реплик расходятся на ${(
     Math.abs(axis.recordingMs - axis.utterancesTotalMs) / 1000
-  ).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} с, подсветка реплик отключена.`;
+  ).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} с.`;
 }
 
 function transcriptProblem(error: Error): string {
@@ -180,38 +168,35 @@ interface RecordedCall {
   trainingCallId: string;
   status: string;
   completedAt: string | null;
-  result: AutomaticResult | null;
 }
 
-interface RecordedCallReviewProps {
-  call: RecordedCall;
-  emptyText: string;
+interface ElementReviewProps {
   focusPath: string | null;
-  scopeNote: string | null;
-  limitedNote: string | null;
-  dismissal: FindingDismissal | null;
   originAt: string;
   actions: ActionEvent[];
-  roleState: RoleState;
   services: Map<string, EmergencyService> | undefined;
+  findings: (locator: FindingLocator) => ReactNode;
+}
+
+interface RecordedCallReviewProps extends ElementReviewProps {
+  call: RecordedCall;
+  emptyText: string;
 }
 
 function RecordedCallReview({
   call,
   emptyText,
   focusPath,
-  scopeNote,
-  limitedNote,
-  dismissal,
   originAt,
   actions,
-  roleState,
   services,
+  findings,
 }: RecordedCallReviewProps) {
   const transcript = useCallTranscript(call.trainingCallId);
   const completed = call.status === COMPLETED_CALL_STATUS;
   const recording = useCallRecording(call.trainingCallId, completed);
   const [playbackMs, setPlaybackMs] = useState<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   const utterances = transcript.data?.utterances ?? [];
   const items = buildStream(originAt, utterances, actions);
@@ -224,6 +209,18 @@ function RecordedCallReview({
         ? transcript.data.recordingAxis
         : alignRecordingAxis(transcript.data.recordingAxis, recordingMs);
 
+  // Реплика ведёт в запись только при точной привязке: иначе позиция в записи неизвестна.
+  const seekTo = (item: StreamItem) => {
+    const audio = audioRef.current;
+    const position =
+      axis?.status === "available" && item.kind === "utterance"
+        ? axis.positions.find((candidate) => candidate.utteranceId === item.utterance.id)
+        : undefined;
+
+    if (audio === null || position === undefined) return;
+    audio.currentTime = position.recordingOffsetMs / 1000;
+  };
+
   const streamNotice = transcript.isPending ? (
     <div className={classes.state}>
       <Skeleton height={14} radius={0} mb={8} />
@@ -233,21 +230,20 @@ function RecordedCallReview({
   ) : transcript.isError ? (
     <div className={classes.state}>
       {transcriptProblem(transcript.error)}
-      <div className={classes.stateHint}>Запись звонка, если она готова, можно прослушать ниже.</div>
+      <div className={classes.stateHint}>Запись звонка, если она готова, можно прослушать выше.</div>
     </div>
   ) : utterances.length === 0 ? (
     <div className={classes.state}>
       В расшифровке нет реплик с текстом.
-      <div className={classes.stateHint}>Действия показаны ниже, запись — в нижней полосе.</div>
+      <div className={classes.stateHint}>Действия показаны ниже, запись — над диалогом.</div>
     </div>
   ) : null;
 
   return (
     <ElementLayout
       focusPath={focusPath}
-      scopeNote={scopeNote}
-      limitedNote={limitedNote}
-      dismissal={dismissal}
+      findings={findings}
+      onUtterance={seekTo}
       originAt={originAt}
       completedAt={call.completedAt}
       items={items}
@@ -260,12 +256,11 @@ function RecordedCallReview({
           : "Длительности реплик недоступны: реплики отмечены засечками в момент записи."
       }
       activeId={axis === null ? null : activeUtteranceId(axis, playbackMs)}
-      result={call.result}
-      roleState={roleState}
       services={services}
       player={
         completed ? (
           <RecordingPlayer
+            audioRef={audioRef}
             callId={call.trainingCallId}
             recording={recording}
             syncNotice={syncNotice(axis)}
@@ -284,62 +279,30 @@ function RecordedCallReview({
   );
 }
 
-interface CallElementReviewProps {
+interface CallElementReviewProps extends ElementReviewProps {
   call: ReviewCall;
-  focusPath: string | null;
-  scopeNote: string | null;
-  limitedNote: string | null;
-  dismissal: FindingDismissal | null;
-  originAt: string;
-  actions: ActionEvent[];
-  roleState: RoleState;
-  services: Map<string, EmergencyService> | undefined;
 }
 
 export function CallElementReview({ call, ...props }: CallElementReviewProps) {
   return (
     <RecordedCallReview
       {...props}
-      call={{
-        trainingCallId: call.trainingCallId,
-        status: call.status,
-        completedAt: call.completedAt,
-        result: call.automaticResult,
-      }}
+      call={{ trainingCallId: call.trainingCallId, status: call.status, completedAt: call.completedAt }}
       emptyText="Журнал действий по этому звонку пуст: карточка не создавалась и не менялась."
     />
   );
 }
 
-interface CardElementReviewProps {
+interface CardElementReviewProps extends ElementReviewProps {
   card: ReviewCard;
-  focusPath: string | null;
-  scopeNote: string | null;
-  limitedNote: string | null;
-  dismissal: FindingDismissal | null;
-  originAt: string;
-  actions: ActionEvent[];
-  roleState: RoleState;
-  services: Map<string, EmergencyService> | undefined;
 }
 
-export function CardElementReview({
-  card,
-  focusPath,
-  scopeNote,
-  limitedNote,
-  dismissal,
-  originAt,
-  actions,
-  roleState,
-  services,
-}: CardElementReviewProps) {
+export function CardElementReview({ card, focusPath, originAt, actions, services, findings }: CardElementReviewProps) {
   return (
     <ElementLayout
       focusPath={focusPath}
-      scopeNote={scopeNote}
-      limitedNote={limitedNote}
-      dismissal={dismissal}
+      findings={findings}
+      onUtterance={null}
       originAt={originAt}
       completedAt={null}
       items={buildStream(originAt, [], actions)}
@@ -356,39 +319,21 @@ export function CardElementReview({
       }
       timelineCaption={null}
       activeId={null}
-      result={card.automaticResult}
-      roleState={roleState}
       services={services}
-      player={
-        <div className={classes.player}>
-          <span className={classes.playerHint}>У карточки нет звонка, записи нет.</span>
-        </div>
-      }
+      player={null}
     />
   );
 }
 
-interface OutgoingCallElementReviewProps {
+interface OutgoingCallElementReviewProps extends ElementReviewProps {
   call: ReviewOutgoingCall;
-  focusPath: string | null;
-  scopeNote: string | null;
-  limitedNote: string | null;
-  dismissal: FindingDismissal | null;
-  originAt: string;
-  actions: ActionEvent[];
-  roleState: RoleState;
-  services: Map<string, EmergencyService> | undefined;
 }
 
-export function OutgoingCallElementReview({ call, limitedNote, ...props }: OutgoingCallElementReviewProps) {
+export function OutgoingCallElementReview({ call, ...props }: OutgoingCallElementReviewProps) {
   return (
     <RecordedCallReview
       {...props}
-      call={{ trainingCallId: call.trainingCallId, status: call.status, completedAt: call.completedAt, result: null }}
-      limitedNote={
-        limitedNote ??
-        "Исходящий звонок оценивается в составе карточки: результат проверки смысла — в элементе карточки, по которой звонили."
-      }
+      call={{ trainingCallId: call.trainingCallId, status: call.status, completedAt: call.completedAt }}
       emptyText="По исходящему звонку нет отметок начала и завершения."
     />
   );

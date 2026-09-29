@@ -47,6 +47,7 @@ import {
   type OperatorCardEntry,
   type OperatorCardDraft,
 } from "../model/operator-cards";
+import { serviceDisplayName } from "@/shared/config";
 
 const addressLabels = {
   country: "Страна",
@@ -182,6 +183,15 @@ export function OperatorCard({
     values.recordId,
   );
   const matches = getClassificationMatches(values.group, values.features);
+  const saveBlocked = !!remote && (!remote.canSave || !record);
+  const saveHint =
+    !saveBlocked || !editing || remote?.readOnly
+      ? null
+      : incomingCall && !incomingCall.ended
+        ? "Карточка сохраняется после завершения разговора: положите трубку."
+        : !record
+          ? "Выберите тип происшествия и определяющие признаки: без них карточку не сохранить."
+          : null;
   const services = resolveServices(record, values.flags).filter(
     (service) => !values.excludedServices.includes(service.code),
   );
@@ -741,7 +751,7 @@ export function OperatorCard({
                         data-manual={service.manual || undefined}
                       >
                         <Phone size={14} aria-hidden="true" />
-                        <strong>{service.name}</strong>
+                        <strong>{"code" in service ? serviceDisplayName(service.code, service.name) : service.name}</strong>
                         <small>
                           {service.manual
                             ? "Добавлена вручную"
@@ -837,21 +847,30 @@ export function OperatorCard({
               <Pencil size={21} />
             </button>
           )}
-          <Button
-            data-tour="card-save"
-            className={classes.saveButton}
-            variant="outline"
-            color="white"
-            onClick={() => void save()}
-            loading={saving}
-            disabled={
-              !editing ||
-              remote?.readOnly ||
-              (remote && (!remote.canSave || !record))
-            }
+          <Tooltip
+            label={saveHint}
+            disabled={saveHint === null}
+            multiline
+            w={280}
+            withArrow
           >
-            сохранить
-          </Button>
+            <Button
+              data-tour="card-save"
+              className={classes.saveButton}
+              variant="outline"
+              color="white"
+              onClick={(event) => {
+                if (saveBlocked) event.preventDefault();
+                else void save();
+              }}
+              loading={saving}
+              disabled={!editing || remote?.readOnly}
+              data-disabled={saveBlocked || undefined}
+              aria-disabled={saveBlocked}
+            >
+              сохранить
+            </Button>
+          </Tooltip>
           <button
             type="button"
             className={classes.footerIcon}
@@ -932,7 +951,7 @@ export function OperatorCard({
                       !services.some(
                         (routed) => routed.code === service.code,
                       ) &&
-                      service.name
+                      serviceDisplayName(service.code, service.name)
                         .toLocaleLowerCase("ru")
                         .includes(serviceSearch.toLocaleLowerCase("ru")),
                   )
@@ -954,7 +973,7 @@ export function OperatorCard({
                         )
                       }
                     >
-                      {service.name}
+                      {serviceDisplayName(service.code, service.name)}
                     </button>
                   ))}
               </div>

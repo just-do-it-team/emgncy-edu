@@ -141,6 +141,22 @@ export function moveItem<T>(items: T[], from: number, to: number): T[] {
   return next;
 }
 
+/**
+ * Удаляет элемент состава. Элементы, которые ждали действия по удалённому, переводятся на подачу
+ * по времени: иначе условие ссылалось бы на несуществующий элемент и сценарий не сохранился бы.
+ */
+export function removeItem(items: ScenarioItemDraft[], index: number): ScenarioItemDraft[] {
+  const removed = items[index];
+
+  if (removed === undefined) return items;
+
+  return items
+    .filter((_item, position) => position !== index)
+    .map((item, position) =>
+      item.trigger.kind === "after" && item.trigger.itemKey === removed.key ? { ...item, trigger: defaultTrigger(position) } : item,
+    );
+}
+
 function triggerDto(trigger: TriggerDraft): ScenarioTriggerDto {
   if (trigger.kind === "after") {
     return {

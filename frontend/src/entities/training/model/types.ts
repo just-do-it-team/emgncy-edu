@@ -1,3 +1,4 @@
+import type { Discrepancy } from "@/shared/api";
 export type ArmMode = "ARM112" | "DDS";
 export interface Assignment {
   id: string;
@@ -73,8 +74,19 @@ export interface CompletionReadiness {
   decisions_completed: number;
   blockers: { code: string; message: string }[];
 }
+export interface HistoryElementResult {
+  discrepancies: Discrepancy[];
+}
+
+export interface HistoryAutomaticResult {
+  cards?: HistoryElementResult[];
+  incoming_calls?: HistoryElementResult[];
+}
+
 export interface HistoryItem {
   session_id: string;
+  assignment_id: string;
+  automatic_result: HistoryAutomaticResult;
   scenario_name: string;
   attempt_number: number;
   status: string;
@@ -233,6 +245,7 @@ export interface CardListPage {
 export interface CardPatch {
   description: string;
   questionnaire: CardQuestionnaire | null;
+  reported_address: string | null;
   incident_address: string;
   applicant_full_name: string | null;
   automatic_phone_number: string | null;

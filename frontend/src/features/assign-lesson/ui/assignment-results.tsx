@@ -6,7 +6,7 @@ import type { RequestOutcome, ScenarioRoles } from "../model/assignment-plan";
 interface AssignmentResultsProps {
   outcomes: RequestOutcome[];
   rolesById: Map<string, ScenarioRoles>;
-  groupName: (groupId: string) => string;
+  groupName: (groupId: string | null) => string;
   studentName: (studentId: string) => string;
   retrying: boolean;
   onRetry: () => void;

@@ -2,16 +2,18 @@ import type { KeyboardEvent, MouseEvent } from "react";
 import { Anchor, Group, Paper, Table, Text, Tooltip } from "@mantine/core";
 import { Link } from "react-router-dom";
 import { actionTypeLabel, responseStatusLabel } from "@/entities/expert-review";
-import { isReviewable, participantRoleLabels, reviewAccessHint } from "@/entities/monitoring";
+import { isReviewable, reviewAccessHint } from "@/entities/monitoring";
 import type { EmergencyService, TrainingActionDto } from "@/shared/api";
 import { formatClockTime } from "@/shared/lib";
 import { tooltipEvents } from "@/shared/ui";
-import { elementLabels, type ParticipantRow, type RowStatus, type TimerLevel, type TimerPhase } from "../model/monitor";
+import { elementLabels, type ParticipantRow, type RowStatus, type TimerLevel, type TimerPhase } from "@/entities/monitoring";
 import { formatAgo, formatDuration } from "../model/format";
+import { positionText } from "../model/position";
 import { AbortSessionButton } from "./abort-session";
 import classes from "./lesson-monitor.module.scss";
 
 const LOG_LIMIT = 12;
+const scoreFormatter = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 });
 const TABLE_MIN_WIDTH = 820;
 const COLUMNS = 7;
 const INTERACTIVE_SELECTOR = "a, button, input, textarea";
@@ -44,14 +46,6 @@ const deadlineLabels: Record<string, string> = {
   CARD_OPEN_DEADLINE_MISSED: "сервер отметил просрочку раскрытия",
   CARD_DECISION_DEADLINE_MISSED: "сервер отметил просрочку решения",
 };
-
-function positionText(row: ParticipantRow, services: Map<string, EmergencyService> | undefined): string {
-  if (row.positionCode === null) return participantRoleLabels[row.role];
-
-  const service = [...(services?.values() ?? [])].find((item) => item.code === row.positionCode);
-
-  return `ДДС ${row.positionCode}${service ? ` ${service.name}` : ""}`;
-}
 
 function logText(action: TrainingActionDto): string {
   const label = deadlineLabels[action.action_type] ?? actionTypeLabel(action.action_type) ?? "служебное действие";
@@ -214,6 +208,11 @@ export function ParticipantsTable({
                   </Table.Td>
                   <Table.Td>
                     <Text size="sm">{statusLabels[row.status]}</Text>
+                    {session !== null && session.score !== null && row.status !== "running" && (
+                      <Text size="xs" c="povDark2.6">
+                        {`балл ${scoreFormatter.format(session.score)}${session.teacherAssessed ? ", оценка преподавателя" : ""}`}
+                      </Text>
+                    )}
                   </Table.Td>
                   <Table.Td>
                     <CurrentElementCell row={row} />

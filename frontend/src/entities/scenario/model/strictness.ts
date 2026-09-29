@@ -35,6 +35,14 @@ function statusComments(expected: JsonObject): number {
   );
 }
 
+/**
+ * Сводка строгости эталонов сценария: сколько полей сравнивается строго, сколько с
+ * нормализацией, сколько не оценивается, не проверяется или должно быть пустым.
+ *
+ * «Не оценивается» — это поля, которые сервер хранит, но исключает из балла (описание), плюс
+ * комментарии к статусам ДДС: их тоже нет в балле, но преподавателю важно знать, сколько
+ * текста уйдёт только на экспертную оценку.
+ */
 export function strictnessOf(expectations: ExpectedSource[]): Strictness {
   const cards = expectations.filter(({ expected }) => isObject(expected.card));
   const modes = cards.flatMap(({ source, expected }) => {

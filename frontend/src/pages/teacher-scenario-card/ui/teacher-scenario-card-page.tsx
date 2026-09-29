@@ -137,7 +137,7 @@ function ScenarioCard({ scenario, teacherId, onConflict }: ScenarioCardProps) {
             <Fact label="Порог зачёта">{`${scoreFormatter.format(scenario.passingScore)} из ${MAX_PASSING_SCORE}`}</Fact>
             <Fact label="Сложность">{difficultyLabel(scenario.difficulty)}</Fact>
             <Fact label="Статус">{scenarioStatusLabels[scenario.status]}</Fact>
-            <Fact label="Автор">{own ? "Вы" : "Другой преподаватель"}</Fact>
+            <Fact label="Автор">{own ? "Вы" : (scenario.createdByName ?? "Другой преподаватель")}</Fact>
             <Fact label="Рабочее место">{workspaceLabels[scenario.workspaceMode]}</Fact>
             <Fact label="Создан">{formatDateTime(scenario.createdAt)}</Fact>
             <Fact label="Обновлён">{formatDateTime(scenario.updatedAt)}</Fact>

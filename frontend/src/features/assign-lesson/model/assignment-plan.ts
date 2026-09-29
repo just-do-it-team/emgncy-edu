@@ -1,6 +1,6 @@
 import type { FormIssue } from "@/shared/lib";
 import type {
-  GroupAssignmentCreateDto,
+  AssignmentCreateDto,
   ParticipantPosition,
   ScenarioDetail,
   ScenarioWorkspaceMode,
@@ -26,8 +26,10 @@ export interface ScenarioRoles {
 
 export type AssignMode = "single" | "perStudent";
 
+export type Audience = "group" | "students";
+
 export interface AssignmentRow {
-  groupId: string;
+  groupId: string | null;
   studentId: string;
   scenarioId: string | null;
   position: string | null;
@@ -35,6 +37,7 @@ export interface AssignmentRow {
 }
 
 export interface AssignmentDraft {
+  audience: Audience;
   mode: AssignMode;
   scenarioId: string | null;
   rows: AssignmentRow[];
@@ -48,10 +51,10 @@ export type AssignmentIssue = FormIssue;
 
 export interface PlannedRequest {
   key: string;
-  groupId: string;
+  groupId: string | null;
   scenarioId: string;
   studentIds: string[];
-  body: GroupAssignmentCreateDto;
+  body: AssignmentCreateDto;
 }
 
 export type RequestResult = { ok: true; lessonId: string } | { ok: false; message: string };
@@ -66,6 +69,7 @@ const MAX_PARTICIPANTS = 100;
 const ACTIVE_STATUSES = new Set(["ASSIGNED", "RUNNING"]);
 
 export const emptyAssignmentDraft: AssignmentDraft = {
+  audience: "group",
   mode: "single",
   scenarioId: null,
   rows: [],
@@ -102,13 +106,21 @@ export function scenarioRolesOf(detail: ScenarioDetail): ScenarioRoles {
 }
 
 export function rowKey(row: Pick<AssignmentRow, "groupId" | "studentId">): string {
-  return `${row.groupId}:${row.studentId}`;
+  return `${row.groupId ?? "students"}:${row.studentId}`;
 }
 
 export function rowScenarioId(draft: AssignmentDraft, row: AssignmentRow): string | null {
   return draft.mode === "single" ? draft.scenarioId : row.scenarioId;
 }
 
+/**
+ * Позиция для очередного участника, если преподаватель её не выбрал.
+ *
+ * Индивидуальное место: обязательная позиция сценария, иначе оператор 112 при наличии звонков,
+ * иначе первая служба ДДС. Общее место: сначала закрываются обязательные позиции, затем
+ * оператор 112 (он нужен для звонков), затем главные службы карточек и остальные службы из
+ * списков оповещения. `null` в позиции — это оператор 112.
+ */
 export function positionForNewRow(taken: ParticipantPosition[], roles: ScenarioRoles): ParticipantPosition {
   const hasCalls = roles.callKeys.length > 0;
   const required = roles.requiredPositions;
@@ -131,6 +143,10 @@ export function positionForNewRow(taken: ParticipantPosition[], roles: ScenarioR
   );
 }
 
+/**
+ * Раскладывает позиции по строкам назначения. Строки, где преподаватель выбрал позицию вручную,
+ * не трогаются и считаются занятыми первыми — автоматика подстраивается под них, а не наоборот.
+ */
 export function resolveRoles(draft: AssignmentDraft, rolesById: Map<string, ScenarioRoles>): AssignmentDraft {
   const taken = new Map<string, (string | null)[]>();
 
@@ -370,7 +386,7 @@ function requestBody(
   roles: ScenarioRoles,
   rows: AssignmentRow[],
   userId: string,
-): GroupAssignmentCreateDto {
+): AssignmentCreateDto {
   const shared = roles.workspaceMode === "SHARED";
 
   return {
@@ -386,12 +402,21 @@ function requestBody(
   };
 }
 
+/**
+ * Превращает черновик назначения в запросы к серверу: одна партия на пару «группа + сценарий».
+ * Индивидуальный сценарий тоже уходит одной партией на всех участников группы — сервер создаёт
+ * по назначению на каждого, а занятие собирается по идентификатору партии.
+ *
+ * Обучаемым без группы партию создать нельзя: одиночная ручка создаёт одно назначение на всех
+ * переданных участников. Поэтому индивидуальный сценарий уходит отдельным запросом на каждого
+ * обучаемого, а общее рабочее место — одним запросом на всех.
+ */
 export function planRequests(
   draft: AssignmentDraft,
   rolesById: Map<string, ScenarioRoles>,
   userId: string,
 ): PlannedRequest[] {
-  const buckets = new Map<string, { groupId: string; roles: ScenarioRoles; rows: AssignmentRow[] }>();
+  const buckets = new Map<string, { groupId: string | null; roles: ScenarioRoles; rows: AssignmentRow[] }>();
 
   for (const row of draft.rows) {
     const scenarioId = rowScenarioId(draft, row);
@@ -399,7 +424,12 @@ export function planRequests(
 
     if (!roles) continue;
 
-    const key = `${row.groupId}:${roles.scenarioId}`;
+    const key =
+      row.groupId !== null
+        ? `${row.groupId}:${roles.scenarioId}`
+        : roles.workspaceMode === "SHARED"
+          ? `students:${roles.scenarioId}`
+          : `students:${roles.scenarioId}:${row.studentId}`;
     const bucket = buckets.get(key) ?? { groupId: row.groupId, roles, rows: [] };
 
     buckets.set(key, { ...bucket, rows: [...bucket.rows, row] });
@@ -418,6 +448,11 @@ export function planRequests(
   });
 }
 
+/**
+ * Отправляет партии по очереди и собирает результат по каждой: ошибка одной партии не отменяет
+ * остальные, а повтор (`failedRequests`) отправляет только неудавшиеся — уже созданные занятия
+ * не дублируются.
+ */
 export async function runRequests(
   requests: PlannedRequest[],
   send: (request: PlannedRequest) => Promise<string>,

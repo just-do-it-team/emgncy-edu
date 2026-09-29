@@ -13,6 +13,7 @@ import {
 import { useIncomingCallAudio } from "./use-incoming-call-audio";
 import { useCallRingtone } from "./use-call-ringtone";
 import outgoingRingtone from "@/assets/audio/phone-ringing-sound.mp3";
+import { ReplyWaiting } from "./reply-waiting";
 import classes from "./workspace-page.module.scss";
 
 function callDuration(startedAt: string | null, completedAt: string | null) {
@@ -188,7 +189,7 @@ export function OutgoingCalls({
       <div className={classes.callControlMessage}>
         <Text size="sm" fw={600} className={classes.callStatus}>
           <span className={classes.callStatusDot} aria-hidden="true" />
-          {status}
+          {talking && audio.awaitingReply ? <ReplyWaiting /> : status}
         </Text>
         {(error ||
           (talking && audio.error) ||

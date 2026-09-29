@@ -5,6 +5,9 @@ import {
   activeUsages,
   difficultyLabel,
   groupTemplates,
+  isAiDraft,
+  templateState,
+  templateStateLabels,
   templateUsages,
   templateVariantLabels,
   useScenarios,
@@ -12,6 +15,7 @@ import {
   useTemplates,
 } from "@/entities/scenario";
 import { useSessionStore } from "@/entities/session";
+import { TemplateReviewPanel } from "@/features/template-review";
 import { errorStatus, type ScenarioTemplate, type ScenarioTemplateKind } from "@/shared/api";
 import { formatDateTime } from "@/shared/lib";
 import { Button, Fact } from "@/shared/ui";
@@ -54,6 +58,7 @@ function TemplateCard({ template, teacherId }: TemplateCardProps) {
   const own = template.createdBy === teacherId;
   const latest = entry?.latest;
   const isCall = template.kind === "call";
+  const aiDraft = isAiDraft(template);
 
   return (
     <Stack gap="md">
@@ -67,7 +72,12 @@ function TemplateCard({ template, teacherId }: TemplateCardProps) {
               {template.description && <Text size="sm">{template.description}</Text>}
             </Stack>
             <Group gap="xs">
-              {own && latest?.id === template.id && (
+              {own && aiDraft && (
+                <Button size="sm" component={Link} to={`/teacher/scenarios/templates/${template.kind}/${template.id}/edit`}>
+                  Исправить черновик
+                </Button>
+              )}
+              {own && !aiDraft && latest?.id === template.id && (
                 <Button
                   size="sm"
                   component={Link}
@@ -96,8 +106,8 @@ function TemplateCard({ template, teacherId }: TemplateCardProps) {
             <Fact label="Тип происшествия">{typeName(template)}</Fact>
             <Fact label="Сложность">{difficultyLabel(template.difficulty)}</Fact>
             <Fact label="Версия">{latest ? `${template.version} из ${latest.version}` : template.version}</Fact>
-            <Fact label="Активна">{template.isActive ? "да" : "нет"}</Fact>
-            <Fact label="Автор">{own ? "Вы" : "Другой преподаватель"}</Fact>
+            <Fact label="Статус">{templateStateLabels[templateState(template)]}</Fact>
+            <Fact label="Автор">{own ? "Вы" : (template.createdByName ?? "Другой преподаватель")}</Fact>
             <Fact label="Создана">{formatDateTime(template.createdAt)}</Fact>
           </Group>
 
@@ -124,6 +134,14 @@ function TemplateCard({ template, teacherId }: TemplateCardProps) {
           )}
         </Stack>
       </Paper>
+
+      {aiDraft && own && <TemplateReviewPanel template={template} userId={teacherId} returnTo={null} onPublished={() => undefined} />}
+
+      {aiDraft && !own && (
+        <Text size="sm" c="povDark2.6">
+          Черновик ИИ другого преподавателя: проверяет и публикует его автор.
+        </Text>
+      )}
 
       <Stack gap="sm">
         <Title order={3} size="h5" fw={600}>

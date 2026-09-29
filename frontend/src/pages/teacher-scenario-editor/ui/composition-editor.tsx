@@ -3,6 +3,7 @@ import { Checkbox, Group, Paper, SegmentedControl, Select, Stack, Switch, Text, 
 import type { UseFormReturnType } from "@mantine/form";
 import { ArrowDown, ArrowUp, GripVertical, Trash2 } from "lucide-react";
 import {
+  actualVersionOf,
   cardSourceTypeLabels,
   cardSourceTypes,
   defaultTrigger,
@@ -11,6 +12,10 @@ import {
   itemLabel,
   moveItem,
   nextItemKey,
+  removeItem,
+  templateProblem,
+  templateProblemText,
+  templateVariantLabels,
   type InlineVariant,
   type ScenarioDraft,
   type ScenarioItemDraft,
@@ -59,33 +64,17 @@ interface ItemEditorProps extends Omit<CompositionEditorProps, "serviceNames"> {
   onDrop: () => void;
 }
 
-function newerVersion(entries: TemplateEntry[], template: ScenarioTemplate): ScenarioTemplate | null {
-  const entry = entries.find((candidate) => candidate.versions.some((version) => version.id === template.id));
-  const latest = entry?.latest;
-
-  return latest && latest.id !== template.id && latest.isActive && latest.version > template.version ? latest : null;
-}
-
-function TemplateSource({
-  form,
-  index,
-  template,
-  entries,
-}: {
+interface TemplateSourceProps {
   form: UseFormReturnType<ScenarioDraft>;
   index: number;
   template: ScenarioTemplate | undefined;
   entries: TemplateEntry[];
-}) {
-  if (!template) {
-    return (
-      <Text size="sm" c="var(--mantine-color-error)">
-        Шаблон не найден в библиотеке. Удалите элемент или выберите другой шаблон.
-      </Text>
-    );
-  }
+  onRemove: () => void;
+}
 
-  const newer = newerVersion(entries, template);
+function TemplateSource({ form, index, template, entries, onRemove }: TemplateSourceProps) {
+  const problem = templateProblem(template);
+  const actual = template === undefined ? null : actualVersionOf(entries, template);
   const switchTo = (target: ScenarioTemplate) =>
     form.setFieldValue(
       "items",
@@ -97,22 +86,29 @@ function TemplateSource({
 
   return (
     <Stack gap={4}>
-      <Group gap="xs" wrap="wrap">
-        <Text size="sm">{template.name}</Text>
-        <Text size="xs" c="povDark2.6">
-          версия {template.version}
-        </Text>
-      </Group>
-      {(!template.isActive || newer) && (
+      {template && (
+        <Group gap="xs" wrap="wrap">
+          <Text size="sm">{template.name}</Text>
+          <Text size="xs" c="povDark2.6">
+            {templateVariantLabels[template.variant]}, версия {template.version}
+          </Text>
+        </Group>
+      )}
+      {(problem !== null || actual) && (
         <Group gap="sm" wrap="wrap" className={classes.notice}>
           <Text size="sm">
-            {!template.isActive
-              ? "Шаблон деактивирован: сервер не примет сценарий с этой версией."
-              : `Есть новая версия шаблона — ${newer?.version}. Сценарий сам на неё не переключится.`}
+            {problem !== null
+              ? `Сервер не примет элемент: ${templateProblemText(problem, template)}.`
+              : `Есть новая версия шаблона — ${actual?.version}. Сценарий сам на неё не переключится.`}
           </Text>
-          {newer && (
-            <Button size="xs" variant="outline" color="povDark2.6" onClick={() => switchTo(newer)}>
-              Перейти на версию {newer.version}
+          {actual && (
+            <Button size="xs" variant="outline" color="povDark2.6" onClick={() => switchTo(actual)}>
+              Перейти на актуальную версию {actual.version}
+            </Button>
+          )}
+          {problem !== null && (
+            <Button size="xs" variant="outline" color="povDark2.6" onClick={onRemove}>
+              Удалить из состава
             </Button>
           )}
         </Group>
@@ -205,7 +201,7 @@ function ItemEditor(props: ItemEditorProps) {
     });
   };
   const remove = () => {
-    form.setFieldValue("items", items.filter((_candidate, position) => position !== index));
+    form.setFieldValue("items", removeItem(items, index));
     requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-path="items"]')?.focus());
   };
 
@@ -294,7 +290,13 @@ function ItemEditor(props: ItemEditorProps) {
         )}
 
         {item.source.kind === "TEMPLATE" && (
-          <TemplateSource form={form} index={index} template={templates.get(item.source.templateId)} entries={entries} />
+          <TemplateSource
+            form={form}
+            index={index}
+            template={templates.get(item.source.templateId)}
+            entries={entries}
+            onRemove={remove}
+          />
         )}
 
         {sourceError && (
@@ -312,7 +314,7 @@ function ItemEditor(props: ItemEditorProps) {
 }
 
 export function CompositionEditor(props: CompositionEditorProps) {
-  const { form, entries, serviceNames, errors } = props;
+  const { form, serviceNames, errors } = props;
   const [pickerOpened, setPickerOpened] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [dragFrom, setDragFrom] = useState<number | null>(null);
@@ -414,7 +416,6 @@ export function CompositionEditor(props: CompositionEditorProps) {
 
       {pickerOpened && (
         <TemplatePicker
-          entries={entries}
           serviceNames={serviceNames}
           onClose={() => setPickerOpened(false)}
           onPick={addTemplates}

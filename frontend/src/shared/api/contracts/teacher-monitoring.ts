@@ -24,6 +24,10 @@ export interface TeacherMonitoringSessionDto {
   completed_at: string | null;
   score: string | null;
   passed: boolean | null;
+  expert_score: string | null;
+  expert_passed: boolean | null;
+  final_score: string | null;
+  final_passed: boolean | null;
   cards_total: number;
   cards_pending: number;
   cards_emitted: number;
@@ -60,6 +64,9 @@ export interface MonitoredSession {
   completedAt: string | null;
   score: number | null;
   passed: boolean | null;
+  automaticScore: number | null;
+  automaticPassed: boolean | null;
+  teacherAssessed: boolean;
   lastActivityAt: string | null;
   participants: MonitoredParticipant[];
 }
@@ -76,8 +83,11 @@ export function toMonitoredSession(dto: TeacherMonitoringSessionDto): MonitoredS
     attemptNumber: dto.attempt_number,
     startedAt: dto.started_at,
     completedAt: dto.completed_at,
-    score: decimal(dto.score),
-    passed: dto.passed,
+    score: decimal(dto.final_score) ?? decimal(dto.score),
+    passed: dto.final_passed ?? dto.passed,
+    automaticScore: decimal(dto.score),
+    automaticPassed: dto.passed,
+    teacherAssessed: dto.expert_score !== null || dto.expert_passed !== null,
     lastActivityAt: dto.last_activity_at,
     participants: dto.participants.map((participant) => ({
       userId: participant.user_id,

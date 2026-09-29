@@ -61,7 +61,7 @@ export function toTeacherAssignment(dto: ScenarioAssignmentDto): TeacherAssignme
   };
 }
 
-export interface GroupAssignmentCreateDto {
+export interface AssignmentCreateDto {
   scenario_id: string;
   assigned_by: string;
   participant_ids: string[];

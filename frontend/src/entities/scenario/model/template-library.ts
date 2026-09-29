@@ -3,8 +3,29 @@ import type { ScenarioListItem, ScenarioStatus, ScenarioTemplate, TemplateVarian
 export const templateVariantLabels: Record<TemplateVariant, string> = {
   card112: "Карточка 112",
   cardDds: "Карточка ДДС",
-  call: "Звонок",
+  call: "Звонок 112",
 };
+
+export const templateVariantOrder: TemplateVariant[] = ["call", "card112", "cardDds"];
+
+/**
+ * Что делает обучаемый с шаблоном каждого вида. Карточка 112 и звонок оцениваются одинаково — по
+ * итоговому состоянию карточки, — но карточка 112 появляется уже заполненной, без звонка и без
+ * создания карточки обучаемым.
+ */
+export const templateVariantHints: Record<TemplateVariant, string> = {
+  call: "обучаемый принимает звонок, говорит с заявителем и сам создаёт карточку",
+  card112: "готовая карточка без звонка: приходит заполненной, оценивается её итоговое состояние",
+  cardDds: "карточка поступает диспетчеру службы: принять или отклонить, вести статусы реагирования",
+};
+
+export function templateSourceLabel(template: ScenarioTemplate): string {
+  return template.generatedByAi ? "сгенерирован ИИ" : "создан вручную";
+}
+
+export function templateAuthorLabel(template: ScenarioTemplate, teacherId: string): string {
+  return template.createdBy === teacherId ? "Вы" : (template.createdByName ?? "Другой преподаватель");
+}
 
 export interface TemplateEntry {
   templateKey: string;
@@ -21,6 +42,62 @@ export interface TemplateUsage {
   templateId: string;
   version: number;
   outdated: boolean;
+}
+
+export function isTemplateUsable(template: ScenarioTemplate): boolean {
+  return template.isActive && template.status === "PUBLISHED";
+}
+
+export function isAiDraft(template: ScenarioTemplate): boolean {
+  return template.isActive && template.status === "DRAFT";
+}
+
+export type TemplateState = "published" | "aiDraft" | "draft" | "archived";
+
+export function templateState(template: ScenarioTemplate): TemplateState {
+  if (!template.isActive || template.status === "ARCHIVED") return "archived";
+  if (template.status === "DRAFT") return template.generatedByAi ? "aiDraft" : "draft";
+
+  return "published";
+}
+
+export const templateStateLabels: Record<TemplateState, string> = {
+  published: "Опубликован",
+  aiDraft: "Черновик ИИ — требует проверки",
+  draft: "Черновик",
+  archived: "В архиве",
+};
+
+export type TemplateProblem = "missing" | "aiDraft" | "draft" | "archived";
+
+/** Почему шаблон нельзя взять в сценарий: сервер принимает только активную опубликованную версию. */
+export function templateProblem(template: ScenarioTemplate | undefined): TemplateProblem | null {
+  if (template === undefined) return "missing";
+  if (isTemplateUsable(template)) return null;
+
+  const state = templateState(template);
+
+  return state === "published" ? "archived" : state;
+}
+
+export function templateProblemText(problem: TemplateProblem, template: ScenarioTemplate | undefined): string {
+  if (problem === "missing" || template === undefined) return "шаблон не найден на сервере";
+  if (problem === "aiDraft") return "черновик ИИ, ещё не проверен и не опубликован";
+  if (problem === "draft") return "черновик, ещё не опубликован";
+
+  return `версия ${template.version} деактивирована`;
+}
+
+/**
+ * Актуальная версия того же шаблона: старшая активная опубликованная версия с тем же ключом и видом.
+ * Её предлагается подставить вместо деактивированной или устаревшей: сервер не сохранит сценарий
+ * со ссылкой на деактивированную версию, а на новую версию сам не переключает.
+ */
+export function actualVersionOf(entries: TemplateEntry[], template: ScenarioTemplate): ScenarioTemplate | null {
+  const entry = entries.find((candidate) => candidate.versions.some((version) => version.id === template.id));
+  const actual = entry?.versions.find(isTemplateUsable);
+
+  return actual !== undefined && actual.id !== template.id ? actual : null;
 }
 
 export function groupTemplates(templates: ScenarioTemplate[]): TemplateEntry[] {

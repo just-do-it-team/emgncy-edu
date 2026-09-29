@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Checkbox, Group, Paper, Select, Stack, Table, Text, TextInput } from "@mantine/core";
 import type { UseFormReturnType } from "@mantine/form";
 import { Search } from "lucide-react";
-import type { Group as LearningGroup, ScenarioListItem } from "@/shared/api";
+import type { ScenarioListItem } from "@/shared/api";
 import { Button } from "@/shared/ui";
 import {
   positionLabel,
@@ -13,13 +13,27 @@ import {
   type ScenarioRoles,
 } from "../model/assignment-plan";
 import classes from "./assign-lesson.module.scss";
+import { serviceWithCode } from "@/shared/config";
 
 const OPERATOR = "operator";
+
+export interface PickerStudent {
+  id: string;
+  displayName: string;
+  hint: string | null;
+}
+
+export interface PickerSection {
+  groupId: string | null;
+  title: string | null;
+  students: PickerStudent[];
+}
 
 interface ParticipantsPickerProps {
   form: UseFormReturnType<AssignmentDraft>;
   resolved: AssignmentDraft;
-  groups: LearningGroup[];
+  sections: PickerSection[];
+  emptyText: string;
   scenarios: ScenarioListItem[];
   rolesById: Map<string, ScenarioRoles>;
   active: Set<string>;
@@ -40,7 +54,7 @@ function RoleCell({ row, index, roles, services, error, onChange }: RoleCellProp
   if (!roles) return <Text size="sm">—</Text>;
 
   const hasCalls = roles.callKeys.length > 0;
-  const name = (code: string) => services.find((service) => service.code === code)?.name ?? `служба ${code}`;
+  const name = (code: string) => serviceWithCode(code, services.find((service) => service.code === code)?.name ?? null);
   const required = roles.workspaceMode === "INDIVIDUAL" ? (roles.requiredPositions?.[0] ?? undefined) : undefined;
 
   if (roles.workspaceMode === "INDIVIDUAL" && (hasCalls || required !== undefined)) {
@@ -89,7 +103,7 @@ function RoleCell({ row, index, roles, services, error, onChange }: RoleCellProp
 }
 
 export function ParticipantsPicker(props: ParticipantsPickerProps) {
-  const { form, resolved, groups, scenarios, rolesById, active, services, errors } = props;
+  const { form, resolved, sections, emptyText, scenarios, rolesById, active, services, errors } = props;
   const [query, setQuery] = useState("");
   const [bulkScenario, setBulkScenario] = useState<string | null>(null);
   const draft = form.values;
@@ -99,41 +113,34 @@ export function ParticipantsPicker(props: ParticipantsPickerProps) {
   const scenarioOptions = scenarios.map((scenario) => ({ value: scenario.id, label: scenario.name }));
 
   const setRows = (rows: AssignmentRow[]) => form.setFieldValue("rows", rows);
-  const newRow = (groupId: string, studentId: string): AssignmentRow => ({
+  const newRow = (groupId: string | null, studentId: string): AssignmentRow => ({
     groupId,
     studentId,
     scenarioId: null,
     position: null,
     manual: false,
   });
-  const toggle = (groupId: string, studentId: string, checked: boolean) =>
+  const toggle = (groupId: string | null, studentId: string, checked: boolean) =>
     setRows(
       checked
         ? [...draft.rows, newRow(groupId, studentId)]
         : draft.rows.filter((row) => rowKey(row) !== rowKey({ groupId, studentId })),
     );
-  const toggleGroup = (group: LearningGroup, checked: boolean) =>
+  const toggleSection = (section: PickerSection, checked: boolean) =>
     setRows(
       checked
         ? [
             ...draft.rows,
-            ...group.students
-              .filter((student) => !indexByKey.has(rowKey({ groupId: group.id, studentId: student.id })))
-              .map((student) => newRow(group.id, student.id)),
+            ...section.students
+              .filter((student) => !indexByKey.has(rowKey({ groupId: section.groupId, studentId: student.id })))
+              .map((student) => newRow(section.groupId, student.id)),
           ]
-        : draft.rows.filter((row) => row.groupId !== group.id),
+        : draft.rows.filter((row) => row.groupId !== section.groupId),
     );
   const updateRow = (index: number, patch: Partial<AssignmentRow>) =>
     setRows(draft.rows.map((row, position) => (position === index ? { ...row, ...patch } : row)));
 
-  if (groups.length === 0) {
-    return (
-      <Text size="sm">
-        У вас нет активных групп. Создайте группу и добавьте в неё обучаемых в разделе «Группы», затем вернитесь к
-        назначению.
-      </Text>
-    );
-  }
+  if (sections.length === 0) return <Text size="sm">{emptyText}</Text>;
 
   return (
     <Stack gap="sm" data-path="rows" tabIndex={-1}>
@@ -178,32 +185,32 @@ export function ParticipantsPicker(props: ParticipantsPickerProps) {
         </Text>
       )}
 
-      {groups.map((group) => {
-        const selected = group.students.filter((student) =>
-          indexByKey.has(rowKey({ groupId: group.id, studentId: student.id })),
+      {sections.map((section) => {
+        const selected = section.students.filter((student) =>
+          indexByKey.has(rowKey({ groupId: section.groupId, studentId: student.id })),
         ).length;
-        const visible = group.students.filter(
+        const visible = section.students.filter(
           (student) => needle === "" || student.displayName.toLocaleLowerCase("ru").includes(needle),
         );
 
         return (
-          <Paper key={group.id} withBorder p="sm" radius={2}>
+          <Paper key={section.groupId ?? "students"} withBorder p="sm" radius={2}>
             <Stack gap="xs">
               <Group justify="space-between" wrap="wrap" gap="sm">
                 <Checkbox
                   size="xs"
                   color="povDark2.6"
-                  label={`Вся группа «${group.name}»`}
-                  checked={group.students.length > 0 && selected === group.students.length}
-                  indeterminate={selected > 0 && selected < group.students.length}
-                  disabled={group.students.length === 0}
-                  onChange={(event) => toggleGroup(group, event.currentTarget.checked)}
+                  label={section.title ?? "Все обучаемые"}
+                  checked={section.students.length > 0 && selected === section.students.length}
+                  indeterminate={selected > 0 && selected < section.students.length}
+                  disabled={section.students.length === 0}
+                  onChange={(event) => toggleSection(section, event.currentTarget.checked)}
                 />
                 <Text size="xs" c="povDark2.6">
-                  выбрано {selected} из {group.students.length}
+                  выбрано {selected} из {section.students.length}
                 </Text>
               </Group>
-              {group.students.length === 0 ? (
+              {section.students.length === 0 ? (
                 <Text size="sm">В группе нет обучаемых.</Text>
               ) : visible.length === 0 ? (
                 <Text size="sm">Под поиск никто не попал.</Text>
@@ -220,7 +227,7 @@ export function ParticipantsPicker(props: ParticipantsPickerProps) {
                   </Table.Thead>
                   <Table.Tbody>
                     {visible.map((student) => {
-                      const index = indexByKey.get(rowKey({ groupId: group.id, studentId: student.id }));
+                      const index = indexByKey.get(rowKey({ groupId: section.groupId, studentId: student.id }));
                       const row = index === undefined ? undefined : resolved.rows[index];
                       const scenarioId = row ? rowScenarioId(resolved, row) : null;
                       const busy = scenarioId !== null && active.has(`${scenarioId}:${student.id}`);
@@ -237,10 +244,17 @@ export function ParticipantsPicker(props: ParticipantsPickerProps) {
                               color="povDark2.6"
                               aria-label={`Выбрать: ${student.displayName}`}
                               checked={index !== undefined}
-                              onChange={(event) => toggle(group.id, student.id, event.currentTarget.checked)}
+                              onChange={(event) => toggle(section.groupId, student.id, event.currentTarget.checked)}
                             />
                           </Table.Td>
-                          <Table.Td className={classes.wrap}>{student.displayName}</Table.Td>
+                          <Table.Td className={classes.wrap}>
+                            {student.displayName}
+                            {student.hint && (
+                              <Text size="xs" c="povDark2.6">
+                                {student.hint}
+                              </Text>
+                            )}
+                          </Table.Td>
                           {perStudent && (
                             <Table.Td>
                               {index !== undefined && row && (

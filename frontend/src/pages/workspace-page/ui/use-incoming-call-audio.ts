@@ -10,6 +10,8 @@ import { callAudioEventName, type CallAudioEvent } from "./call-audio-events";
 
 const recordingTypes = ["audio/webm", "audio/ogg", "audio/mp4"];
 
+const AWAITING_REPLY = "Ожидание ответа";
+
 export function useIncomingCallAudio(
   ctx: LaunchContext,
   callId: string | null,
@@ -124,7 +126,7 @@ export function useIncomingCallAudio(
         segments.clear();
         setError(null);
         lastFailure = null;
-        setStatus(`Ожидание ответа ${interlocutor}…`);
+        setStatus(`${AWAITING_REPLY} ${interlocutor}…`);
         await sync();
       } catch (cause) {
         fail(
@@ -212,7 +214,7 @@ export function useIncomingCallAudio(
               (item) => item.kind === "TTS" && !item.reply_to_message_id,
             );
             if (!greeting) {
-              setStatus("Ожидание ответа бригады…");
+              setStatus(`${AWAITING_REPLY} бригады…`);
               return;
             }
             if (
@@ -243,7 +245,7 @@ export function useIncomingCallAudio(
                 available.find((segment) => segment.segment_no === index + 1),
               );
               if (ordered.some((segment) => segment?.status !== "COMPLETED")) {
-                setStatus("Ожидание ответа бригады…");
+                setStatus(`${AWAITING_REPLY} бригады…`);
                 return;
               }
               for (const [index, segment] of ordered.entries()) {
@@ -263,7 +265,7 @@ export function useIncomingCallAudio(
               );
               if (disposed) return;
             } else {
-              setStatus("Ожидание ответа бригады…");
+              setStatus(`${AWAITING_REPLY} бригады…`);
               return;
             }
             playedGreeting.current = callId;
@@ -287,7 +289,7 @@ export function useIncomingCallAudio(
           startRecording();
           return;
         }
-        setStatus(`Ожидание ответа ${interlocutor}…`);
+        setStatus(`${AWAITING_REPLY} ${interlocutor}…`);
         const response = messages.find(
           (item) => item.reply_to_message_id === waitingId,
         );
@@ -468,6 +470,7 @@ export function useIncomingCallAudio(
     status,
     error,
     busy: status === "Запись реплики…" || status === "Отправка реплики…",
+    awaitingReply: status.startsWith(AWAITING_REPLY),
     retry: () => {
       setError(null);
       setRetry((value) => value + 1);

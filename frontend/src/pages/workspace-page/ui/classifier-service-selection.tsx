@@ -23,6 +23,7 @@ import {
 } from "@/entities/incident";
 import type { EmergencyService } from "@/entities/training";
 import classes from "./create-server-card.module.scss";
+import { serviceDisplayName } from "@/shared/config";
 
 export interface ClassifierServiceDraft {
   group: string;
@@ -184,16 +185,16 @@ export function ClassifierServiceSelection({
               maw={320}
             >
               <span className={classes.servicePill}>
-                {byCode.get(service.code)?.name ?? service.name}
+                {serviceDisplayName(service.code, byCode.get(service.code)?.name ?? service.name)}
               </span>
             </Tooltip>
           ))}
           {manual.map((service) => (
             <span key={service.id} className={classes.servicePill}>
-              {service.name}
+              {serviceDisplayName(service.code, service.name)}
               <button
                 type="button"
-                aria-label={`Убрать службу ${service.name}`}
+                aria-label={`Убрать службу ${serviceDisplayName(service.code, service.name)}`}
                 onClick={() =>
                   onChange({
                     ...value,
@@ -242,7 +243,7 @@ export function ClassifierServiceSelection({
             clearable
             data={activeDirectory
               .filter((service) => !automaticIds.has(service.id))
-              .map((service) => ({ value: service.id, label: service.name }))}
+              .map((service) => ({ value: service.id, label: serviceDisplayName(service.code, service.name) }))}
             value={draftManualIds}
             onChange={setDraftManualIds}
             nothingFoundMessage="Службы не найдены"

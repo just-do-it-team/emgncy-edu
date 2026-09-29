@@ -5,7 +5,6 @@ import {
   ClipboardList,
   GraduationCap,
   LayoutDashboard,
-  LineChart,
   Activity,
   FileText,
   Server,
@@ -38,13 +37,11 @@ export const navigation: Record<NavRole, NavItem[]> = {
     { key: "groups", label: "Группы", icon: Users, path: "/teacher/groups" },
     { key: "students", label: "Обучаемые", icon: GraduationCap, path: "/teacher/students" },
     { key: "analytics", label: "Аналитика", icon: BarChart3, path: "/teacher/analytics" },
-    { key: "materials", label: "Материалы", icon: BookOpen, path: "/teacher/materials" },
   ],
   student: [
     { key: "overview", label: "Обзор", icon: LayoutDashboard, path: "/student" },
     { key: "results", label: "Мои результаты", icon: ClipboardList, path: "/student/results" },
-    { key: "progress", label: "Прогресс", icon: LineChart, path: "/student/progress" },
-    { key: "materials", label: "Материалы", icon: BookOpen, path: "/student/materials" },
+    { key: "help", label: "Справка", icon: BookOpen, path: "/student/help" },
   ],
   admin: [
     { key: "overview", label: "Обзор", icon: LayoutDashboard, path: "/admin" },

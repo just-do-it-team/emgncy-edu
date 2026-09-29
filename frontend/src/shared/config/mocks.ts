@@ -6,6 +6,7 @@ const mockedInDemo = (value: string | undefined) => demo || enabled(value);
 
 export const mocks = {
   ai: mockedInDemo(import.meta.env.VITE_MOCK_AI),
+  legacyAiScenario: enabled(import.meta.env.VITE_MOCK_AI),
   assignments: mockedInDemo(import.meta.env.VITE_MOCK_ASSIGNMENTS),
   callTranscript: mockedInDemo(import.meta.env.VITE_MOCK_CALL_TRANSCRIPT),
   cardTimeline: mockedInDemo(import.meta.env.VITE_MOCK_CARD_TIMELINE),
